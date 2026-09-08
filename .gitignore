@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.cursor/
+*.spec.bak
+
+# Node
+node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+
+# App / models
+*.db
+runtime.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Secrets / local env
+.env
+.env.local
+*.pem
+
+# Installer artifacts (binaries go to GitHub Releases, not git)
+installer/out/
+backend/dist/
+backend/build/
+desktop/src-tauri/resources/droidnote-backend/
+DroidNote-Setup.exe
+DroidNote.exe
+DroidNote_*.exe
+/droidnote-backend/
