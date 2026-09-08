@@ -1,0 +1,20 @@
+!macro NSIS_HOOK_PREINSTALL
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  SetOutPath "$INSTDIR"
+  CreateShortCut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  ExecWait '"$SYSDIR\taskkill.exe" /F /IM ${MAINBINARYNAME}.exe /T'
+  Delete "$DESKTOP\${PRODUCTNAME}.lnk"
+  Delete "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+  Delete "$SMPROGRAMS\DroidNote\${PRODUCTNAME}.lnk"
+  RMDir "$SMPROGRAMS\DroidNote"
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  RMDir /r /REBOOTOK "$LOCALAPPDATA\${BUNDLEID}"
+  Delete "$DESKTOP\${PRODUCTNAME}.lnk"
+!macroend

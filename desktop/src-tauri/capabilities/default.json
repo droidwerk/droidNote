@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "DroidNote desktop capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:tray:default",
+    "shell:allow-open"
+  ]
+}
