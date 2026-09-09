@@ -9,7 +9,7 @@ import { SettingsPage } from "../pages/SettingsPage";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
 import type { CaptureMode, CaptureState, Device, MonitorFrame, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
 import { mergeSegmentLists } from "../shared/lib/segments";
-import { BrandLockup, SiteCredit } from "../shared/ui/Brand";
+import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { EngineSwitch } from "../shared/ui/EngineSwitch";
@@ -548,7 +548,10 @@ export function App() {
             )}
           </div>
         </div>
-        <SiteCredit className="sidebar-credit" />
+        <div className="sidebar-footer">
+          <AppVersion />
+          <SiteCredit className="sidebar-credit" />
+        </div>
       </aside>
       <main className={view === "live" || view === "session" ? "main main-workspace" : "main"}>
         {view !== "live" && (capture.recording || asrBusy || speakersBusy) ? (

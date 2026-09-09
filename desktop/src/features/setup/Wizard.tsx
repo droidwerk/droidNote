@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../shared/api/client";
 import type { ModelOption, SetupPlan, SetupStatus } from "../../shared/api/types";
 import { openExternal } from "../../shared/lib/openExternal";
-import { BrandLockup, SiteCredit } from "../../shared/ui/Brand";
+import { AppVersion, BrandLockup, SiteCredit } from "../../shared/ui/Brand";
 import { PrivacyPolicy } from "../../shared/ui/PrivacyPolicy";
 import { Button, Card, ProgressBar } from "../../shared/ui/primitives";
 import { StatusGlyph } from "../../shared/ui/ModelSelect";
@@ -435,7 +435,10 @@ export function Wizard({ onDone }: WizardProps) {
       ) : null}
 
       {error ? <p className="warning">{error}</p> : null}
-      <SiteCredit className="wizard-credit" />
+      <div className="wizard-footer">
+        <AppVersion />
+        <SiteCredit className="wizard-credit" />
+      </div>
     </main>
   );
 }

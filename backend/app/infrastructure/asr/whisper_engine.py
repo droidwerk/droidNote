@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import threading
@@ -95,18 +96,102 @@ WHISPER_CATALOG: tuple[tuple[str, str], ...] = (
     ("distil-large-v3", "Distil Large v3"),
 )
 
+_HF_ID = re.compile(r"faster-whisper-([a-z0-9._-]+)", re.IGNORECASE)
+
+
+def whisper_search_roots(primary: Path) -> list[Path]:
+    """Pastas neste PC onde o Whisper pode já estar — app instalado, dev e cache HF."""
+    from app.core.config import DEV_DIR_NAME, PRODUCT_DIR_NAME, _appdata_base
+
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        key = str(path).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    add(primary)
+    base = _appdata_base()
+    add(base / PRODUCT_DIR_NAME / "models")
+    add(base / DEV_DIR_NAME / "models")
+    hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+    add(hf_home / "hub")
+    hub = os.environ.get("HUGGINGFACE_HUB_CACHE")
+    if hub:
+        add(Path(hub))
+    return roots
+
+
+def _model_id_from_path(text: str) -> str | None:
+    blob = text.lower().replace("\\", "/")
+    catalog_ids = sorted((item[0] for item in WHISPER_CATALOG), key=len, reverse=True)
+    for model_id in catalog_ids:
+        if model_id.lower() in blob:
+            return model_id
+    match = _HF_ID.search(blob)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _complete_marker_path(models_dir: Path, model_size: str) -> Path:
+    safe = model_size.replace("/", "_").replace("\\", "_").replace(":", "_")
+    return models_dir / ".complete" / f"{safe}.ok"
+
+
+def _iter_model_bins(root: Path):
+    if not root.is_dir():
+        return
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return
+    for child in children:
+        if not child.is_dir():
+            continue
+        name = child.name.lower()
+        if "whisper" not in name and not name.startswith("models--"):
+            continue
+        try:
+            yield from child.rglob("model.bin")
+        except OSError:
+            continue
+
+
+def _root_has_model(root: Path, model_size: str) -> bool:
+    wanted = model_size.lower()
+    for blob in _iter_model_bins(root):
+        found = _model_id_from_path(str(blob))
+        if found and found.lower() == wanted:
+            return True
+    return False
+
+
+def find_download_root(model_size: str, primary: Path) -> Path:
+    if _complete_marker_path(primary, model_size).is_file():
+        return primary
+    for root in whisper_search_roots(primary):
+        try:
+            same = root.resolve() == primary.resolve()
+        except OSError:
+            same = str(root).lower() == str(primary).lower()
+        if same:
+            continue
+        if _root_has_model(root, model_size):
+            return root
+    return primary
+
 
 def detect_installed_whisper(models_dir: Path) -> set[str]:
     found: set[str] = set()
-    if not models_dir.exists():
-        return found
-    blobs = [str(path).lower().replace("\\", "/") for path in models_dir.rglob("model.bin")]
-    catalog_ids = sorted((item[0] for item in WHISPER_CATALOG), key=len, reverse=True)
-    for blob in blobs:
-        for model_id in catalog_ids:
-            if model_id.lower() in blob:
+    for root in whisper_search_roots(models_dir):
+        for path in _iter_model_bins(root):
+            model_id = _model_id_from_path(str(path))
+            if model_id:
                 found.add(model_id)
-                break
     return found
 
 
@@ -119,26 +204,28 @@ def catalog_whisper_models(models_dir: Path, current: str) -> list[dict[str, str
         seen.add(model_id)
         present = model_id in installed
         size_label = sizes.get(model_id, "")
-        detail = size_label if present and size_label else ""
         rows.append(
             {
                 "id": model_id,
                 "label": label,
                 "installed": present,
                 "source": "whisper",
-                "detail": detail,
+                "detail": size_label if present and size_label else "",
                 "recommended": "recomendado" in label.lower(),
             }
         )
-    if current and current not in seen:
-        present = current in installed
+    extra = sorted((installed | ({current} if current else set())) - seen)
+    for model_id in extra:
+        if not model_id:
+            continue
+        present = model_id in installed
         rows.append(
             {
-                "id": current,
-                "label": current,
+                "id": model_id,
+                "label": model_id,
                 "installed": present,
                 "source": "whisper",
-                "detail": sizes.get(current, "") if present else "",
+                "detail": sizes.get(model_id, "") if present else "",
             }
         )
     return rows
@@ -157,14 +244,25 @@ class WhisperEngine:
     def is_ready(self) -> bool:
         if self._model is not None:
             return True
-        return self._complete_marker().is_file()
+        if self._complete_marker().is_file():
+            return True
+        primary = self.models_dir
+        for root in whisper_search_roots(primary):
+            try:
+                same = root.resolve() == primary.resolve()
+            except OSError:
+                same = str(root).lower() == str(primary).lower()
+            if same:
+                continue
+            if _root_has_model(root, self.model_size):
+                return True
+        return False
 
     def is_loaded(self) -> bool:
         return self._model is not None
 
     def _complete_marker(self) -> Path:
-        safe = self.model_size.replace("/", "_").replace("\\", "_").replace(":", "_")
-        return self.models_dir / ".complete" / f"{safe}.ok"
+        return _complete_marker_path(self.models_dir, self.model_size)
 
     def _mark_complete(self) -> None:
         path = self._complete_marker()
@@ -277,12 +375,13 @@ class WhisperEngine:
     def _create_model(self, device: str, compute: str) -> object:
         from faster_whisper import WhisperModel
 
+        download_root = str(find_download_root(self.model_size, self.models_dir))
         if device != "cpu":
             return WhisperModel(
                 self.model_size,
                 device=device,
                 compute_type=compute,
-                download_root=str(self.models_dir),
+                download_root=download_root,
             )
         last_error: Exception | None = None
         for ctype in (compute, "int8", "int8_float32", "float32"):
@@ -291,7 +390,7 @@ class WhisperEngine:
                     self.model_size,
                     device="cpu",
                     compute_type=ctype,
-                    download_root=str(self.models_dir),
+                    download_root=download_root,
                 )
             except Exception as exc:
                 last_error = exc
@@ -449,15 +548,11 @@ def _dir_bytes(path: Path) -> int:
 
 def _installed_sizes(models_dir: Path) -> dict[str, str]:
     sizes: dict[str, str] = {}
-    if not models_dir.exists():
-        return sizes
-    catalog_ids = sorted((item[0] for item in WHISPER_CATALOG), key=len, reverse=True)
-    for blob in models_dir.rglob("model.bin"):
-        text = str(blob).lower().replace("\\", "/")
-        for model_id in catalog_ids:
-            if model_id.lower() in text:
+    for root in whisper_search_roots(models_dir):
+        for blob in _iter_model_bins(root):
+            model_id = _model_id_from_path(str(blob))
+            if model_id and model_id not in sizes:
                 sizes[model_id] = _format_bytes(_dir_bytes(blob.parent))
-                break
     return sizes
 
 

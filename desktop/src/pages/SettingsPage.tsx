@@ -29,6 +29,30 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: "about", label: "Sobre" },
 ];
 
+const WHISPER_DEVICE_OPTIONS: ModelOption[] = [
+  {
+    id: "auto",
+    label: "Automático",
+    installed: true,
+    source: "whisper",
+    detail: "GPU se o CUDA estiver completo, senão CPU",
+  },
+  {
+    id: "cpu",
+    label: "CPU",
+    installed: true,
+    source: "whisper",
+    detail: "Funciona em qualquer PC Windows",
+  },
+  {
+    id: "cuda",
+    label: "GPU NVIDIA",
+    installed: true,
+    source: "whisper",
+    detail: "Só com CUDA 12 / cuBLAS",
+  },
+];
+
 const THEME_CHOICES: { id: Theme; label: string; blurb: string }[] = [
   { id: "dark", label: "Escuro", blurb: "O padrão do DroidNote." },
   { id: "light", label: "Claro", blurb: "Neutro, para ambientes claros." },
@@ -409,43 +433,31 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                 <div className="form-grid">
                   <label>
                     Modelo de transcrição
-                    <select
-                      className="select"
+                    <ModelSelect
+                      label="Modelo de transcrição"
                       value={settings.asr_cloud_model ?? "gpt-4o-transcribe"}
-                      onChange={(event) =>
-                        setSettings({ ...settings, asr_cloud_model: event.target.value })
-                      }
-                    >
-                      {optionsFor(
+                      options={optionsFor(
                         catalog?.asr_cloud ?? [],
                         settings.asr_cloud_model ?? "",
                         "openai",
-                      ).map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
+                      )}
+                      onChange={(id) => setSettings({ ...settings, asr_cloud_model: id })}
+                      showStatus={false}
+                    />
                   </label>
                   <label>
                     Modelo da nota
-                    <select
-                      className="select"
+                    <ModelSelect
+                      label="Modelo da nota"
                       value={settings.llm_cloud_model ?? "gpt-4o-mini"}
-                      onChange={(event) =>
-                        setSettings({ ...settings, llm_cloud_model: event.target.value })
-                      }
-                    >
-                      {optionsFor(
+                      options={optionsFor(
                         catalog?.llm_cloud ?? [],
                         settings.llm_cloud_model ?? "",
                         "openai",
-                      ).map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
+                      )}
+                      onChange={(id) => setSettings({ ...settings, llm_cloud_model: id })}
+                      showStatus={false}
+                    />
                   </label>
                   <label>
                     Chave da API
@@ -510,19 +522,13 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                   </label>
                   <label>
                     Motor Whisper
-                    <select
-                      className="select"
+                    <ModelSelect
+                      label="Motor Whisper"
                       value={settings.whisper_device ?? "auto"}
-                      onChange={(event) =>
-                        setSettings({ ...settings, whisper_device: event.target.value })
-                      }
-                    >
-                      <option value="auto">
-                        Automático — GPU se o CUDA estiver completo, senão CPU
-                      </option>
-                      <option value="cpu">CPU — funciona em qualquer PC Windows</option>
-                      <option value="cuda">GPU NVIDIA — só com CUDA 12 / cuBLAS</option>
-                    </select>
+                      options={WHISPER_DEVICE_OPTIONS}
+                      onChange={(id) => setSettings({ ...settings, whisper_device: id })}
+                      showStatus={false}
+                    />
                   </label>
                   <label>
                     Modelo da nota (Ollama)

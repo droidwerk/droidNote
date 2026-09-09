@@ -49,21 +49,28 @@ class OllamaManager:
             return False
 
     async def list_models(self) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        seen: set[str] = set()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{self.base_url}/api/tags")
                 response.raise_for_status()
                 payload = response.json()
         except httpx.HTTPError:
-            return []
-        rows: list[dict[str, str]] = []
+            payload = {"models": []}
         for item in payload.get("models") or []:
             name = str(item.get("name") or "").strip()
-            if not name:
+            if not name or name in seen:
                 continue
+            seen.add(name)
             size = item.get("size")
             detail = _format_bytes(size) if isinstance(size, int) else ""
             rows.append({"id": name, "label": name, "detail": detail})
+        for name in list_disk_ollama_models():
+            if name in seen:
+                continue
+            seen.add(name)
+            rows.append({"id": name, "label": name, "detail": ""})
         return rows
 
     async def has_model(self) -> bool:
@@ -338,6 +345,50 @@ class OllamaManager:
                     user_can="Tente de novo com internet estável. Se o disco encheu, libere espaço.",
                 )
             )
+
+
+def list_disk_ollama_models() -> list[str]:
+    found: set[str] = set()
+    for models_root in _ollama_models_roots():
+        manifests = models_root / "manifests"
+        if not manifests.is_dir():
+            continue
+        try:
+            files = manifests.rglob("*")
+        except OSError:
+            continue
+        for path in files:
+            if not path.is_file():
+                continue
+            try:
+                parts = path.relative_to(manifests).parts
+            except ValueError:
+                continue
+            if len(parts) < 2:
+                continue
+            name, tag = parts[-2], parts[-1]
+            if not name or not tag or name.startswith(".") or tag.startswith("."):
+                continue
+            found.add(f"{name}:{tag}")
+    return sorted(found)
+
+
+def _ollama_models_roots() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        key = str(path).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    env = os.environ.get("OLLAMA_MODELS")
+    if env:
+        add(Path(env))
+    add(Path.home() / ".ollama" / "models")
+    return roots
 
 
 def verify_sha256(path: Path, expected: str) -> None:
