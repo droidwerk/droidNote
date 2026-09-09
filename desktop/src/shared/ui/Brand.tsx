@@ -1,7 +1,9 @@
 import { useState } from "react";
 
-import droidnote from "../../assets/logo-droidnote.png";
-import droidwerk from "../../assets/logo-droidwerk.png";
+import droidnoteOnDark from "../../assets/logo-droidnote.png";
+import droidnoteOnLight from "../../assets/logo-droidnote-on-light.png";
+import droidwerkOnDark from "../../assets/logo-droidwerk.png";
+import droidwerkOnLight from "../../assets/logo-droidwerk-on-light.png";
 import { openExternal } from "../lib/openExternal";
 
 export type BrandSize = "sidebar" | "wizard" | "splash";
@@ -17,20 +19,29 @@ export function BrandLockup({ size }: BrandLockupProps) {
 
   if (failed) {
     return (
-      <div className="brand-fallback" aria-hidden>
+      <div className="brand-fallback" role="img" aria-label="DroidNote">
         <span className="brand-mark">D</span>
-        <strong>droidNote</strong>
+        <strong>DroidNote</strong>
       </div>
     );
   }
 
   return (
-    <img
-      className={`brand-logo brand-logo-${size}`}
-      src={droidnote}
-      alt="droidNote"
-      onError={() => setFailed(true)}
-    />
+    <span className={`brand-lockup brand-logo-${size}`}>
+      <img
+        className="brand-logo brand-logo-on-dark"
+        src={droidnoteOnDark}
+        alt="droidNote"
+        onError={() => setFailed(true)}
+      />
+      <img
+        className="brand-logo brand-logo-on-light"
+        src={droidnoteOnLight}
+        alt=""
+        aria-hidden
+        onError={() => setFailed(true)}
+      />
+    </span>
   );
 }
 
@@ -51,7 +62,21 @@ export function SiteCredit({ className }: SiteCreditProps) {
       {failed ? (
         <span>DroidWerk</span>
       ) : (
-        <img src={droidwerk} alt="DroidWerk" onError={() => setFailed(true)} />
+        <>
+          <img
+            className="brand-logo-on-dark"
+            src={droidwerkOnDark}
+            alt="DroidWerk"
+            onError={() => setFailed(true)}
+          />
+          <img
+            className="brand-logo-on-light"
+            src={droidwerkOnLight}
+            alt=""
+            aria-hidden
+            onError={() => setFailed(true)}
+          />
+        </>
       )}
     </button>
   );

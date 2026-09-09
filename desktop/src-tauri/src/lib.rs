@@ -37,6 +37,11 @@ fn get_backend(state: tauri::State<AppState>) -> Result<BackendInfo, String> {
         .ok_or_else(|| "Backend ainda não está pronto".into())
 }
 
+#[tauri::command]
+fn write_export_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, bytes).map_err(|err| err.to_string())
+}
+
 fn external_backend() -> Option<BackendInfo> {
     match std::env::var("DROIDNOTE_EXTERNAL_BACKEND") {
         Ok(value) if value == "1" => Some(BackendInfo {
@@ -275,11 +280,12 @@ pub fn run() {
             focus_main_window(app);
         }))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             backend: Mutex::new(None),
             backend_pid: Mutex::new(None),
         })
-        .invoke_handler(tauri::generate_handler![get_backend])
+        .invoke_handler(tauri::generate_handler![get_backend, write_export_file])
         .setup(|app| {
             let resource_dir = app.path().resource_dir().ok();
             let info = match external_backend() {

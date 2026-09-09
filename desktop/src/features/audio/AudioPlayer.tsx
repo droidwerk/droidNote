@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { api } from "../../shared/api/client";
 import { formatClock } from "../../shared/lib/format";
+import { cssVar, useTheme } from "../../shared/lib/theme";
 import { Button } from "../../shared/ui/primitives";
 
 interface AudioPlayerProps {
@@ -20,6 +21,7 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
   const [currentMs, setCurrentMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const { theme } = useTheme();
 
   useEffect(() => {
     let revoked: string | null = null;
@@ -73,6 +75,10 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
     );
     onSeeked?.();
   }, [seekMs, ready, onSeeked]);
+
+  useEffect(() => {
+    drawWave(canvasRef.current, peaksRef.current, durationMs ? currentMs / durationMs : 0);
+  }, [theme, durationMs, currentMs]);
 
   const toggle = () => {
     const audio = audioRef.current;
@@ -159,7 +165,7 @@ function drawWave(canvas: HTMLCanvasElement | null, peaks: number[], progress: n
   peaks.forEach((peak, index) => {
     const x = index * gap;
     const bar = Math.max(2, peak * (height - 8));
-    context.fillStyle = x < playedUntil ? "#ff6a14" : "rgba(255,255,255,0.22)";
+    context.fillStyle = x < playedUntil ? cssVar("--record", "#ff6a14") : cssVar("--wave-idle", "rgba(255,255,255,0.22)");
     context.fillRect(x + 1, (height - bar) / 2, Math.max(1, gap - 2), bar);
   });
 }

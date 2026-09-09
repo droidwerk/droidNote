@@ -119,12 +119,7 @@ def catalog_whisper_models(models_dir: Path, current: str) -> list[dict[str, str
         seen.add(model_id)
         present = model_id in installed
         size_label = sizes.get(model_id, "")
-        if present and size_label:
-            detail = f"neste PC · {size_label}"
-        elif present:
-            detail = "neste PC"
-        else:
-            detail = "não instalado"
+        detail = size_label if present and size_label else ""
         rows.append(
             {
                 "id": model_id,
@@ -143,7 +138,7 @@ def catalog_whisper_models(models_dir: Path, current: str) -> list[dict[str, str
                 "label": current,
                 "installed": present,
                 "source": "whisper",
-                "detail": "neste PC" if present else "não instalado",
+                "detail": sizes.get(current, "") if present else "",
             }
         )
     return rows

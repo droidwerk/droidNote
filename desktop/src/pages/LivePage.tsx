@@ -1,7 +1,7 @@
 import { useEffect, useState, type SyntheticEvent } from "react";
 
 import { api } from "../shared/api/client";
-import type { CaptureMode, CaptureState, Device, MonitorFrame, Person, Segment, SessionDetail, Summary } from "../shared/api/types";
+import type { CaptureMode, CaptureState, Device, MonitorFrame, Person, Provider, Segment, SessionDetail, Summary } from "../shared/api/types";
 import { CaptureMeter } from "../features/capture/CaptureMeter";
 import { TranscriptList } from "../features/transcript/TranscriptList";
 import { SummaryPanel } from "../features/summary/SummaryPanel";
@@ -34,6 +34,7 @@ interface LivePageProps {
   onParticipantIdsChange: (ids: string[]) => void;
   languageLocked: boolean;
   captureMode: CaptureMode;
+  engineProvider?: Provider;
   onCaptureModeChange: (mode: CaptureMode) => void;
 }
 
@@ -62,6 +63,7 @@ export function LivePage({
   onParticipantIdsChange,
   languageLocked,
   captureMode,
+  engineProvider,
   onCaptureModeChange,
 }: LivePageProps) {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -76,7 +78,7 @@ export function LivePage({
   const [assigning, setAssigning] = useState(false);
   const [selfPersonId, setSelfPersonId] = useState("");
   const [engineLabel, setEngineLabel] = useState<string>("o motor escolhido nas preferências");
-  const [setupOpen, setSetupOpen] = useState(!capture.recording);
+  const [setupOpen, setSetupOpen] = useState(false);
   const elapsedMs = useElapsed(capture.started_at ?? null, capture.recording);
 
   const handleSetupToggle = (event: SyntheticEvent<HTMLDetailsElement>) => {
@@ -98,10 +100,10 @@ export function LivePage({
       setEngineLabel(
         item.provider === "openai"
           ? `OpenAI (${item.llm_cloud_model ?? "gpt-4o-mini"})`
-          : `${item.ollama_model} neste PC`,
+          : `${item.ollama_model} nos modelos locais`,
       );
     });
-  }, []);
+  }, [engineProvider]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -175,7 +177,6 @@ export function LivePage({
   return (
     <div className="container live">
       <PageHeader
-        eyebrow="Espaço de captura"
         title={
           sessionId && detail ? (
             <SessionTitle
@@ -191,8 +192,8 @@ export function LivePage({
         }
         description={
           capture.recording
-            ? "Capturando a conversa e organizando os trechos em tempo real."
-            : "Escolha o tipo de escuta, configure o áudio e inicie quando estiver pronto."
+            ? "Captura em andamento. A transcrição entra abaixo em tempo real."
+            : "Escolha o formato da nota e inicie a captura."
         }
         actions={
           <Button
@@ -222,7 +223,7 @@ export function LivePage({
             onClick={() => onCaptureModeChange(item.id)}
           >
             <strong>{item.title}</strong>
-            <small>{item.blurb}</small>
+            <small className="visually-hidden">{item.blurb}</small>
           </button>
         ))}
       </div>
@@ -242,7 +243,6 @@ export function LivePage({
       <details className="setup-drawer" open={setupOpen} onToggle={handleSetupToggle}>
         <summary>
           <span className="setup-summary-title">
-            <span className="setup-summary-icon" aria-hidden>⌁</span>
             <span>
               <strong>Áudio e participantes</strong>
               <small>{setupSummary(capture, micOnly, participantIds.length)}</small>
@@ -341,15 +341,19 @@ export function LivePage({
         </div>
       </details>
 
-      <div className="workspace-grid">
+      <div className={sessionId ? "workspace-grid" : "workspace-grid is-transcript-only"}>
         <Card className="transcript-card">
           <div className="workspace-head">
             <div>
-              <p className="pretitle">Conversa</p>
               <h2>Transcrição</h2>
             </div>
             <div className="search-wrap">
-              <span aria-hidden>⌕</span>
+              <span aria-hidden>
+                <svg className="search-glyph" viewBox="0 0 16 16" fill="none">
+                  <circle cx="7" cy="7" r="4.25" />
+                  <path d="M10.5 10.5 13.25 13.25" />
+                </svg>
+              </span>
               <input
                 className="search"
                 aria-label="Pesquisar na transcrição"
@@ -367,6 +371,16 @@ export function LivePage({
             languageLocked={languageLocked}
             sessionId={sessionId}
             assigningAll={assigning}
+            receiving={capture.recording}
+            liveLabel={
+              asrBusy
+                ? "Transcrevendo"
+                : monitor?.speech
+                  ? "Ouvindo"
+                  : capture.recording
+                    ? "Captura ligada"
+                    : undefined
+            }
             onAssignAll={
               sessionId
                 ? async () => {
@@ -399,23 +413,21 @@ export function LivePage({
             }}
           />
         </Card>
-        <SummaryPanel
-          summary={summary}
-          loading={loadingSummary}
-          disabled={!sessionId}
-          title={sessionTitle}
-          engineLabel={engineLabel}
-          captureMode={detail?.session.capture_mode ?? captureMode}
-          onGenerate={() => void generate()}
-          onSaveNote={
-            sessionId
-              ? async (markdown) => {
-                  const next = await api.saveNote(sessionId, markdown);
-                  setSummary(next);
-                }
-              : undefined
-          }
-        />
+        {sessionId ? (
+          <SummaryPanel
+            summary={summary}
+            loading={loadingSummary}
+            disabled={false}
+            title={sessionTitle}
+            engineLabel={engineLabel}
+            captureMode={detail?.session.capture_mode ?? captureMode}
+            onGenerate={() => void generate()}
+            onSaveNote={async (markdown) => {
+              const next = await api.saveNote(sessionId, markdown);
+              setSummary(next);
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );

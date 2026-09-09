@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import type { Person, Segment } from "../../shared/api/types";
 import { copyToClipboard, formatClock, highlight } from "../../shared/lib/format";
 import { formatPlain, resolveSpeaker, splitScene, groupTurns } from "../../shared/lib/segments";
-import { Button, EmptyState } from "../../shared/ui/primitives";
+import { cssVar, useTheme } from "../../shared/lib/theme";
+import { Button } from "../../shared/ui/primitives";
 
 export interface SegmentPatch {
   speaker_id?: string | null;
@@ -22,6 +23,8 @@ interface TranscriptListProps {
   sessionId?: string | null;
   assigningAll?: boolean;
   activeMs?: number | null;
+  receiving?: boolean;
+  liveLabel?: string;
   onSeek?: (ms: number) => void;
   onPatchSegment?: (segmentId: string, payload: SegmentPatch) => Promise<void>;
   onAssignAll?: () => Promise<void>;
@@ -38,6 +41,8 @@ export function TranscriptList({
   sessionId,
   assigningAll = false,
   activeMs = null,
+  receiving = false,
+  liveLabel,
   onSeek,
   onPatchSegment,
   onAssignAll,
@@ -52,6 +57,7 @@ export function TranscriptList({
       return null;
     }
   });
+  useTheme();
 
   const stuckToBottom = useRef(true);
 
@@ -126,46 +132,76 @@ export function TranscriptList({
     if (await copyToClipboard(body)) flash("all");
   };
 
-  if (segments.length === 0) {
-    return (
-      <EmptyState
-        title={emptyHint ?? "A transcrição aparece aqui quando a captura estiver ligada."}
-        description="Os trechos entram sozinhos. Depois, identifique quem falou e corrija o texto antes de gerar a nota."
-      />
-    );
-  }
+  const emptyCopy = emptyHint ?? "A transcrição aparece aqui quando a captura estiver ligada.";
+  const canLabel = Boolean(onPatchSegment);
+  const keysActive = canLabel && Boolean(selectedId);
 
   return (
-    <div className="transcript-wrap">
+    <div className={receiving ? "transcript-wrap is-receiving" : "transcript-wrap"}>
       <div className="transcript-toolbar">
-        <span className="transcript-count">
-          {segments.length} {segments.length === 1 ? "trecho" : "trechos"}
-        </span>
-        {onPatchSegment ? (
-          <span className="muted transcript-hint">
-            1–9 rotula · L última pessoa · F daqui pra frente
+        <div className="transcript-meta">
+          {liveLabel ? <span className="transcript-live">{liveLabel}</span> : null}
+          <span className="transcript-count">
+            {segments.length === 0
+              ? "Nenhum trecho ainda"
+              : `${segments.length} ${segments.length === 1 ? "trecho" : "trechos"}`}
           </span>
-        ) : null}
-        {lastSpeakerId && onPatchSegment ? (
-          <Button
-            size="sm"
-            variant="quiet"
-            disabled={!selectedId}
-            onClick={() => void assignSelected({ speaker_id: lastSpeakerId, apply_forward: true })}
-          >
-            Última pessoa daqui pra frente
-          </Button>
-        ) : null}
-        <Button size="sm" variant="quiet" onClick={() => void copyAll()}>
-          {copied === "all" ? "Copiado" : "Copiar tudo"}
-        </Button>
-        {onAssignAll ? (
-          <Button size="sm" variant="quiet" disabled={assigningAll} onClick={() => void onAssignAll()}>
-            {assigningAll ? "Atribuindo…" : "Identificar outros falantes"}
-          </Button>
-        ) : null}
+        </div>
+        <div className="transcript-actions">
+          {lastSpeakerId && onPatchSegment && selectedId ? (
+            <Button
+              size="sm"
+              variant="quiet"
+              onClick={() => void assignSelected({ speaker_id: lastSpeakerId, apply_forward: true })}
+            >
+              Daqui pra frente
+            </Button>
+          ) : null}
+          {segments.length > 0 ? (
+            <Button size="sm" variant="quiet" onClick={() => void copyAll()}>
+              {copied === "all" ? "Copiado" : "Copiar tudo"}
+            </Button>
+          ) : null}
+          {onAssignAll && segments.length > 0 ? (
+            <Button size="sm" variant="quiet" disabled={assigningAll} onClick={() => void onAssignAll()}>
+              {assigningAll ? "Atribuindo…" : "Identificar falantes"}
+            </Button>
+          ) : null}
+        </div>
       </div>
-      <div className="transcript" ref={scroller} onScroll={trackScroll}>
+      {canLabel ? (
+        <p className={keysActive ? "transcript-keys is-active" : "transcript-keys"}>
+          {keysActive ? (
+            <>
+              <span>
+                <kbd>1–9</kbd>
+                rotular
+              </span>
+              <span>
+                <kbd>L</kbd>
+                repetir
+              </span>
+              <span>
+                <kbd>F</kbd>
+                daqui pra frente
+              </span>
+            </>
+          ) : (
+            <span>Selecione um trecho para rotular quem falou.</span>
+          )}
+        </p>
+      ) : null}
+      <div className="transcript-well">
+        {segments.length === 0 ? (
+          <div className={receiving ? "transcript-empty is-live" : "transcript-empty"}>
+            <span className="transcript-empty-pulse" aria-hidden />
+            <div>
+              <strong>{emptyCopy}</strong>
+              <p>Os trechos entram sozinhos. Depois, identifique quem falou e corrija o texto.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="transcript" ref={scroller} onScroll={trackScroll}>
         {groupTurns(segments).map((turn) => {
           const head = turn[0];
           if (!head) return null;
@@ -232,6 +268,8 @@ export function TranscriptList({
             />
           );
         })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -713,13 +751,18 @@ function sourceLabel(source?: string | null): string {
   return "Quem falou?";
 }
 
-const CHIP_COLORS = ["#ff6a14", "#3dd68c", "#6ea8ff", "#f59e0b", "#c084fc", "#ff6b6b"];
-
 function speakerColor(id: string): string {
+  const colors = [
+    cssVar("--ink-1", "#ff6a14"),
+    cssVar("--ink-2", "#3dd68c"),
+    cssVar("--ink-3", "#6ea8ff"),
+    cssVar("--ink-4", "#f59e0b"),
+    cssVar("--ink-5", "#c084fc"),
+    cssVar("--ink-6", "#ff6b6b"),
+  ];
   let hash = 0;
   for (let index = 0; index < id.length; index += 1) {
     hash = (hash * 31 + id.charCodeAt(index)) | 0;
   }
-  const color = CHIP_COLORS[Math.abs(hash) % CHIP_COLORS.length];
-  return color ?? "#ff6a14";
+  return colors[Math.abs(hash) % colors.length] ?? colors[0] ?? "#ff6a14";
 }

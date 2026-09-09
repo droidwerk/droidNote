@@ -10,7 +10,6 @@ interface BootScreenProps {
 export function BootScreen({ message, error, onRetry }: BootScreenProps) {
   return (
     <main className="boot">
-      <div className="boot-glow" aria-hidden />
       <section className="boot-panel">
         <BrandLockup size="splash" />
         {error ? (

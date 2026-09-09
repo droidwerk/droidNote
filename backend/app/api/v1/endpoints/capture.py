@@ -50,10 +50,8 @@ async def start_capture(payload: CaptureStartIn, request: Request) -> CaptureSta
     container = get_container(request.app)
     setup = await container.setup.status()
     if not setup.capture_ready:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Modelo de transcrição ainda não está pronto",
-        )
+        detail = setup.whisper.message or "Modelo de transcrição ainda não está pronto"
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     try:
         state = await container.capture.start(
             microphone_id=payload.microphone_id,

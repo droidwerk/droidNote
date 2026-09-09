@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "../shared/api/client";
 import type { Person, SessionDetail, Tag } from "../shared/api/types";
@@ -9,6 +9,9 @@ import { SummaryPanel } from "../features/summary/SummaryPanel";
 import { Button, PageHeader } from "../shared/ui/primitives";
 import { SessionTitle } from "../shared/ui/SessionTitle";
 import { formatDate } from "../shared/lib/format";
+import { openLocalPath, parentDirectory, saveBlob } from "../shared/lib/saveFile";
+import { useConfirm } from "../shared/ui/ConfirmDialog";
+import { useToast } from "../shared/ui/Toast";
 
 interface SessionPageProps {
   sessionId: string;
@@ -17,6 +20,15 @@ interface SessionPageProps {
   onTagsChanged?: () => void;
   languageLocked?: boolean;
 }
+
+type ExportFormat = "markdown" | "pdf" | "docx" | "json";
+
+const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter: string }[] = [
+  { format: "markdown", label: "Markdown", ext: "md", filter: "Markdown" },
+  { format: "pdf", label: "PDF", ext: "pdf", filter: "PDF" },
+  { format: "docx", label: "DOCX", ext: "docx", filter: "Word" },
+  { format: "json", label: "JSON", ext: "json", filter: "JSON" },
+];
 
 export function SessionPage({
   sessionId,
@@ -34,7 +46,11 @@ export function SessionPage({
   const [assigning, setAssigning] = useState(false);
   const [seekMs, setSeekMs] = useState<number | null>(null);
   const [activeMs, setActiveMs] = useState<number | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
 
   useEffect(() => {
     void api.session(sessionId).then((item) => {
@@ -45,6 +61,24 @@ export function SessionPage({
     setSeekMs(null);
     setActiveMs(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExportOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [exportOpen]);
 
   if (!detail) {
     return <div className="empty-block">Carregando sessão…</div>;
@@ -62,7 +96,6 @@ export function SessionPage({
 
   const generate = async () => {
     setLoadingSummary(true);
-    setExportError(null);
     setSummaryError(null);
     try {
       const summary = await api.summarize(sessionId);
@@ -74,23 +107,52 @@ export function SessionPage({
     }
   };
 
-  const exportFile = async (format: "markdown" | "pdf" | "docx") => {
-    setExportError(null);
+  const exportFile = async (format: ExportFormat) => {
+    const option = EXPORT_OPTIONS.find((item) => item.format === format);
+    if (!option) return;
+    setExportOpen(false);
+    setExportBusy(true);
     try {
       const blob = await api.exportSession(sessionId, format);
-      const suffix = format === "markdown" ? "md" : format;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${detail.session.title}.${suffix}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const suggestedName = `${detail.session.title}.${option.ext}`;
+      const result = await saveBlob(blob, suggestedName, [
+        { name: option.filter, extensions: [option.ext] },
+      ]);
+      if (result.status === "cancelled") return;
+      if (result.status === "error") {
+        toast.push({ tone: "error", title: "Falha ao exportar", description: result.message });
+        return;
+      }
+      toast.push({
+        tone: "success",
+        title: "Arquivo gravado",
+        description: suggestedName,
+        action: result.path
+          ? {
+              label: "Abrir pasta",
+              onClick: () => void openLocalPath(parentDirectory(result.path ?? "")),
+            }
+          : undefined,
+      });
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : "Falha ao exportar");
+      toast.push({
+        tone: "error",
+        title: "Falha ao exportar",
+        description: err instanceof Error ? err.message : "Não foi possível gerar o arquivo.",
+      });
+    } finally {
+      setExportBusy(false);
     }
   };
 
   const remove = async () => {
+    const ok = await confirm({
+      title: `Apagar “${detail.session.title}”?`,
+      description: "A transcrição, a nota e o áudio desta sessão serão removidos.",
+      confirmLabel: "Apagar",
+      tone: "danger",
+    });
+    if (!ok) return;
     await api.deleteSession(sessionId);
     onDeleted();
   };
@@ -98,21 +160,40 @@ export function SessionPage({
   return (
     <div className="container live">
       <PageHeader
-        eyebrow="Arquivo da conversa"
         title={<SessionTitle value={detail.session.title} onCommit={rename} />}
         description={formatDate(detail.session.started_at)}
         actions={
           <>
-            <Button onClick={() => void exportFile("markdown")}>Markdown</Button>
-            <Button onClick={() => void exportFile("pdf")}>PDF</Button>
-            <Button onClick={() => void exportFile("docx")}>DOCX</Button>
+            <div className="export-menu" ref={exportRef}>
+              <Button
+                disabled={exportBusy}
+                aria-expanded={exportOpen}
+                aria-haspopup="menu"
+                onClick={() => setExportOpen((open) => !open)}
+              >
+                {exportBusy ? "Exportando…" : "Exportar"}
+              </Button>
+              {exportOpen && !exportBusy ? (
+                <div className="export-menu-list" role="menu">
+                  {EXPORT_OPTIONS.map((option) => (
+                    <button
+                      key={option.format}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void exportFile(option.format)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <Button variant="danger" onClick={() => void remove()}>
               Apagar
             </Button>
           </>
         }
       />
-      {exportError ? <p className="banner">{exportError}</p> : null}
       {summaryError ? <p className="banner">{summaryError}</p> : null}
       <SessionTags
         sessionId={sessionId}
@@ -134,22 +215,26 @@ export function SessionPage({
       ) : (
         <p className="muted">Esta sessão não tem WAV neste PC. Ligue a opção em Preferências na próxima captura.</p>
       )}
-      <div className="session-search">
-        <span aria-hidden>⌕</span>
-        <input
-          className="search"
-          placeholder="Pesquisar nesta sessão"
-          aria-label="Pesquisar nesta sessão"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </div>
       <div className="workspace-grid">
         <section className="card transcript-card">
           <div className="workspace-head">
             <div>
-              <p className="pretitle">Registro</p>
               <h2>Transcrição</h2>
+            </div>
+            <div className="search-wrap">
+              <span aria-hidden>
+                <svg className="search-glyph" viewBox="0 0 16 16" fill="none">
+                  <circle cx="7" cy="7" r="4.25" />
+                  <path d="M10.5 10.5 13.25 13.25" />
+                </svg>
+              </span>
+              <input
+                className="search"
+                placeholder="Pesquisar"
+                aria-label="Pesquisar nesta sessão"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
             </div>
           </div>
           <TranscriptList

@@ -6,6 +6,7 @@ import { openExternal } from "../../shared/lib/openExternal";
 import { BrandLockup, SiteCredit } from "../../shared/ui/Brand";
 import { PrivacyPolicy } from "../../shared/ui/PrivacyPolicy";
 import { Button, Card, ProgressBar } from "../../shared/ui/primitives";
+import { StatusGlyph } from "../../shared/ui/ModelSelect";
 
 interface WizardProps {
   onDone: () => void;
@@ -129,11 +130,9 @@ export function Wizard({ onDone }: WizardProps) {
     <main className="wizard">
       <div className="wizard-intro">
         <BrandLockup size="wizard" />
-        <p className="pretitle">Primeira configuração</p>
-        <h1>Deixe o DroidNote entender como você trabalha</h1>
+        <h1>Configurar o DroidNote</h1>
         <p className="muted">
-          O Setup só coloca o DroidNote neste PC. Na primeira abertura o app mostra o que falta
-          (Ollama, modelos de nota e de transcrição) e só baixa com a sua permissão. Internet nessa etapa.
+          Escolha onde processar áudio e notas. O app mostra cada download antes de instalar.
         </p>
         {step !== "install" && step !== "ready" ? (
           <div className="wizard-steps wizard-steps-4" aria-label={`Etapa ${stepIndex + 1} de 4`}>
@@ -148,22 +147,12 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "welcome" ? (
         <Card className="wizard-card">
-          <p className="pretitle">Como funciona</p>
-          <h2>Três passos, sempre no mesmo lugar</h2>
-          <div className="wizard-feature-grid">
-            <article className="wizard-feature">
-              <strong>1. Ouvir</strong>
-              <p>Captura o microfone e, se você quiser, o som dos aplicativos (Meet, Teams, Zoom, aula no YouTube).</p>
-            </article>
-            <article className="wizard-feature">
-              <strong>2. Escrever</strong>
-              <p>Transforma a fala em texto editável, com falantes que você pode nomear depois.</p>
-            </article>
-            <article className="wizard-feature">
-              <strong>3. Organizar</strong>
-              <p>Gera uma nota no formato certo: ditado, aula ou reunião.</p>
-            </article>
-          </div>
+          <h2>Antes de começar</h2>
+          <ul className="wizard-checklist">
+            <li>Capture o microfone e, se quiser, o áudio de outros aplicativos.</li>
+            <li>Revise a transcrição e identifique os falantes.</li>
+            <li>Gere uma nota para ditado, aula ou reunião.</li>
+          </ul>
           <div className="row">
             <Button variant="primary" onClick={() => setStep("path")}>Começar</Button>
           </div>
@@ -172,16 +161,15 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "path" ? (
         <Card className="wizard-card">
-          <p className="pretitle">Onde processar</p>
-          <h2>Escolha o caminho desta máquina</h2>
+          <h2>Onde processar</h2>
           <div className="wizard-choice-grid">
             <button
               type="button"
               className={provider === "neste_pc" ? "wizard-choice is-selected" : "wizard-choice"}
               onClick={() => setProvider("neste_pc")}
             >
-              <span className="pretitle">Recomendado</span>
-              <strong>Neste computador</strong>
+              <span className="choice-label">Recomendado</span>
+              <strong>Modelos locais</strong>
               <p>Áudio e texto ficam aqui. O app pode baixar um motor de transcrição e um motor de notas.</p>
             </button>
             <button
@@ -189,7 +177,7 @@ export function Wizard({ onDone }: WizardProps) {
               className={provider === "openai" ? "wizard-choice is-selected" : "wizard-choice"}
               onClick={() => setProvider("openai")}
             >
-              <span className="pretitle">Sua chave</span>
+              <span className="choice-label">Requer chave própria</span>
               <strong>API OpenAI</strong>
               <p>Mais preciso, mas o áudio da transcrição e o texto da nota saem deste PC para a OpenAI.</p>
             </button>
@@ -214,8 +202,7 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "inventory" && plan ? (
         <Card className="wizard-card">
-          <p className="pretitle">O que será instalado</p>
-          <h2>Sua máquina e os motores</h2>
+          <h2>Instalação local</h2>
           <InstallBill
             plan={plan}
             provider="neste_pc"
@@ -297,7 +284,6 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "apikey" ? (
         <Card className="wizard-card">
-          <p className="pretitle">Sua chave</p>
           <h2>Cole a chave da API OpenAI</h2>
           <p className="muted">
             O DroidNote não cria a chave por você. Se você não sabe como gerar a sua, acesse a página oficial da OpenAI.
@@ -360,7 +346,6 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "consent" ? (
         <Card className="wizard-card">
-          <p className="pretitle">Antes de continuar</p>
           <h2>Política de uso e privacidade</h2>
           <PrivacyPolicy compact />
           {plan ? (
@@ -410,7 +395,6 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "install" ? (
         <Card className="wizard-card">
-          <p className="pretitle">Preparação</p>
           <h2>{provider === "openai" ? "Conectando a API" : "Preparando a máquina"}</h2>
           <div className="setup-progress-item">
             <div><strong>Transcrição</strong><span>{status?.whisper.message || "Preparando"}</span></div>
@@ -434,8 +418,7 @@ export function Wizard({ onDone }: WizardProps) {
 
       {step === "ready" ? (
         <Card className="wizard-card wizard-success">
-          <p className="pretitle">Tudo certo</p>
-          <h2>Pode começar a ouvir</h2>
+          <h2>DroidNote pronto</h2>
           <p>
             {status?.audio_ok
               ? "Microfone encontrado. Escolha o tipo de captura (ditado, aula ou reunião) na tela ao vivo."
@@ -559,7 +542,10 @@ function ModelDecision({
             onClick={() => onSelect(item.id)}
           >
             <strong>{item.label}</strong>
-            <small>{item.installed ? "neste PC" : "instalar"}{item.id === recommended?.id ? " · recomendado" : ""}</small>
+            <small className="wizard-model-status">
+              <StatusGlyph installed={item.installed} />
+              {item.id === recommended?.id ? "recomendado" : item.installed ? "neste PC" : "baixar"}
+            </small>
           </button>
         ))}
       </div>

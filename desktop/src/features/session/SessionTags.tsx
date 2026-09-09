@@ -46,6 +46,7 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
 
   return (
     <div className="session-tags">
+      <span className="session-tags-label">Pastas desta conversa</span>
       <div className="session-tags-list">
         {tags.length === 0 ? <span className="muted">Sem pasta</span> : null}
         {tags.map((tag) => (
@@ -54,6 +55,7 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
             type="button"
             className="tag-chip on"
             disabled={busy}
+            title={`Remover de ${tag.name}`}
             onClick={() => void persist(tags.filter((item) => item.id !== tag.id).map((item) => item.id))}
           >
             {tag.name}
@@ -67,6 +69,7 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
             type="button"
             className="tag-chip"
             disabled={busy}
+            title={`Adicionar a ${tag.name}`}
             onClick={() => addExisting(tag)}
           >
             {tag.name}
