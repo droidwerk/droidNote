@@ -425,20 +425,19 @@ class SetupService:
         ollama_online = await self._llm.local.is_server_up()
         installed: set[str] = set()
         ollama_rows: list[dict[str, str | bool]] = []
-        if ollama_online:
-            for item in await self._llm.local.list_models():
-                installed.add(item["id"])
-                ollama_rows.append(
-                    {
-                        "id": item["id"],
-                        "label": item["label"],
-                        "installed": True,
-                        "source": "ollama",
-                        "detail": item.get("detail") or "",
-                        "recommended": _is_recommended(item["id"]),
-                        "learn_more": _ollama_learn_more(item["id"]),
-                    }
-                )
+        for item in await self._llm.local.list_models():
+            installed.add(item["id"])
+            ollama_rows.append(
+                {
+                    "id": item["id"],
+                    "label": item["label"],
+                    "installed": True,
+                    "source": "ollama",
+                    "detail": item.get("detail") or "",
+                    "recommended": _is_recommended(item["id"]),
+                    "learn_more": _ollama_learn_more(item["id"]),
+                }
+            )
         for model_id, label in OLLAMA_CATALOG:
             if any(row["id"] == model_id for row in ollama_rows):
                 continue
@@ -446,7 +445,7 @@ class SetupService:
                 {
                     "id": model_id,
                     "label": label,
-                    "installed": False,
+                    "installed": _ollama_name_present(model_id, installed),
                     "source": "ollama",
                     "detail": "",
                     "recommended": _is_recommended(model_id),
@@ -460,7 +459,7 @@ class SetupService:
                 {
                     "id": current,
                     "label": current,
-                    "installed": any(name.startswith(current) for name in installed),
+                    "installed": _ollama_name_present(current, installed),
                     "source": "ollama",
                     "detail": "" if ollama_online else "Servidor Ollama offline",
                     "recommended": _is_recommended(current),
@@ -539,6 +538,15 @@ def _cloud_rows(catalog: tuple[tuple[str, str], ...]) -> list[dict[str, str | bo
 
 def _is_recommended(model_id: str) -> bool:
     return any(model_id.startswith(item) for item, label in OLLAMA_CATALOG if "recomendado" in label.lower())
+
+
+def _ollama_name_present(model_id: str, names: set[str]) -> bool:
+    if not model_id:
+        return False
+    return model_id in names or any(
+        name == model_id or name.startswith(model_id) or model_id.startswith(name)
+        for name in names
+    )
 
 
 def _ollama_learn_more(model_id: str) -> str:

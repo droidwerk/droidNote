@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import droidnoteOnDark from "../../assets/logo-droidnote.png";
 import droidnoteOnLight from "../../assets/logo-droidnote-on-light.png";
@@ -79,5 +79,23 @@ export function SiteCredit({ className }: SiteCreditProps) {
         </>
       )}
     </button>
+  );
+}
+
+export function AppVersion({ className }: { className?: string }) {
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    void import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then(setVersion)
+      .catch(() => undefined);
+  }, []);
+
+  if (!version) return null;
+  return (
+    <span className={className ? `app-version ${className}` : "app-version"} title={`DroidNote ${version}`}>
+      v{version}
+    </span>
   );
 }

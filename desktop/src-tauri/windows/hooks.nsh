@@ -16,5 +16,10 @@
 
 !macro NSIS_HOOK_POSTUNINSTALL
   RMDir /r /REBOOTOK "$LOCALAPPDATA\${BUNDLEID}"
+  ${If} $UpdateMode <> 1
+    SetShellVarContext current
+    RMDir /r /REBOOTOK "$APPDATA\DroidNote"
+    RMDir /r /REBOOTOK "$LOCALAPPDATA\DroidNote"
+  ${EndIf}
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
 !macroend

@@ -69,10 +69,12 @@ def test_whisper_language_arg_auto_is_none() -> None:
     assert whisper_language_arg("pt") == "pt"
 
 
-def test_catalog_detail_is_size_only(tmp_path) -> None:
+def test_catalog_detail_is_size_only(tmp_path, monkeypatch) -> None:
+    from app.infrastructure.asr import whisper_engine
     from app.infrastructure.asr.whisper_engine import catalog_whisper_models
 
     models = tmp_path / "models"
+    monkeypatch.setattr(whisper_engine, "whisper_search_roots", lambda primary: [primary])
     rows = catalog_whisper_models(models, "small")
     small = next(row for row in rows if row["id"] == "small")
     assert small["installed"] is False
@@ -80,10 +82,12 @@ def test_catalog_detail_is_size_only(tmp_path) -> None:
     assert "neste PC" not in str(small["label"])
 
 
-def test_is_ready_requires_complete_marker(tmp_path) -> None:
+def test_is_ready_requires_complete_marker(tmp_path, monkeypatch) -> None:
+    from app.infrastructure.asr import whisper_engine
     from app.infrastructure.asr.whisper_engine import WhisperEngine
 
     models = tmp_path / "models"
+    monkeypatch.setattr(whisper_engine, "whisper_search_roots", lambda primary: [primary])
     blob = models / "models--Systran--faster-whisper-small" / "snapshots" / "abc"
     blob.mkdir(parents=True)
     (blob / "model.bin").write_bytes(b"incomplete")
@@ -92,3 +96,33 @@ def test_is_ready_requires_complete_marker(tmp_path) -> None:
     engine._mark_complete()
     assert engine.is_ready() is True
     assert engine._complete_marker().is_file()
+
+
+def test_detects_whisper_in_other_app_dir(tmp_path, monkeypatch) -> None:
+    from app.infrastructure.asr import whisper_engine
+    from app.infrastructure.asr.whisper_engine import catalog_whisper_models, detect_installed_whisper
+
+    primary = tmp_path / "dev-models"
+    other = tmp_path / "prod-models"
+    blob = other / "models--Systran--faster-whisper-medium" / "snapshots" / "abc"
+    blob.mkdir(parents=True)
+    (blob / "model.bin").write_bytes(b"ok")
+    monkeypatch.setattr(whisper_engine, "whisper_search_roots", lambda primary: [primary, other])
+    assert "medium" in detect_installed_whisper(primary)
+    rows = catalog_whisper_models(primary, "small")
+    medium = next(row for row in rows if row["id"] == "medium")
+    assert medium["installed"] is True
+
+
+def test_is_ready_when_model_lives_in_other_root(tmp_path, monkeypatch) -> None:
+    from app.infrastructure.asr import whisper_engine
+    from app.infrastructure.asr.whisper_engine import WhisperEngine
+
+    primary = tmp_path / "dev-models"
+    other = tmp_path / "prod-models"
+    blob = other / "models--Systran--faster-whisper-small" / "snapshots" / "abc"
+    blob.mkdir(parents=True)
+    (blob / "model.bin").write_bytes(b"ok")
+    monkeypatch.setattr(whisper_engine, "whisper_search_roots", lambda primary: [primary, other])
+    engine = WhisperEngine("small", primary)
+    assert engine.is_ready() is True

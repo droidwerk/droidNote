@@ -8,6 +8,7 @@ interface ModelSelectProps {
   value: string;
   options: ModelOption[];
   onChange: (id: string) => void;
+  showStatus?: boolean;
 }
 
 export function modelMeta(detail?: string): string {
@@ -50,7 +51,7 @@ export function StatusGlyph({ installed }: { installed: boolean }) {
   );
 }
 
-export function ModelSelect({ label, value, options, onChange }: ModelSelectProps) {
+export function ModelSelect({ label, value, options, onChange, showStatus = true }: ModelSelectProps) {
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -171,7 +172,7 @@ export function ModelSelect({ label, value, options, onChange }: ModelSelectProp
         onKeyDown={onTriggerKey}
       >
         {selected ? (
-          <ModelRow item={selected} meta={meta} />
+          <ModelRow item={selected} meta={meta} showStatus={showStatus} />
         ) : (
           <span className="model-select-empty">Escolher modelo</span>
         )}
@@ -219,7 +220,7 @@ export function ModelSelect({ label, value, options, onChange }: ModelSelectProp
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => choose(item.id)}
                 >
-                  <ModelRow item={item} meta={modelMeta(item.detail)} />
+                  <ModelRow item={item} meta={modelMeta(item.detail)} showStatus={showStatus} />
                 </div>
               ))}
             </div>,
@@ -230,16 +231,16 @@ export function ModelSelect({ label, value, options, onChange }: ModelSelectProp
   );
 }
 
-function ModelRow({ item, meta }: { item: ModelOption; meta: string }) {
+function ModelRow({ item, meta, showStatus }: { item: ModelOption; meta: string; showStatus: boolean }) {
   const status = item.installed ? "Já neste PC" : "Será baixado";
   return (
     <span className="model-select-row">
-      <StatusGlyph installed={item.installed} />
+      {showStatus ? <StatusGlyph installed={item.installed} /> : null}
       <span className="model-select-copy">
         <span className="model-select-name">{item.label}</span>
         {meta ? <span className="model-select-meta">{meta}</span> : null}
       </span>
-      <span className="sr-only">{status}</span>
+      {showStatus ? <span className="sr-only">{status}</span> : null}
     </span>
   );
 }
