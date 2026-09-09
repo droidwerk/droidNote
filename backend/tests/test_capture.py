@@ -11,6 +11,16 @@ from tests.conftest import auth
 
 
 @pytest.mark.asyncio
+async def test_start_capture_rejects_when_asr_not_ready(client: AsyncClient, app) -> None:
+    app.state.container.setup._asr.ready = False
+    started = await client.post("/capture/start", headers=auth(), json={"mic_only": True})
+    assert started.status_code == 409
+    detail = started.json()["detail"].lower()
+    assert "transcrição" in detail
+    assert "pronto" in detail or "baixado" in detail
+
+
+@pytest.mark.asyncio
 async def test_start_and_stop_capture(client: AsyncClient, app) -> None:
     started = await client.post("/capture/start", headers=auth(), json={"mic_only": True})
     assert started.status_code == 200

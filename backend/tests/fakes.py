@@ -45,15 +45,18 @@ class FakeAsr:
         self.model_size = "small"
         self.unload_calls = 0
         self.delay = 0.0
+        self.ready = True
 
     def is_ready(self) -> bool:
-        return True
+        return self.ready
 
     def is_loaded(self) -> bool:
         return self.loaded
 
     def download(self, on_progress: Callable[[int, str], None] | None = None) -> None:
         self.downloaded = True
+        self.ready = True
+        self.loaded = True
         if on_progress:
             on_progress(100, "ok")
 

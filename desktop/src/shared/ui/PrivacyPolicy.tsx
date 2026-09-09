@@ -18,7 +18,7 @@ export function PrivacyPolicy({ compact = false }: PrivacyPolicyProps) {
         </p>
       </section>
       <section>
-        <h3>Modo Neste PC</h3>
+        <h3>Modo Modelos locais</h3>
         <p>
           Áudio, transcrição e notas permanecem neste computador. O arquivo WAV é
           opcional e pode ser desligado em Preferências.

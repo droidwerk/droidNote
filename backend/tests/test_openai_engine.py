@@ -62,3 +62,6 @@ def test_router_openai_does_not_touch_local(tmp_path) -> None:
     assert router.device == "api"
     router.set_provider("neste_pc")
     assert router.provider == "neste_pc"
+    assert router.is_ready() is False
+    router.set_provider("openai")
+    assert router.is_ready() is True

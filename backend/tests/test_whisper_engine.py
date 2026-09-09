@@ -69,6 +69,17 @@ def test_whisper_language_arg_auto_is_none() -> None:
     assert whisper_language_arg("pt") == "pt"
 
 
+def test_catalog_detail_is_size_only(tmp_path) -> None:
+    from app.infrastructure.asr.whisper_engine import catalog_whisper_models
+
+    models = tmp_path / "models"
+    rows = catalog_whisper_models(models, "small")
+    small = next(row for row in rows if row["id"] == "small")
+    assert small["installed"] is False
+    assert small["detail"] == ""
+    assert "neste PC" not in str(small["label"])
+
+
 def test_is_ready_requires_complete_marker(tmp_path) -> None:
     from app.infrastructure.asr.whisper_engine import WhisperEngine
 

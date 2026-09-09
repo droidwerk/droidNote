@@ -19,7 +19,7 @@ class AsrRouter:
 
     def set_provider(self, provider: str) -> None:
         next_provider = _normalize_provider(provider)
-        if next_provider == "openai":
+        if next_provider == "openai" and self.provider != "openai":
             self.local.unload()
         self.provider = next_provider
 

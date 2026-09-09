@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from app.core.config import Settings, parse_recordings_dir
+from app.core.logging import get_logger
 from app.core.hardware import (
     DISK_MARGIN,
     OLLAMA_DOWNLOAD_GB,
@@ -27,6 +28,8 @@ from app.infrastructure.llm.openai_chat import CLOUD_LLM_MODELS
 from app.infrastructure.llm.router import LlmRouter, normalize_provider
 from app.schemas.api import BootstrapIn, SettingsIn, SettingsOut
 
+log = get_logger("setup")
+
 
 class SetupService:
     def __init__(
@@ -42,20 +45,38 @@ class SetupService:
         self._audio = audio
         self._asr = asr
         self._llm = llm
-        self._whisper_status = SetupComponentStatus(
-            status="ready" if asr.is_ready() else "missing",
-            progress=100 if asr.is_ready() else 0,
-            message="Modelo de transcrição pronto" if asr.is_ready() else "Modelo de transcrição ainda não baixado",
-        )
+        self._whisper_status = self._whisper_component()
         self._task: asyncio.Task[None] | None = None
         self._preload_task: asyncio.Task[None] | None = None
 
-    async def status(self) -> SetupStatus:
-        llm = await self._llm.status_component()
+    def _whisper_component(self) -> SetupComponentStatus:
         if self._asr.is_ready():
-            self._whisper_status = SetupComponentStatus(
+            return SetupComponentStatus(
                 status="ready", progress=100, message="Modelo de transcrição pronto"
             )
+        provider = getattr(self._asr, "provider", None) or self._settings.provider
+        if provider == "openai":
+            return SetupComponentStatus(
+                status="missing",
+                progress=0,
+                message="Falta a chave da API OpenAI.",
+            )
+        return SetupComponentStatus(
+            status="missing",
+            progress=0,
+            message="Modelo de transcrição ainda não baixado neste PC. O DroidNote vai baixar o Whisper agora.",
+        )
+
+    def _refresh_whisper_status(self) -> None:
+        if self._whisper_status.status == "downloading":
+            return
+        current = self._whisper_component()
+        if current.status == "ready" or self._whisper_status.status != "error":
+            self._whisper_status = current
+
+    async def status(self) -> SetupStatus:
+        llm = await self._llm.status_component()
+        self._refresh_whisper_status()
         disclaimer = (await self._store.get_setting("disclaimer_accepted")) == "1"
         probe = self._audio.probe()
         audio_ok = bool(probe.get("microphone"))
@@ -234,21 +255,37 @@ class SetupService:
         return False
 
     def _preload_asr(self) -> None:
-        """Recarrega o Whisper local em segundo plano para a próxima gravação começar na hora."""
+        """Baixa ou recarrega o Whisper local em segundo plano para a próxima gravação começar na hora."""
         asr = self._asr
-        if getattr(asr, "provider", "") == "openai":
+        if getattr(asr, "provider", self._settings.provider) == "openai":
             return
         local = getattr(asr, "local", asr)
-        if not (hasattr(local, "load") and local.is_ready()):
-            return
 
-        async def _load() -> None:
+        async def _ensure() -> None:
+            def whisper_progress(progress: int, message: str) -> None:
+                self._whisper_status = SetupComponentStatus(
+                    status="downloading" if progress < 100 else "ready",
+                    progress=progress,
+                    message=message,
+                )
+
             try:
-                await asyncio.to_thread(local.load)
-            except Exception:
-                pass
+                if hasattr(local, "download") and not local.is_ready():
+                    whisper_progress(1, "Baixando modelo de transcrição")
+                    await asyncio.to_thread(local.download, whisper_progress)
+                if hasattr(local, "load") and local.is_ready():
+                    await asyncio.to_thread(local.load)
+            except Exception as exc:
+                log.exception("whisper preload failed")
+                self._whisper_status = SetupComponentStatus(
+                    status="error",
+                    progress=0,
+                    message=_friendly_download_error(exc, kind="whisper"),
+                )
 
-        self._preload_task = asyncio.create_task(_load())
+        if self._preload_task and not self._preload_task.done():
+            self._preload_task.cancel()
+        self._preload_task = asyncio.create_task(_ensure())
 
     async def apply_settings(self, payload: SettingsIn) -> None:
         asr = self._asr
@@ -411,7 +448,7 @@ class SetupService:
                     "label": label,
                     "installed": False,
                     "source": "ollama",
-                    "detail": "Baixa na primeira geração de nota",
+                    "detail": "",
                     "recommended": _is_recommended(model_id),
                     "learn_more": _ollama_learn_more(model_id),
                 }

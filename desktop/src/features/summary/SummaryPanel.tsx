@@ -75,10 +75,7 @@ export function SummaryPanel({
   return (
     <section className="card summary">
       <div className="summary-head">
-        <div>
-          <p className="pretitle">Documento inteligente</p>
-          <h2>{labels.heading}</h2>
-        </div>
+        <h2>{labels.heading}</h2>
         <div className="summary-actions">
           {summary ? (
             <Button size="sm" variant="quiet" onClick={() => void copyMarkdown()}>
@@ -97,7 +94,6 @@ export function SummaryPanel({
       </div>
       {!summary && loading ? (
         <div className="note-empty">
-          <span className="note-empty-mark" aria-hidden>✦</span>
           <div>
             <strong>Gerando nota…</strong>
             <p>O motor está organizando a transcrição. Pode levar um instante.</p>
@@ -105,7 +101,6 @@ export function SummaryPanel({
         </div>
       ) : !summary ? (
         <div className="note-empty">
-          <span className="note-empty-mark" aria-hidden>✦</span>
           <div>
             <strong>{labels.emptyTitle}</strong>
             <p>{labels.emptyBody}</p>

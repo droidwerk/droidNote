@@ -5,7 +5,7 @@ type ButtonSize = "sm" | "md";
 
 interface ButtonProps extends Pick<
   ButtonHTMLAttributes<HTMLButtonElement>,
-  "aria-label" | "title"
+  "aria-label" | "title" | "aria-expanded" | "aria-haspopup"
 > {
   children: ReactNode;
   onClick?: () => void;
@@ -68,17 +68,15 @@ export function Card({ children, className, tone = "default", ...accessibility }
 }
 
 interface PageHeaderProps {
-  eyebrow: string;
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
 }
 
-export function PageHeader({ eyebrow, title, description, actions }: PageHeaderProps) {
+export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
     <header className="page-header">
       <div className="page-header-copy">
-        <p className="pretitle">{eyebrow}</p>
         <div className="page-title">{title}</div>
         {description ? <p className="page-description">{description}</p> : null}
       </div>
@@ -105,7 +103,6 @@ interface EmptyStateProps {
 export function EmptyState({ title, description, action }: EmptyStateProps) {
   return (
     <div className="empty-state">
-      <span className="empty-state-mark" aria-hidden />
       <div>
         <strong>{title}</strong>
         {description ? <p>{description}</p> : null}
@@ -117,14 +114,16 @@ export function EmptyState({ title, description, action }: EmptyStateProps) {
 
 interface ProgressBarProps {
   value: number;
+  label?: string;
 }
 
-export function ProgressBar({ value }: ProgressBarProps) {
+export function ProgressBar({ value, label = "Progresso" }: ProgressBarProps) {
   const normalized = Math.max(0, Math.min(100, value));
   return (
     <div
       className="progress"
       role="progressbar"
+      aria-label={label}
       aria-valuenow={normalized}
       aria-valuemin={0}
       aria-valuemax={100}

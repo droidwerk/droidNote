@@ -59,6 +59,16 @@ async def test_tags_and_session_filter(client: AsyncClient, app) -> None:
     titles = [item["title"] for item in listed.json()]
     assert titles == ["Aula de segunda"]
 
+    deleted = await client.delete(f"/tags/{aula_id}", headers=auth())
+    assert deleted.status_code == 204
+
+    remaining_tags = await client.get("/tags", headers=auth())
+    assert [item["name"] for item in remaining_tags.json()] == ["Clientes"]
+
+    session_after_delete = await client.get(f"/sessions/{session.id}", headers=auth())
+    assert session_after_delete.status_code == 200
+    assert session_after_delete.json()["session"]["tags"] == []
+
 
 @pytest.mark.asyncio
 async def test_export_pdf_and_docx_and_audio(client: AsyncClient, app) -> None:

@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { FolderSidebar } from "../features/session/FolderSidebar";
+import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { Wizard } from "../features/setup/Wizard";
 import { LivePage } from "../pages/LivePage";
 import { SessionPage } from "../pages/SessionPage";
 import { SettingsPage } from "../pages/SettingsPage";
-import { AboutPage } from "../pages/AboutPage";
-import { PrivacyPage } from "../pages/PrivacyPage";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
-import type { CaptureMode, CaptureState, Device, MonitorFrame, Segment, Session, Tag } from "../shared/api/types";
-import { formatDate } from "../shared/lib/format";
+import type { CaptureMode, CaptureState, Device, MonitorFrame, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
+import { useConfirm } from "../shared/ui/ConfirmDialog";
+import { EngineSwitch } from "../shared/ui/EngineSwitch";
+import { useToast } from "../shared/ui/Toast";
 
-type View = "live" | "session" | "settings" | "about" | "privacy";
+type View = "live" | "session" | "settings";
 
 const idleCapture: CaptureState = {
   recording: false,
@@ -39,8 +41,13 @@ export function App() {
   const [loopbackId, setLoopbackId] = useState("");
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [language, setLanguage] = useState("pt");
-  const [asrProvider, setAsrProvider] = useState<"neste_pc" | "openai">("neste_pc");
+  const [asrProvider, setAsrProvider] = useState<Provider>("neste_pc");
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [openaiDisclaimer, setOpenaiDisclaimer] = useState(false);
+  const [providerBusy, setProviderBusy] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
+  const confirm = useConfirm();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<"start" | "stop" | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
@@ -67,6 +74,121 @@ export function App() {
     }
   }, []);
 
+  const applyEngineSettings = useCallback((settings: Settings) => {
+    setAsrProvider(settings.provider === "openai" ? "openai" : "neste_pc");
+    setHasApiKey(Boolean(settings.has_api_key));
+    setOpenaiDisclaimer(Boolean(settings.openai_disclaimer_accepted));
+  }, []);
+
+  const enginePrepRef = useRef(0);
+
+  const prepareLocalEngine = useCallback(async () => {
+    const token = ++enginePrepRef.current;
+    let status = await api.setupStatus();
+    if (token !== enginePrepRef.current) return;
+    if (status.capture_ready) {
+      setCaptureError(null);
+      return;
+    }
+    toast.push({
+      tone: "info",
+      title: "Preparando modelos locais",
+      description: "O Whisper ainda não está neste PC. O download começa agora.",
+    });
+    setCaptureError(status.whisper.message);
+    await api.bootstrap({ provider: "neste_pc" });
+    let stuckMissing = 0;
+    while (token === enginePrepRef.current) {
+      status = await api.setupStatus();
+      if (token !== enginePrepRef.current) return;
+      if (status.capture_ready) {
+        setCaptureError(null);
+        toast.push({
+          tone: "success",
+          title: "Modelos locais prontos",
+          description: "Pode ligar a captura.",
+        });
+        return;
+      }
+      if (status.whisper.status === "error") {
+        setCaptureError(status.whisper.message);
+        toast.push({
+          tone: "error",
+          title: "Não deu para carregar os modelos locais",
+          description: status.whisper.message,
+        });
+        return;
+      }
+      if (status.whisper.status === "missing") {
+        stuckMissing += 1;
+        if (stuckMissing > 8) {
+          setCaptureError(status.whisper.message);
+          return;
+        }
+      } else {
+        stuckMissing = 0;
+      }
+      setCaptureError(status.whisper.message);
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+  }, [toast]);
+
+  const switchProvider = useCallback(
+    async (next: Provider) => {
+      if (next === asrProvider || providerBusy) return;
+      if (next === "openai" && !hasApiKey) {
+        toast.push({
+          tone: "info",
+          title: "Falta a chave da OpenAI",
+          description: "Cole a chave em Preferências para ligar a API.",
+        });
+        setView("settings");
+        return;
+      }
+      if (next === "openai" && !openaiDisclaimer) {
+        const ok = await confirm({
+          title: "Usar a API OpenAI?",
+          description:
+            "O áudio da transcrição e trechos da nota saem deste computador e vão para a OpenAI.",
+          confirmLabel: "Usar OpenAI",
+        });
+        if (!ok) return;
+      }
+      setProviderBusy(true);
+      try {
+        const saved = await api.saveSettings({
+          provider: next,
+          openai_disclaimer_accepted: next === "openai" ? true : undefined,
+        });
+        applyEngineSettings(saved);
+        if (next === "neste_pc") {
+          void prepareLocalEngine();
+        } else {
+          enginePrepRef.current += 1;
+          setCaptureError(null);
+        }
+      } catch (err) {
+        toast.push({
+          tone: "error",
+          title: "Não foi possível trocar o motor",
+          description: err instanceof Error ? err.message : "Tente de novo em Preferências.",
+        });
+      } finally {
+        setProviderBusy(false);
+      }
+    },
+    [
+      applyEngineSettings,
+      asrProvider,
+      confirm,
+      hasApiKey,
+      openaiDisclaimer,
+      prepareLocalEngine,
+      providerBusy,
+      toast,
+    ],
+  );
+
   useEffect(() => {
     let cancelled = false;
     const boot = async () => {
@@ -83,13 +205,17 @@ export function App() {
         if (!cancelled) {
           setMicOnly(settings.mic_only_default);
           setLanguage(settings.language ?? "pt");
-          setAsrProvider(settings.provider === "openai" ? "openai" : "neste_pc");
-          setNeedsWizard(!status.disclaimer_accepted || !status.setup_complete);
+          applyEngineSettings(settings);
+          const wizard = !status.disclaimer_accepted || !status.setup_complete;
+          setNeedsWizard(wizard);
           if (!status.audio_ok) {
             setCaptureError(
               status.audio_message ||
                 "Nenhum microfone detectado. Verifique as permissões de privacidade do Windows.",
             );
+          } else if (!status.capture_ready) {
+            setCaptureError(status.whisper.message || "Modelo de transcrição ainda não está pronto");
+            if (settings.provider !== "openai" && !wizard) void prepareLocalEngine();
           }
           setReady(true);
         }
@@ -333,82 +459,91 @@ export function App() {
   const visibleSessions = tagFilter
     ? sessions.filter((item) => (item.tags ?? []).some((tag) => tag.id === tagFilter))
     : sessions;
+  const sessionCountByFolder = new Map<string, number>();
+  for (const session of sessions) {
+    for (const tag of session.tags ?? []) {
+      sessionCountByFolder.set(tag.id, (sessionCountByFolder.get(tag.id) ?? 0) + 1);
+    }
+  }
+
+  const createFolder = async (name: string) => {
+    const folder = await api.createTag(name);
+    setTags(await api.tags());
+    setTagFilter(folder.id);
+  };
+
+  const deleteFolder = async (folder: Tag) => {
+    await api.deleteTag(folder.id);
+    if (tagFilter === folder.id) setTagFilter(null);
+    await loadSessions();
+  };
+
+  const moveSessionToFolder = async (sessionId: string, folderId: string | null) => {
+    const assigned = await api.setSessionTags(sessionId, folderId ? [folderId] : []);
+    setSessions((current) =>
+      current.map((session) => session.id === sessionId ? { ...session, tags: assigned } : session),
+    );
+  };
 
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="sidebar-brand">
           <BrandLockup size="sidebar" />
-          <span className={asrProvider === "openai" ? "engine-pill cloud" : "engine-pill"}>
-            {asrProvider === "openai" ? "API OpenAI" : "Neste PC"}
-          </span>
+          <EngineSwitch
+            value={asrProvider}
+            disabled={providerBusy || capture.recording || pending !== null}
+            onChange={(next) => void switchProvider(next)}
+          />
         </div>
-        <nav className="nav">
-          <button className={view === "live" ? "active" : ""} onClick={() => setView("live")} type="button">
+        <nav className="nav nav-primary" aria-label="Principal">
+          <button
+            className={view === "live" ? "active" : ""}
+            aria-current={view === "live" ? "page" : undefined}
+            onClick={() => setView("live")}
+            type="button"
+          >
             <NavIcon name="live" />
             <span>Ao vivo</span>
           </button>
-          <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")} type="button">
+          <button
+            className={view === "settings" ? "active" : ""}
+            aria-current={view === "settings" ? "page" : undefined}
+            onClick={() => setView("settings")}
+            type="button"
+          >
             <NavIcon name="settings" />
             <span>Preferências</span>
           </button>
-          <button className={view === "privacy" ? "active" : ""} onClick={() => setView("privacy")} type="button">
-            <NavIcon name="privacy" />
-            <span>Privacidade</span>
-          </button>
-          <button className={view === "about" ? "active" : ""} onClick={() => setView("about")} type="button">
-            <NavIcon name="about" />
-            <span>Sobre</span>
-          </button>
         </nav>
         <div className="sidebar-section">
-          <p className="sidebar-label">Sessões</p>
-          {tags.length ? (
-            <div className="sidebar-tags">
-              <button
-                type="button"
-                className={tagFilter === null ? "tag-chip on" : "tag-chip"}
-                onClick={() => setTagFilter(null)}
-              >
-                Todas
-              </button>
-              {tags.map((tag) => (
-                <button
-                  key={tag.id}
-                  type="button"
-                  className={tagFilter === tag.id ? "tag-chip on" : "tag-chip"}
-                  onClick={() => setTagFilter(tag.id)}
-                >
-                  {tag.name}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <FolderSidebar
+            folders={tags}
+            selectedId={tagFilter}
+            sessionCount={sessions.length}
+            countByFolder={sessionCountByFolder}
+            onSelect={setTagFilter}
+            onCreate={createFolder}
+            onDelete={deleteFolder}
+            onMoveSession={(sessionId, folderId) => moveSessionToFolder(sessionId, folderId)}
+          />
+          <div className="conversation-heading">Conversas</div>
           <div className="session-list">
             {visibleSessions.length === 0 ? (
               <div className="empty-block">Nenhuma sessão ainda. Ligue a captura para criar a primeira.</div>
             ) : (
               visibleSessions.map((session) => (
-                <button
+                <SessionSidebarItem
                   key={session.id}
-                  type="button"
-                  className={session.id === activeId && view === "session" ? "session-item active" : "session-item"}
-                  onClick={() => {
+                  session={session}
+                  folders={tags}
+                  active={session.id === activeId && view === "session"}
+                  onOpen={() => {
                     setActiveId(session.id);
                     setView("session");
                   }}
-                >
-                  <span className="session-item-dot" aria-hidden />
-                  <span className="session-item-copy">
-                    <strong>{session.title}</strong>
-                    <span>{formatDate(session.started_at)}</span>
-                    {(session.tags ?? []).length ? (
-                      <span className="session-item-tags">
-                        {(session.tags ?? []).map((tag) => tag.name).join(" · ")}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
+                  onMove={moveSessionToFolder}
+                />
               ))
             )}
           </div>
@@ -451,6 +586,7 @@ export function App() {
             onParticipantIdsChange={setParticipantIds}
             languageLocked={language !== "auto"}
             captureMode={captureMode}
+            engineProvider={asrProvider}
             onCaptureModeChange={(mode) => {
               setCaptureMode(mode);
               if (mode === "dictation") setMicOnly(true);
@@ -478,22 +614,20 @@ export function App() {
         ) : null}
         {view === "settings" ? (
           <SettingsPage
+            engineProvider={asrProvider}
             onSaved={(next) => {
               setMicOnly(next.mic_only_default);
               setLanguage(next.language ?? "pt");
-              setAsrProvider(next.provider === "openai" ? "openai" : "neste_pc");
+              applyEngineSettings(next);
             }}
-            onOpenPrivacy={() => setView("privacy")}
           />
         ) : null}
-        {view === "privacy" ? <PrivacyPage /> : null}
-        {view === "about" ? <AboutPage onOpenPrivacy={() => setView("privacy")} /> : null}
       </main>
     </div>
   );
 }
 
-type NavIconName = "live" | "settings" | "about" | "privacy";
+type NavIconName = "live" | "settings";
 
 function NavIcon({ name }: { name: NavIconName }) {
   return (
@@ -512,19 +646,6 @@ function NavIcon({ name }: { name: NavIconName }) {
             <circle cx="16" cy="6" r="2" />
             <circle cx="8" cy="12" r="2" />
             <circle cx="13" cy="18" r="2" />
-          </>
-        ) : null}
-        {name === "privacy" ? (
-          <>
-            <path d="M12 3 5 6v6c0 4.2 2.8 7.8 7 9 4.2-1.2 7-4.8 7-9V6Z" />
-            <path d="M9.5 12.2 11.2 14l3.4-3.6" />
-          </>
-        ) : null}
-        {name === "about" ? (
-          <>
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 11v6" />
-            <path d="M12 7.25h.01" strokeWidth="2.5" strokeLinecap="round" />
           </>
         ) : null}
       </svg>
