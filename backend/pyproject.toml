@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "droidnote"
-version = "0.1.0"
+version = "1.0.0"
 description = "Assistente local de gravações — transcrição e resumo 100% no dispositivo."
 requires-python = ">=3.11"
 dependencies = [

@@ -7,6 +7,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app import __version__
 from app.core.config import Settings
 from app.core.hardware import available_ram_gb, cuda_usable, free_disk_gb, total_ram_gb, vram_gb
 
@@ -19,7 +20,7 @@ def write_diagnostic_zip(settings: Settings) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     summary = {
         "app": "DroidNote",
-        "version": "0.1.0",
+        "version": __version__,
         "generated_at": datetime.now(UTC).isoformat(),
         "ram_gb": round(total_ram_gb(), 2),
         "ram_available_gb": round(available_ram_gb(), 2),
