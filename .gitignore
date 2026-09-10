@@ -1,3 +1,7 @@
+# DroidNote captura áudio, transcrições e chaves de API neste PC. Nada disso
+# pode entrar no repositório público. Quando um arquivo aqui for legítimo
+# (um PDF de documentação, por exemplo), use `git add -f` de propósito.
+
 # Python
 __pycache__/
 *.py[cod]
@@ -8,33 +12,80 @@ dist/
 build/
 .cursor/
 *.spec.bak
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Node
 node_modules/
 desktop/dist/
 desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/WixTools/
+npm-debug.log*
+yarn-error.log*
 
-# App / models
+# Dados do usuário: gravações, transcrições, notas e banco local
 *.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+droidnote.db*
+recordings/
+exports/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.docx
+*.pdf
+models/
+
+# Estado da máquina e diagnóstico (token do backend, caminhos, logs)
 runtime.json
+runtime*.json
+install-lang.txt
+logs/
+*.log
+DroidNote-diagnostico-*.zip
+diagnostico*.zip
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# Secrets / local env
+# Segredos, chaves e certificados
 .env
-.env.local
+.env.*
+!desktop/.env.development
 *.pem
+*.key
+*.pfx
+*.p12
+*.cer
+*.crt
+*.der
+*.jks
+*.keystore
+*.asc
+*.gpg
+*.snk
+id_rsa*
+id_ed25519*
+*.ppk
+.netrc
+_netrc
+secrets.json
+credentials.json
+certs/
+trust-bundle.pem
 
-# Installer artifacts (binaries go to GitHub Releases, not git)
+# Artefatos do instalador (binários vão para o GitHub Releases, não para o git)
 installer/out/
+installer/out-release-notes-*.txt
+installer/*.exe
 backend/dist/
 backend/build/
 desktop/src-tauri/resources/droidnote-backend/
@@ -42,3 +93,29 @@ DroidNote-Setup.exe
 DroidNote.exe
 DroidNote_*.exe
 /droidnote-backend/
+*.pdb
+*.ilk
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+~$*
+
+# IDE e ferramentas de agente
+.idea/
+.vscode/
+*.swp
+.claude/
+.aider*
+.specstory/
+
+# Rascunho local, backup e resolução de conflito
+*.bak
+*.orig
+*.rej
+*.local
+scratch/
+tmp/
