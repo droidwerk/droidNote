@@ -21,12 +21,19 @@ _HUM = re.compile(
 _CYRILLIC = re.compile(r"[\u0400-\u04FF]")
 _CJK = re.compile(r"[\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]")
 
-# Frases que o Whisper cospe em trechos de silêncio ou música, herdadas do
-# YouTube no material de treino. Nunca foram ditas na reunião.
-_PROMPT_ECHO = re.compile(
-    r"(do not invent phrases that were not said"
-    r"|não invente frases que não foram ditas"
-    r"|no invente frases que no se dijeron)",
+# Whisper trata initial_prompt como fala anterior, não como instrução.
+# Qualquer texto de sistema que já tenha vazado (ou alucinação de treino)
+# precisa cair fora — a correção de verdade é não enviar prompt nenhum.
+_INSTRUCTION_LEAK = re.compile(
+    r"(do not invent|dont invent|don't invent|nunca invente|não invente|no invente"
+    r"|never invent"
+    r"|contexto\s*:"
+    r"|#{3,}"
+    r"|system prompt"
+    r"|transcreva em português"
+    r"|transcribe in english"
+    r"|transcribe en español"
+    r"|participante(s)? identificados)",
     re.IGNORECASE,
 )
 _HALLUCINATION = re.compile(
@@ -48,16 +55,19 @@ LANGUAGE_LABELS = {
     "pt": "português brasileiro",
     "en": "English",
     "es": "español",
+    "it": "italiano",
+    "de": "Deutsch",
+    "fr": "français",
+    "ru": "русский",
 }
 
 
 def build_asr_prompt(language: str | None) -> str:
-    if language == "pt":
-        return "Transcreva em português brasileiro."
-    if language == "es":
-        return "Transcribe en español."
-    if language == "en":
-        return "Transcribe in English."
+    """Whisper/OpenAI usam `prompt` como contexto de fala, não como system prompt.
+
+    Idioma fica em `language=`. Qualquer frase aqui vira texto transcrito.
+    """
+    del language
     return ""
 
 
@@ -71,10 +81,20 @@ def filter_transcript(text: str, language: str | None = None) -> str:
         return ""
     if _HALLUCINATION.search(cleaned):
         return ""
-    if _PROMPT_ECHO.search(cleaned):
-        return ""
+    if _INSTRUCTION_LEAK.search(cleaned):
+        kept = [
+            piece.strip()
+            for piece in re.split(r"(?<=[.!?])\s+", cleaned)
+            if piece.strip() and not _INSTRUCTION_LEAK.search(piece)
+        ]
+        cleaned = " ".join(kept).strip()
+        if not cleaned or _INSTRUCTION_LEAK.search(cleaned):
+            return ""
     locked = language if language and language != "auto" else None
-    if locked in {"pt", "en", "es"}:
+    if locked == "ru":
+        if _CJK.search(cleaned):
+            return ""
+    elif locked in {"pt", "en", "es", "it", "de", "fr"}:
         if _CYRILLIC.search(cleaned) or _CJK.search(cleaned):
             return ""
     return cleaned
@@ -446,7 +466,6 @@ class WhisperEngine:
         if model is None:
             return "", None
         locked = whisper_language_arg(language)
-        prompt = build_asr_prompt(locked)
         beam_size = 1 if self._device == "cpu" else 3
         segments, info = model.transcribe(  # type: ignore[union-attr]
             audio,
@@ -456,18 +475,31 @@ class WhisperEngine:
             temperature=0,
             without_timestamps=True,
             condition_on_previous_text=False,
-            initial_prompt=prompt or None,
-            no_speech_threshold=0.6,
+            initial_prompt=None,
+            no_speech_threshold=0.7,
             compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
         )
         texts: list[str] = []
         detected: str | None = getattr(info, "language", None)
         for segment in segments:
+            if not _segment_is_speech(segment):
+                continue
             piece = (segment.text or "").strip()
             if piece:
                 texts.append(piece)
         joined = filter_transcript(" ".join(texts).strip(), locked)
         return joined, locked or detected
+
+
+def _segment_is_speech(segment: object) -> bool:
+    no_speech = float(getattr(segment, "no_speech_prob", 0.0) or 0.0)
+    logprob = float(getattr(segment, "avg_logprob", 0.0) or 0.0)
+    if no_speech > 0.65:
+        return False
+    if logprob < -1.2:
+        return False
+    return True
 
 
 def _whisper_importable() -> bool:

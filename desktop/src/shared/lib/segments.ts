@@ -1,4 +1,5 @@
 import type { Person, Segment } from "../api/types";
+import { tr } from "../i18n/runtime";
 import { formatClock } from "./format";
 
 export function mergeSegmentLists(current: Segment[], incoming: Segment[]): Segment[] {
@@ -32,9 +33,9 @@ export function speakerLabel(segment: Segment, people: Person[]): string {
   const found = people.find((item) => item.id === segment.speaker_id);
   if (found) return found.name;
   if (segment.speaker_name) return segment.speaker_name;
-  if (segment.source === "mic") return "Você";
-  if (segment.source === "loopback") return "Outros";
-  return "Falante";
+  if (segment.source === "mic") return tr("common.you");
+  if (segment.source === "loopback") return tr("common.others");
+  return tr("common.speaker");
 }
 
 export function formatPlain(segment: Segment, people: Person[]): string {
@@ -52,7 +53,7 @@ export function resolveSpeaker(segment: Segment, people: Person[]): Person | nul
   if (!segment.speaker_id) return null;
   const found = people.find((item) => item.id === segment.speaker_id);
   if (found) return found;
-  return { id: segment.speaker_id, name: segment.speaker_name || "Falante" };
+  return { id: segment.speaker_id, name: segment.speaker_name || tr("common.speaker") };
 }
 
 export function groupTurns(segments: Segment[]): Segment[][] {

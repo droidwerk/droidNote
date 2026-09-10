@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { CaptureMode, Summary } from "../../shared/api/types";
+import { tr, useT } from "../../shared/i18n";
 import { copyToClipboard } from "../../shared/lib/format";
 import { Button } from "../../shared/ui/primitives";
 import { NoteEditor } from "./NoteEditor";
@@ -16,47 +17,36 @@ interface SummaryPanelProps {
   onSaveNote?: (markdown: string) => Promise<void>;
 }
 
-const COPY: Record<CaptureMode, { heading: string; emptyTitle: string; emptyBody: string }> = {
-  meeting: {
-    heading: "Ata da conversa",
-    emptyTitle: "Sua ata será organizada aqui",
-    emptyBody: "Gere um resumo com assuntos, decisões, responsáveis e pendências.",
-  },
-  lecture: {
-    heading: "Caderno da aula",
-    emptyTitle: "O caderno da aula aparece aqui",
-    emptyBody: "Gere um resumo com temas, conceitos e o que revisar depois.",
-  },
-  dictation: {
-    heading: "Anotação",
-    emptyTitle: "Sua anotação será organizada aqui",
-    emptyBody: "Gere um caderno com ideias, lembretes e tarefas que você ditou.",
-  },
-};
-
 export function SummaryPanel({
   summary,
   loading,
   disabled,
-  title = "Sessão",
-  engineLabel = "o motor escolhido nas preferências",
+  title,
+  engineLabel,
   captureMode = "meeting",
   onGenerate,
   onSaveNote,
 }: SummaryPanelProps) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
-  const seed = summary ? (summary.notes_markdown?.trim() ? summary.notes_markdown : summaryToMarkdown(title, summary)) : "";
+  const sessionTitle = title ?? t("summary.session");
+  const engine = engineLabel ?? t("engine.defaultEngine");
+  const seed = summary ? (summary.notes_markdown?.trim() ? summary.notes_markdown : summaryToMarkdown(sessionTitle, summary)) : "";
   const [draft, setDraft] = useState(seed);
   const [saving, setSaving] = useState(false);
-  const labels = COPY[captureMode];
+  const labels = {
+    heading: t(`summary.${captureMode}Heading`),
+    emptyTitle: t(`summary.${captureMode}EmptyTitle`),
+    emptyBody: t(`summary.${captureMode}EmptyBody`),
+  };
 
   useEffect(() => {
     setDraft(seed);
-  }, [summary?.id, title, seed]);
+  }, [summary?.id, sessionTitle, seed]);
 
   const copyMarkdown = async () => {
     if (!summary) return;
-    const ok = await copyToClipboard(draft || summaryToMarkdown(title, summary));
+    const ok = await copyToClipboard(draft || summaryToMarkdown(sessionTitle, summary));
     if (!ok) return;
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
@@ -79,24 +69,24 @@ export function SummaryPanel({
         <div className="summary-actions">
           {summary ? (
             <Button size="sm" variant="quiet" onClick={() => void copyMarkdown()}>
-              {copied ? "Copiado" : "Copiar"}
+              {copied ? t("common.copied") : t("common.copy")}
             </Button>
           ) : null}
           {summary && onSaveNote ? (
             <Button size="sm" disabled={saving} onClick={() => void save()}>
-              {saving ? "Salvando…" : "Salvar"}
+              {saving ? t("common.saving") : t("common.save")}
             </Button>
           ) : null}
           <Button size="sm" variant="primary" disabled={disabled || loading} onClick={onGenerate}>
-            {loading ? "Gerando…" : summary ? "Regenerar" : "Gerar nota"}
+            {loading ? t("summary.generating") : summary ? t("summary.regenerating") : t("summary.generate")}
           </Button>
         </div>
       </div>
       {!summary && loading ? (
         <div className="note-empty">
           <div>
-            <strong>Gerando nota…</strong>
-            <p>O motor está organizando a transcrição. Pode levar um instante.</p>
+            <strong>{t("summary.generatingTitle")}</strong>
+            <p>{t("summary.generatingBody")}</p>
           </div>
         </div>
       ) : !summary ? (
@@ -106,7 +96,7 @@ export function SummaryPanel({
             <p>{labels.emptyBody}</p>
           </div>
           <p className="muted">
-            Usa {engineLabel}. Você pode corrigir a transcrição antes de gerar.
+            {t("summary.usesEngine", { engine })}
           </p>
         </div>
       ) : (
@@ -117,7 +107,7 @@ export function SummaryPanel({
 }
 
 function formatAction(item: { text: string; owner?: string | null; due?: string | null }): string {
-  const parts = [item.text, item.owner ?? "sem responsável"];
+  const parts = [item.text, item.owner ?? tr("summary.noOwner")];
   if (item.due) parts.push(item.due);
   return parts.join(" — ");
 }
@@ -126,30 +116,30 @@ export function summaryToMarkdown(title: string, summary: Summary): string {
   if (summary.notes_markdown?.trim()) return summary.notes_markdown;
   const lines = [`# ${title}`, ""];
   if (summary.overview) {
-    lines.push("## Resumo executivo", "", summary.overview, "");
+    lines.push(`## ${tr("summary.overview")}`, "", summary.overview, "");
   }
   const topics = summary.topics?.length
     ? summary.topics
     : summary.highlights.length
-      ? [{ title: "O que aconteceu", points: summary.highlights }]
+      ? [{ title: tr("summary.happened"), points: summary.highlights }]
       : [];
   if (topics.length) {
-    lines.push("## Assuntos discutidos", "");
+    lines.push(`## ${tr("summary.topics")}`, "");
     for (const topic of topics) {
       if (topic.title) lines.push(`### ${topic.title}`);
       lines.push(...topic.points.map((point) => `- ${point}`), "");
     }
   }
-  lines.push("## Decisões", "");
+  lines.push(`## ${tr("summary.decisions")}`, "");
   lines.push(...(summary.decisions.length ? summary.decisions.map((item) => `- ${item}`) : ["- —"]));
-  lines.push("", "## Ações", "");
+  lines.push("", `## ${tr("summary.actions")}`, "");
   lines.push(
     ...(summary.action_items.length
       ? summary.action_items.map((item) => `- [ ] ${formatAction(item)}`)
       : ["- —"]),
   );
   const open = summary.open_items ?? [];
-  lines.push("", "## Pendências", "");
+  lines.push("", `## ${tr("summary.openItems")}`, "");
   lines.push(...(open.length ? open.map((item) => `- ${item}`) : ["- —"]));
   return lines.join("\n") + "\n";
 }

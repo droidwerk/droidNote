@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./app/App";
 import { ConfirmProvider } from "./shared/ui/ConfirmDialog";
+import { I18nProvider } from "./shared/i18n";
 import { ThemeProvider } from "./shared/lib/theme";
 import { ToastProvider } from "./shared/ui/Toast";
 import "./shared/styles/tokens.css";
@@ -15,11 +16,13 @@ if (!root) {
 createRoot(root).render(
   <StrictMode>
     <ThemeProvider>
-      <ToastProvider>
-        <ConfirmProvider>
-          <App />
-        </ConfirmProvider>
-      </ToastProvider>
+      <I18nProvider>
+        <ToastProvider>
+          <ConfirmProvider>
+            <App />
+          </ConfirmProvider>
+        </ToastProvider>
+      </I18nProvider>
     </ThemeProvider>
   </StrictMode>,
 );

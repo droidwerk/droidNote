@@ -11,6 +11,9 @@ import aiosqlite
 from app.core.secrets import DPAPI_PREFIX, SECRET_SETTING_KEYS, protect_setting, unprotect_setting
 from app.domain.models import (
     ActionItem,
+    Chat,
+    ChatCitation,
+    ChatMessage,
     Person,
     Session,
     Summary,
@@ -102,6 +105,24 @@ CREATE TABLE IF NOT EXISTS session_tags (
     PRIMARY KEY (session_id, tag_id),
     FOREIGN KEY (session_id) REFERENCES sessions(id),
     FOREIGN KEY (tag_id) REFERENCES tags(id)
+);
+
+CREATE TABLE IF NOT EXISTS chats (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    focus_session_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    citations_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (chat_id) REFERENCES chats(id)
 );
 """
 
@@ -552,6 +573,105 @@ class SqliteStore:
             result.setdefault(str(row["session_id"]), []).append(_row_to_tag(row))
         return result
 
+    async def list_chats(self) -> list[Chat]:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM chats ORDER BY updated_at DESC"
+            )
+            rows = await cur.fetchall()
+            return [_row_to_chat(row) for row in rows]
+
+    async def get_chat(self, chat_id: str) -> Chat | None:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM chats WHERE id = ?", (chat_id,))
+            row = await cur.fetchone()
+            return _row_to_chat(row) if row else None
+
+    async def save_chat(self, chat: Chat) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO chats (id, title, created_at, updated_at, focus_session_id)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    updated_at = excluded.updated_at,
+                    focus_session_id = excluded.focus_session_id
+                """,
+                (
+                    chat.id,
+                    chat.title,
+                    _dump_dt(chat.created_at),
+                    _dump_dt(chat.updated_at),
+                    chat.focus_session_id,
+                ),
+            )
+            await db.commit()
+
+    async def delete_chat(self, chat_id: str) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+            await db.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+            await db.commit()
+
+    async def list_chat_messages(self, chat_id: str) -> list[ChatMessage]:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC",
+                (chat_id,),
+            )
+            rows = await cur.fetchall()
+            return [_row_to_chat_message(row) for row in rows]
+
+    async def add_chat_message(self, message: ChatMessage) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO chat_messages (id, chat_id, role, content, citations_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    message.id,
+                    message.chat_id,
+                    message.role,
+                    message.content,
+                    json.dumps(
+                        [
+                            {
+                                "session_id": item.session_id,
+                                "session_title": item.session_title,
+                                "segment_id": item.segment_id,
+                                "start_ms": item.start_ms,
+                                "excerpt": item.excerpt,
+                            }
+                            for item in message.citations
+                        ],
+                        ensure_ascii=False,
+                    ),
+                    _dump_dt(message.created_at),
+                ),
+            )
+            await db.commit()
+
+    async def get_segments_by_ids(self, ids: Sequence[str]) -> list[TranscriptSegment]:
+        wanted = [item for item in ids if item]
+        if not wanted:
+            return []
+        placeholders = ",".join("?" for _ in wanted)
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                f"SELECT * FROM segments WHERE id IN ({placeholders})",
+                wanted,
+            )
+            rows = await cur.fetchall()
+            mapped = [_row_to_segment(row) for row in rows]
+            by_id = {item.id: item for item in mapped}
+            return [by_id[item] for item in wanted if item in by_id]
+
 
 def new_id() -> str:
     return str(uuid4())
@@ -593,6 +713,46 @@ def _row_to_person(row: aiosqlite.Row) -> Person:
 
 def _row_to_tag(row: aiosqlite.Row) -> Tag:
     return Tag(id=row["id"], name=row["name"])
+
+
+def _row_to_chat(row: aiosqlite.Row) -> Chat:
+    return Chat(
+        id=row["id"],
+        title=row["title"],
+        created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
+        updated_at=_parse_dt(row["updated_at"]) or datetime.now(tz=UTC),
+        focus_session_id=row["focus_session_id"] or None,
+    )
+
+
+def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
+    raw = json.loads(row["citations_json"] or "[]")
+    citations: list[ChatCitation] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            session_id = str(item.get("session_id") or "")
+            if not session_id:
+                continue
+            citations.append(
+                ChatCitation(
+                    session_id=session_id,
+                    session_title=str(item.get("session_title") or ""),
+                    segment_id=str(item["segment_id"]) if item.get("segment_id") else None,
+                    start_ms=int(item.get("start_ms") or 0),
+                    excerpt=str(item.get("excerpt") or ""),
+                )
+            )
+    role = row["role"] if row["role"] in {"user", "assistant"} else "assistant"
+    return ChatMessage(
+        id=row["id"],
+        chat_id=row["chat_id"],
+        role=role,
+        content=row["content"],
+        created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
+        citations=citations,
+    )
 
 
 async def _ensure_column(db: aiosqlite.Connection, table: str, name: str, decl: str) -> None:

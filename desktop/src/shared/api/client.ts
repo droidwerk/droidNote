@@ -2,6 +2,9 @@ import type {
   BackendInfo,
   CaptureMode,
   CaptureState,
+  ChatDetail,
+  ChatMessage,
+  ChatThread,
   Device,
   ModelsCatalog,
   Person,
@@ -15,6 +18,7 @@ import type {
   Summary,
   Tag,
 } from "./types";
+import { tr } from "../i18n/runtime";
 
 export type { SearchResult } from "./types";
 
@@ -209,7 +213,77 @@ export const api = {
     const blob = await download(`/sessions/${id}/export?format=markdown`);
     return blob.text();
   },
+  chats: () => request<ChatThread[]>("/chat"),
+  chat: (id: string) => request<ChatDetail>(`/chat/${id}`),
+  deleteChat: (id: string) => request<void>(`/chat/${id}`, { method: "DELETE" }),
 };
+
+export async function askChat(
+  payload: {
+    message: string;
+    chat_id?: string | null;
+    session_id?: string | null;
+    segment_ids?: string[];
+  },
+  onToken: (token: string) => void,
+): Promise<{ chat: ChatThread; message: ChatMessage }> {
+  const headers = new Headers();
+  headers.set(TOKEN_HEADER, backend.token);
+  headers.set("Content-Type", "application/json");
+  const response = await fetch(`${backend.url}/chat/ask`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok || !response.body) {
+    let detail = response.statusText;
+    try {
+      const parsed: unknown = await response.json();
+      detail = readErrorDetail(parsed) || detail;
+    } catch {
+      /* keep */
+    }
+    throw new Error(detail);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let doneChat: ChatThread | null = null;
+  let doneMessage: ChatMessage | null = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      applyEvent(part);
+    }
+  }
+  if (buffer.trim()) applyEvent(buffer);
+  if (!doneChat || !doneMessage) {
+    throw new Error(tr("chat.incomplete"));
+  }
+  return { chat: doneChat, message: doneMessage };
+
+  function applyEvent(part: string) {
+    const line = part.replace(/^data:\s*/m, "").trim();
+    if (!line) return;
+    const event = JSON.parse(line) as {
+      token?: string;
+      error?: string;
+      done?: boolean;
+      chat?: ChatThread;
+      message?: ChatMessage;
+    };
+    if (event.token) onToken(event.token);
+    if (event.error) throw new Error(event.error);
+    if (event.done && event.chat && event.message) {
+      doneChat = event.chat;
+      doneMessage = event.message;
+    }
+  }
+}
 
 export function openTranscriptSocket(
   onEvent: (event: Record<string, unknown>) => void,

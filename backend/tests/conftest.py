@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.v1.deps import AppContainer
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
+from app.application.chat import ChatService
 from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
@@ -65,6 +66,7 @@ async def app(settings: Settings):
         setup=SetupService(settings, store, audio, asr, router),
         llm=router,
         speakers=SpeakersService(llm, store),
+        chat=ChatService(llm, store),
     )
     yield application
     if capture.is_recording():

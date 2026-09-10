@@ -2,6 +2,8 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { api } from "../shared/api/client";
 import type { ModelOption, ModelsCatalog, Person, Settings } from "../shared/api/types";
+import { CaptureLanguagePicker, isCaptureLanguage, LanguagePicker, useI18n } from "../shared/i18n";
+import type { TranslateFn } from "../shared/i18n/I18nProvider";
 import { AboutPage } from "./AboutPage";
 import { PrivacyPage } from "./PrivacyPage";
 import { openLocalPath, saveBlob, parentDirectory } from "../shared/lib/saveFile";
@@ -14,50 +16,12 @@ import { useToast } from "../shared/ui/Toast";
 
 export type SettingsTab =
   | "transcription"
+  | "language"
   | "appearance"
   | "people"
   | "files"
   | "privacy"
   | "about";
-
-const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "transcription", label: "Transcrição" },
-  { id: "appearance", label: "Aparência" },
-  { id: "people", label: "Pessoas" },
-  { id: "files", label: "Arquivos" },
-  { id: "privacy", label: "Privacidade" },
-  { id: "about", label: "Sobre" },
-];
-
-const WHISPER_DEVICE_OPTIONS: ModelOption[] = [
-  {
-    id: "auto",
-    label: "Automático",
-    installed: true,
-    source: "whisper",
-    detail: "GPU se o CUDA estiver completo, senão CPU",
-  },
-  {
-    id: "cpu",
-    label: "CPU",
-    installed: true,
-    source: "whisper",
-    detail: "Funciona em qualquer PC Windows",
-  },
-  {
-    id: "cuda",
-    label: "GPU NVIDIA",
-    installed: true,
-    source: "whisper",
-    detail: "Só com CUDA 12 / cuBLAS",
-  },
-];
-
-const THEME_CHOICES: { id: Theme; label: string; blurb: string }[] = [
-  { id: "dark", label: "Escuro", blurb: "O padrão do DroidNote." },
-  { id: "light", label: "Claro", blurb: "Neutro, para ambientes claros." },
-  { id: "paper", label: "Paper white", blurb: "Folha de papel, tinta quente." },
-];
 
 interface SettingsPageProps {
   onSaved?: (settings: Settings) => void;
@@ -66,6 +30,44 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ onSaved, initialTab = "transcription", engineProvider }: SettingsPageProps) {
+  const { t } = useI18n();
+  const tabs: { id: SettingsTab; label: string }[] = [
+    { id: "transcription", label: t("settings.tabTranscription") },
+    { id: "language", label: t("settings.tabLanguage") },
+    { id: "appearance", label: t("settings.tabAppearance") },
+    { id: "people", label: t("settings.tabPeople") },
+    { id: "files", label: t("settings.tabFiles") },
+    { id: "privacy", label: t("settings.tabPrivacy") },
+    { id: "about", label: t("settings.tabAbout") },
+  ];
+  const whisperDevices: ModelOption[] = [
+    {
+      id: "auto",
+      label: t("settings.deviceAuto"),
+      installed: true,
+      source: "whisper",
+      detail: t("settings.deviceAutoDetail"),
+    },
+    {
+      id: "cpu",
+      label: t("settings.deviceCpu"),
+      installed: true,
+      source: "whisper",
+      detail: t("settings.deviceCpuDetail"),
+    },
+    {
+      id: "cuda",
+      label: t("settings.deviceCuda"),
+      installed: true,
+      source: "whisper",
+      detail: t("settings.deviceCudaDetail"),
+    },
+  ];
+  const themeChoices: { id: Theme; label: string; blurb: string }[] = [
+    { id: "dark", label: t("settings.themeDark"), blurb: t("settings.themeDarkBlurb") },
+    { id: "light", label: t("settings.themeLight"), blurb: t("settings.themeLightBlurb") },
+    { id: "paper", label: t("settings.themePaper"), blurb: t("settings.themePaperBlurb") },
+  ];
   const [settings, setSettings] = useState<Settings | null>(null);
   const [baseline, setBaseline] = useState<Settings | null>(null);
   const [catalog, setCatalog] = useState<ModelsCatalog | null>(null);
@@ -102,7 +104,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
       setPeople(nextPeople);
       setApiKey("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao ler preferências");
+      setError(err instanceof Error ? err.message : t("settings.loadFail"));
     } finally {
       setLoading(false);
     }
@@ -177,7 +179,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
   if (!settings) {
     return (
       <div className="empty-block">
-        {error ?? "Carregando preferências…"}
+        {error ?? t("settings.loadingPrefs")}
       </div>
     );
   }
@@ -200,14 +202,14 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
     setError(null);
     try {
       if (cloud && !settings.openai_disclaimer_accepted) {
-        setError("Confirme o aviso da API OpenAI antes de salvar.");
+        setError(t("settings.confirmOpenai"));
         return;
       }
       const payload = diffSettings(baseline, settings);
       if (replacingKey || apiKey.trim()) payload.asr_api_key = apiKey.trim();
       await persist(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar");
+      setError(err instanceof Error ? err.message : t("settings.saveFail"));
     }
   };
 
@@ -217,7 +219,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
     try {
       await persist({ asr_api_key: "" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao remover a chave");
+      setError(err instanceof Error ? err.message : t("settings.removeKeyFail"));
     }
   };
 
@@ -228,14 +230,14 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
       setKeyTest(result.ok ? result.message : result.message);
       if (!result.ok) setError(result.message);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao testar a chave");
+      setError(err instanceof Error ? err.message : t("settings.testKeyFail"));
     }
   };
 
   const downloadModel = async () => {
     setDownloading(true);
     setError(null);
-    setDownloadStatus({ progress: 1, message: "Iniciando download…" });
+    setDownloadStatus({ progress: 1, message: t("settings.startingDownload") });
     try {
       await save();
       await api.bootstrap();
@@ -250,7 +252,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao baixar o modelo");
+      setError(err instanceof Error ? err.message : t("settings.downloadFail"));
     } finally {
       setDownloading(false);
     }
@@ -266,16 +268,16 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
       ]);
       if (result.status === "cancelled") return;
       if (result.status === "error") {
-        toast.push({ tone: "error", title: "Falha no diagnóstico", description: result.message });
+        toast.push({ tone: "error", title: t("settings.diagFail"), description: result.message });
         return;
       }
       toast.push({
         tone: "success",
-        title: "Diagnóstico gravado",
+        title: t("settings.diagSaved"),
         description: "DroidNote-diagnostico.zip",
         action: result.path
           ? {
-              label: "Abrir pasta",
+              label: t("settings.openFolder"),
               onClick: () => void openLocalPath(parentDirectory(result.path ?? "")),
             }
           : undefined,
@@ -283,11 +285,11 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
     } catch (err) {
       toast.push({
         tone: "error",
-        title: "Falha no diagnóstico",
+        title: t("settings.diagFail"),
         description:
           err instanceof Error
             ? err.message
-            : "Não deu para exportar o diagnóstico. Tente de novo em Preferências.",
+            : t("settings.diagFailBody"),
       });
     } finally {
       setDiagBusy(false);
@@ -307,8 +309,8 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
   const removePerson = async (id: string) => {
     const person = people.find((item) => item.id === id);
     const ok = await confirm({
-      title: `Apagar ${person?.name ?? "esta pessoa"}?`,
-      confirmLabel: "Apagar",
+      title: t("settings.deletePerson", { name: person?.name ?? t("settings.thisPerson") }),
+      confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!ok) return;
@@ -317,20 +319,20 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    const index = TABS.findIndex((item) => item.id === tab);
+    const index = tabs.findIndex((item) => item.id === tab);
     if (index < 0) return;
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      setTab(TABS[(index + 1) % TABS.length]?.id ?? tab);
+      setTab(tabs[(index + 1) % tabs.length]?.id ?? tab);
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      setTab(TABS[(index - 1 + TABS.length) % TABS.length]?.id ?? tab);
+      setTab(tabs[(index - 1 + tabs.length) % tabs.length]?.id ?? tab);
     } else if (event.key === "Home") {
       event.preventDefault();
-      setTab(TABS[0]?.id ?? tab);
+      setTab(tabs[0]?.id ?? tab);
     } else if (event.key === "End") {
       event.preventDefault();
-      setTab(TABS[TABS.length - 1]?.id ?? tab);
+      setTab(tabs[tabs.length - 1]?.id ?? tab);
     }
   };
 
@@ -339,18 +341,18 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
   return (
     <div className="container settings-page">
       <PageHeader
-        title={<h1>Preferências</h1>}
-        description="Ajuste captura, inteligência e armazenamento deste computador."
+        title={<h1>{t("settings.title")}</h1>}
+        description={t("settings.description")}
       />
       {error ? <p className="banner">{error}</p> : null}
 
       <div
         className="settings-tabs"
         role="tablist"
-        aria-label="Seções das preferências"
+        aria-label={t("settings.tabsAria")}
         onKeyDown={onTabKey}
       >
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -376,10 +378,9 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
         {tab === "transcription" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2>Motor</h2>
+              <h2>{t("settings.engineTitle")}</h2>
               <p className="muted">
-                A escolha vale para tudo: transcrição e nota saem do mesmo motor, com o mesmo
-                prompt. Trocar de motor não troca o formato da nota.
+                {t("settings.engineHelp")}
               </p>
               <div className="segmented" role="tablist">
                 <button
@@ -389,7 +390,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                   className={!cloud ? "on" : ""}
                   onClick={() => setSettings({ ...settings, provider: "neste_pc" })}
                 >
-                  Modelos locais — privado
+                  {t("engine.localPrivate")}
                 </button>
                 <button
                   type="button"
@@ -398,7 +399,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                   className={cloud ? "on" : ""}
                   onClick={() => setSettings({ ...settings, provider: "openai" })}
                 >
-                  API OpenAI — mais preciso
+                  {t("engine.openaiAccurate")}
                 </button>
               </div>
 
@@ -413,11 +414,11 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                   />
                   <span className="check-box" aria-hidden />
                   <span>
-                    <strong>Li a política de uso e privacidade</strong>
+                    <strong>{t("settings.consentStrong")}</strong>
                     <small>
                       <PrivacyLink onOpen={openPrivacy} />
                       {" · "}
-                      Áudio e texto desta escuta podem ir para a OpenAI.
+                      {t("settings.consentCloud")}
                     </small>
                   </span>
                 </label>
@@ -425,16 +426,16 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                 <p className="muted">
                   <PrivacyLink onOpen={openPrivacy} />
                   {" — "}
-                  No modo Modelos locais o áudio não deixa a máquina.
+                  {t("settings.localStays")}
                 </p>
               )}
 
               {cloud ? (
                 <div className="form-grid">
                   <label>
-                    Modelo de transcrição
+                    {t("settings.asrModel")}
                     <ModelSelect
-                      label="Modelo de transcrição"
+                      label={t("settings.asrModel")}
                       value={settings.asr_cloud_model ?? "gpt-4o-transcribe"}
                       options={optionsFor(
                         catalog?.asr_cloud ?? [],
@@ -446,9 +447,9 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                     />
                   </label>
                   <label>
-                    Modelo da nota
+                    {t("settings.noteModel")}
                     <ModelSelect
-                      label="Modelo da nota"
+                      label={t("settings.noteModel")}
                       value={settings.llm_cloud_model ?? "gpt-4o-mini"}
                       options={optionsFor(
                         catalog?.llm_cloud ?? [],
@@ -460,18 +461,18 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                     />
                   </label>
                   <label>
-                    Chave da API
+                    {t("settings.apiKey")}
                     {settings.has_api_key && !replacingKey ? (
                       <div className="api-key-status">
                         <p className="muted">
-                          Chave salva neste PC · termina em {settings.api_key_hint}
+                          {t("settings.keySaved", { hint: settings.api_key_hint ?? "" })}
                         </p>
                         <div className="row">
-                          <Button onClick={() => setReplacingKey(true)}>Trocar</Button>
+                          <Button onClick={() => setReplacingKey(true)}>{t("settings.replace")}</Button>
                           <Button variant="danger" onClick={() => void clearKey()}>
-                            Remover
+                            {t("settings.remove")}
                           </Button>
-                          <Button onClick={() => void testKey()}>Testar chave</Button>
+                          <Button onClick={() => void testKey()}>{t("settings.testKey")}</Button>
                         </div>
                         {keyTest ? <p className="muted">{keyTest}</p> : null}
                       </div>
@@ -483,7 +484,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                           autoComplete="off"
                           placeholder={
                             settings.has_api_key
-                              ? `Nova chave · a atual termina em ${settings.api_key_hint}`
+                              ? t("settings.newKeyPlaceholder", { hint: settings.api_key_hint ?? "" })
                               : "sk-…"
                           }
                           value={apiKey}
@@ -491,7 +492,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                         />
                         <div className="row">
                           <Button onClick={() => void testKey()} disabled={!apiKey.trim() && !settings.has_api_key}>
-                            Testar chave
+                            {t("settings.testKey")}
                           </Button>
                           {replacingKey ? (
                             <Button
@@ -500,7 +501,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                                 setApiKey("");
                               }}
                             >
-                              Cancelar
+                              {t("common.cancel")}
                             </Button>
                           ) : null}
                         </div>
@@ -512,41 +513,41 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
               ) : (
                 <div className="form-grid">
                   <label>
-                    Modelo Whisper
+                    {t("settings.whisperModel")}
                     <ModelSelect
-                      label="Modelo Whisper"
+                      label={t("settings.whisperModel")}
                       value={settings.whisper_model}
-                      options={optionsFor(catalog?.whisper ?? [], settings.whisper_model, "whisper")}
+                      options={localizeModels(optionsFor(catalog?.whisper ?? [], settings.whisper_model, "whisper"), t)}
                       onChange={(id) => setSettings({ ...settings, whisper_model: id })}
                     />
                   </label>
                   <label>
-                    Motor Whisper
+                    {t("settings.whisperDevice")}
                     <ModelSelect
-                      label="Motor Whisper"
+                      label={t("settings.whisperDevice")}
                       value={settings.whisper_device ?? "auto"}
-                      options={WHISPER_DEVICE_OPTIONS}
+                      options={whisperDevices}
                       onChange={(id) => setSettings({ ...settings, whisper_device: id })}
                       showStatus={false}
                     />
                   </label>
                   <label>
-                    Modelo da nota (Ollama)
+                    {t("settings.noteModelOllama")}
                     <ModelSelect
-                      label="Modelo da nota"
+                      label={t("settings.noteModel")}
                       value={settings.ollama_model}
-                      options={optionsFor(catalog?.ollama ?? [], settings.ollama_model, "ollama")}
+                      options={localizeModels(optionsFor(catalog?.ollama ?? [], settings.ollama_model, "ollama"), t)}
                       onChange={(id) => setSettings({ ...settings, ollama_model: id })}
                     />
                   </label>
                   <p className="model-legend">
                     <span>
                       <StatusGlyph installed />
-                      já neste PC
+                      {t("settings.alreadyHere")}
                     </span>
                     <span>
                       <StatusGlyph installed={false} />
-                      será baixado
+                      {t("settings.willDownload")}
                     </span>
                   </p>
                 </div>
@@ -554,84 +555,85 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
 
               {cloud ? (
                 <p className="banner">
-                  O áudio desta escuta sai deste computador e vai para a OpenAI. Use só com
-                  consentimento de quem está sendo gravado.{" "}
+                  {t("settings.cloudBanner")}{" "}
                   <PrivacyLink onOpen={openPrivacy} />
                 </p>
               ) : (
                 <>
                   <div className="disclaimer">
-                    <h3>O que esperar do motor local</h3>
+                    <h3>{t("settings.localExpectTitle")}</h3>
                     <p>
-                      Com modelos locais nada sai da máquina, e é isso que se paga: a transcrição erra mais
-                      nomes próprios e fala cruzada, e a nota é mais curta que a da OpenAI. O formato
-                      da nota é o mesmo — a profundidade, não.
+                      {t("settings.localExpectBody")}
                     </p>
                     <p className="muted">
-                      Para chegar perto da OpenAI: Whisper <strong>large-v3-turbo</strong> na GPU
-                      ou <strong>small</strong> na CPU, e <strong>qwen3:8b</strong> ou{" "}
-                      <strong>gemma3:12b</strong> na nota. <strong>large-v3</strong> na CPU
-                      atrasa a transcrição e perde trechos. Abaixo de 8 GB de RAM livre, fique em{" "}
-                      <strong>small</strong> + <strong>qwen3:4b</strong> e espere notas mais rasas.
+                      {t("settings.localExpectHint")}
                     </p>
                   </div>
                   <div className="row">
                     <span className={catalog?.ollama_online ? "badge on" : "badge"}>
-                      {catalog?.ollama_online ? "Ollama no ar" : "Ollama offline"}
+                      {catalog?.ollama_online ? t("settings.ollamaOnline") : t("settings.ollamaOffline")}
                     </span>
                     <span className="muted">
-                      Whisper instalado: {(catalog?.whisper ?? []).filter((item) => item.installed).length}
+                      {t("settings.whisperInstalled", {
+                        count: (catalog?.whisper ?? []).filter((item) => item.installed).length,
+                      })}
                     </span>
                   </div>
                   <div className="tutorial">
-                    <h3>Baixar os modelos escolhidos</h3>
+                    <h3>{t("settings.downloadTitle")}</h3>
                     <p className="muted">
-                      Itens com a seta de download são baixados agora — Whisper primeiro, depois o
-                      modelo da nota. Modelo maior acerta mais e pesa mais na RAM.
+                      {t("settings.downloadHint")}
                     </p>
                     <Button onClick={() => void downloadModel()} disabled={downloading}>
-                      {downloading ? "Baixando…" : "Baixar os modelos selecionados"}
+                      {downloading ? t("settings.downloading") : t("settings.downloadSelected")}
                     </Button>
                     {downloading || downloadStatus ? (
                       <div className="model-progress">
                         <ProgressBar value={downloadStatus?.progress ?? 0} />
-                        <p className="muted">{downloadStatus?.message ?? "Preparando…"}</p>
+                        <p className="muted">{downloadStatus?.message ?? t("common.preparing")}</p>
                       </div>
                     ) : null}
                   </div>
                 </>
               )}
             </Card>
+          </>
+        ) : null}
 
-            <Card className="settings-card">
-              <h2>Idioma da transcrição</h2>
-              <label>
-                Idioma
-                <select
-                  className="select"
-                  value={settings.language ?? "pt"}
-                  onChange={(event) => setSettings({ ...settings, language: event.target.value })}
-                >
-                  <option value="pt">Português</option>
-                  <option value="en">Inglês</option>
-                  <option value="es">Espanhol</option>
-                  <option value="auto">Detectar automaticamente (pode misturar idiomas)</option>
-                </select>
-              </label>
-              <p className="muted">
-                Travar o idioma evita o modelo inventar russo, polonês ou inglês no meio da fala.
-                Prefira Português; “detectar automaticamente” mistura idiomas.
-              </p>
+        {tab === "language" ? (
+          <>
+            <p className="muted settings-card-wide">{t("languages.independentHelp")}</p>
+            <Card className="settings-card settings-card-wide">
+              <h2>{t("languages.uiLabel")}</h2>
+              <p className="muted">{t("languages.uiHelp")}</p>
+              <LanguagePicker
+                onPicked={(id) => {
+                  setSettings({ ...settings, ui_language: id });
+                  void persist({ ui_language: id });
+                }}
+              />
+            </Card>
+            <Card className="settings-card settings-card-wide">
+              <h2>{t("languages.captureLabel")}</h2>
+              <p className="muted">{t("languages.captureHelp")}</p>
+              <CaptureLanguagePicker
+                value={isCaptureLanguage(settings.language) ? settings.language : "pt"}
+                onPicked={(id) => {
+                  setSettings({ ...settings, language: id });
+                  void persist({ language: id });
+                }}
+              />
             </Card>
           </>
         ) : null}
 
         {tab === "appearance" ? (
-          <Card className="settings-card settings-card-wide">
-            <h2>Aparência</h2>
-            <p className="muted">O tema fica neste computador e vale para todas as telas.</p>
-            <div className="theme-grid">
-              {THEME_CHOICES.map((choice) => (
+          <>
+            <Card className="settings-card settings-card-wide">
+              <h2>{t("settings.appearanceTitle")}</h2>
+              <p className="muted">{t("settings.appearanceHelp")}</p>
+              <div className="theme-grid">
+                {themeChoices.map((choice) => (
                 <button
                   key={choice.id}
                   type="button"
@@ -646,17 +648,17 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
               ))}
             </div>
           </Card>
+          </>
         ) : null}
 
         {tab === "people" ? (
           <Card className="settings-card settings-card-people settings-card-wide">
-            <h2>Pessoas</h2>
+            <h2>{t("settings.peopleTitle")}</h2>
             <p className="muted">
-              Cadastre quem costuma aparecer. Na escuta, o microfone vira “Você” e o áudio do
-              sistema vira “Outros”. Marque abaixo quem é você.
+              {t("settings.peopleHelp")}
             </p>
             <label>
-              Você (microfone)
+              {t("settings.youMic")}
               <select
                 className="select"
                 value={settings.self_person_id ?? ""}
@@ -664,7 +666,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                   setSettings({ ...settings, self_person_id: event.target.value })
                 }
               >
-                <option value="">Ainda não definido</option>
+                <option value="">{t("settings.notSet")}</option>
                 {people.map((person) => (
                   <option key={person.id} value={person.id}>
                     {person.name}
@@ -675,7 +677,7 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
             <div className="people-add">
               <input
                 className="search"
-                placeholder="Nome"
+                placeholder={t("common.name")}
                 value={newPerson}
                 onChange={(event) => setNewPerson(event.target.value)}
                 onKeyDown={(event) => {
@@ -686,15 +688,15 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                 }}
               />
               <Button variant="primary" onClick={() => void addPerson()}>
-                Cadastrar
+                {t("settings.register")}
               </Button>
             </div>
             <ul className="people-list">
-              {people.length === 0 ? <li className="muted">Ninguém cadastrado ainda.</li> : null}
+              {people.length === 0 ? <li className="muted">{t("settings.nobody")}</li> : null}
               {people.map((person) => (
                 <li key={person.id}>
                   <span>{person.name}</span>
-                  <Button onClick={() => void removePerson(person.id)}>Apagar</Button>
+                  <Button onClick={() => void removePerson(person.id)}>{t("common.delete")}</Button>
                 </li>
               ))}
             </ul>
@@ -704,9 +706,9 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
         {tab === "files" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2>Arquivos neste PC</h2>
+              <h2>{t("settings.filesTitle")}</h2>
               <p className="muted">
-                Banco e modelos ficam na pasta de dados. O WAV de cada escuta só é gravado se a opção abaixo estiver ligada.
+                {t("settings.filesHelp")}
               </p>
               <label className="check-control">
                 <input
@@ -718,27 +720,27 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                     setSettings({ ...settings, save_recordings: checked });
                     void persist({ save_recordings: checked }).catch((err: unknown) => {
                       setSettings({ ...settings, save_recordings: previous });
-                      setError(err instanceof Error ? err.message : "Falha ao salvar o áudio WAV");
+                      setError(err instanceof Error ? err.message : t("settings.wavSaveFail"));
                     });
                   }}
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>Guardar o áudio em WAV neste PC</strong>
+                  <strong>{t("settings.saveWavTitle")}</strong>
                   <small>
-                    Desligar vale para a próxima captura. Se a API OpenAI estiver ligada, o trecho ainda vai para a OpenAI mesmo sem WAV local.
+                    {t("settings.saveWavHint")}
                   </small>
                 </span>
               </label>
               <label>
-                Pasta de dados (banco e modelos)
+                {t("settings.dataFolder")}
                 <input className="search" value={settings.data_dir ?? ""} readOnly />
               </label>
               <div className="people-add">
-                <Button onClick={() => void openLocalPath(settings.data_dir ?? "")}>Abrir pasta de dados</Button>
+                <Button onClick={() => void openLocalPath(settings.data_dir ?? "")}>{t("settings.openData")}</Button>
               </div>
               <label>
-                Pasta das gravações (WAV)
+                {t("settings.recordingsFolder")}
                 <input
                   className="search"
                   value={settings.recordings_dir ?? ""}
@@ -747,13 +749,13 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
               </label>
               <div className="people-add">
                 <Button onClick={() => void openLocalPath(settings.recordings_dir ?? "")}>
-                  Abrir pasta de gravações
+                  {t("settings.openRecordings")}
                 </Button>
               </div>
             </Card>
 
             <Card className="settings-card">
-              <h2>Captura</h2>
+              <h2>{t("settings.captureTitle")}</h2>
               <label className="check-control">
                 <input
                   type="checkbox"
@@ -764,8 +766,8 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>Só o microfone por padrão</strong>
-                  <small>Não capturar o som de outros aplicativos</small>
+                  <strong>{t("settings.micOnlyTitle")}</strong>
+                  <small>{t("settings.micOnlyHint")}</small>
                 </span>
               </label>
             </Card>
@@ -778,12 +780,12 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
           <>
             <AboutPage onOpenPrivacy={openPrivacy} />
             <Card className="settings-card settings-card-wide">
-              <h2>Suporte</h2>
+              <h2>{t("settings.supportTitle")}</h2>
               <p className="muted">
-                O zip traz versão, memória, disco e logs. Sem áudio, transcrição, chave da API ou token.
+                {t("settings.supportHelp")}
               </p>
               <Button onClick={() => void exportDiagnostics()} disabled={diagBusy}>
-                {diagBusy ? "Preparando…" : "Exportar diagnóstico"}
+                {diagBusy ? t("settings.preparingDiag") : t("settings.exportDiag")}
               </Button>
             </Card>
           </>
@@ -792,17 +794,25 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
         {showActions ? (
           <div className="settings-actions">
             <Button onClick={() => void load()} disabled={loading}>
-              {loading ? "Atualizando…" : "Atualizar lista"}
+              {loading ? t("settings.updating") : t("settings.refresh")}
             </Button>
             <Button variant="primary" onClick={() => void save()}>
-              Salvar
+              {t("common.save")}
             </Button>
-            {saved ? <p className="muted">Preferências salvas neste computador.</p> : null}
+            {saved ? <p className="muted">{t("settings.savedHere")}</p> : null}
           </div>
         ) : null}
       </div>
     </div>
   );
+}
+
+function localizeModels(items: ModelOption[], t: TranslateFn): ModelOption[] {
+  return items.map((item) => {
+    const key = `models.${item.id}`;
+    const label = t(key);
+    return label === key ? item : { ...item, label };
+  });
 }
 
 function optionsFor(
@@ -823,6 +833,7 @@ const SETTINGS_KEYS: (keyof Settings)[] = [
   "asr_cloud_model",
   "llm_cloud_model",
   "language",
+  "ui_language",
   "recordings_dir",
   "self_person_id",
   "save_recordings",

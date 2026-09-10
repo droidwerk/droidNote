@@ -1,3 +1,4 @@
+import { useT } from "../i18n";
 import { openExternal } from "../lib/openExternal";
 
 const OPENAI_PRIVACY = "https://openai.com/policies/privacy-policy";
@@ -8,44 +9,40 @@ interface PrivacyPolicyProps {
 }
 
 export function PrivacyPolicy({ compact = false }: PrivacyPolicyProps) {
+  const t = useT();
   return (
     <div className={compact ? "privacy-body is-compact" : "privacy-body"}>
       <section>
-        <h3>O que o DroidNote faz</h3>
+        <h3>{t("privacy.whatTitle")}</h3>
         <p>
-          O DroidNote captura áudio neste computador, transcreve e gera notas. Não há conta obrigatória
-          nem bot convidado em Meet, Teams ou Zoom. A chave da API, se você usar uma, fica só nesta máquina.
+          {t("privacy.whatBody")}
         </p>
       </section>
       <section>
-        <h3>Modo Modelos locais</h3>
+        <h3>{t("privacy.localTitle")}</h3>
         <p>
-          Áudio, transcrição e notas permanecem neste computador. O arquivo WAV é
-          opcional e pode ser desligado em Preferências.
+          {t("privacy.localBody")}
         </p>
       </section>
       <section>
-        <h3>Modo API OpenAI</h3>
+        <h3>{t("privacy.openaiTitle")}</h3>
         <p>
-          Se você ligar a API OpenAI, o áudio da transcrição e trechos de texto usados em notas
-          saem deste computador e vão para a OpenAI. O DroidNote não é o provedor do
-          modelo. Vale a política de privacidade e os termos da OpenAI.
+          {t("privacy.openaiBody")}
         </p>
         <p>
           <button type="button" className="text-link" onClick={() => void openExternal(OPENAI_KEYS)}>
-            Como criar a chave
+            {t("privacy.createKey")}
           </button>
           {" · "}
           <button type="button" className="text-link" onClick={() => void openExternal(OPENAI_PRIVACY)}>
-            Privacidade da OpenAI
+            {t("privacy.openaiPrivacy")}
           </button>
         </p>
       </section>
       <section>
-        <h3>Captura e terceiros</h3>
+        <h3>{t("privacy.thirdTitle")}</h3>
         <p>
-          O app ouve o microfone e, se ligado, o áudio do sistema. Ele não avisa os outros participantes
-          da chamada. Grave outras pessoas somente com o consentimento adequado.
+          {t("privacy.thirdBody")}
         </p>
       </section>
     </div>
@@ -53,9 +50,10 @@ export function PrivacyPolicy({ compact = false }: PrivacyPolicyProps) {
 }
 
 export function PrivacyLink({ onOpen }: { onOpen: () => void }) {
+  const t = useT();
   return (
     <button type="button" className="text-link" onClick={onOpen}>
-      Política de uso e privacidade
+      {t("privacy.link")}
     </button>
   );
 }

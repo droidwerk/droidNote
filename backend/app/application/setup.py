@@ -4,6 +4,13 @@ import asyncio
 from pathlib import Path
 
 from app.core.config import Settings, parse_recordings_dir
+from app.core.i18n import (
+    CAPTURE_LANGUAGES,
+    UI_LANGUAGES,
+    normalize_ui_language,
+    read_install_language,
+    ui_message,
+)
 from app.core.logging import get_logger
 from app.core.hardware import (
     DISK_MARGIN,
@@ -52,19 +59,19 @@ class SetupService:
     def _whisper_component(self) -> SetupComponentStatus:
         if self._asr.is_ready():
             return SetupComponentStatus(
-                status="ready", progress=100, message="Modelo de transcrição pronto"
+                status="ready", progress=100, message=ui_message(self._settings.ui_language, "whisper_ready")
             )
         provider = getattr(self._asr, "provider", None) or self._settings.provider
         if provider == "openai":
             return SetupComponentStatus(
                 status="missing",
                 progress=0,
-                message="Falta a chave da API OpenAI.",
+                message=ui_message(self._settings.ui_language, "openai_key_missing"),
             )
         return SetupComponentStatus(
             status="missing",
             progress=0,
-            message="Modelo de transcrição ainda não baixado neste PC. O DroidNote vai baixar o Whisper agora.",
+            message=ui_message(self._settings.ui_language, "whisper_not_downloaded"),
         )
 
     def _refresh_whisper_status(self) -> None:
@@ -323,9 +330,14 @@ class SetupService:
                 await self._store.set_setting("whisper_device", policy)
         if payload.language is not None:
             language = payload.language.strip().lower() or "pt"
-            if language in {"pt", "en", "es", "auto"}:
+            if language in CAPTURE_LANGUAGES:
                 self._settings.language = language
                 await self._store.set_setting("language", language)
+        if payload.ui_language is not None:
+            ui_language = payload.ui_language.strip().lower()
+            if ui_language in UI_LANGUAGES:
+                self._settings.ui_language = ui_language
+                await self._store.set_setting("ui_language", ui_language)
         if payload.asr_cloud_model:
             model = payload.asr_cloud_model.strip()
             self._settings.asr_cloud_model = model
@@ -387,6 +399,10 @@ class SetupService:
         self_person = await self._store.get_setting("self_person_id")
         openai_ok = (await self._store.get_setting("openai_disclaimer_accepted")) == "1"
         kind = (await self._store.get_setting("disclaimer_kind")) or "local"
+        stored_ui = await self._store.get_setting("ui_language")
+        ui_language = stored_ui or read_install_language(self._settings.data_dir)
+        ui_language = normalize_ui_language(ui_language or self._settings.ui_language)
+        self._settings.ui_language = ui_language
         return SettingsOut(
             whisper_model=self._settings.whisper_model,
             ollama_model=self._llm.local.model,
@@ -398,6 +414,7 @@ class SetupService:
             has_api_key=bool(key.strip()),
             api_key_hint=key.strip()[-4:] if len(key.strip()) >= 4 else "",
             language=self._settings.language or "pt",
+            ui_language=ui_language,
             data_dir=str(self._settings.data_dir),
             recordings_dir=str(self._settings.resolve_recordings_dir()),
             self_person_id=self_person or "",

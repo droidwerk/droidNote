@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useT } from "../shared/i18n";
 import { Card } from "../shared/ui/primitives";
 import { PrivacyLink } from "../shared/ui/PrivacyPolicy";
 import { SiteCredit } from "../shared/ui/Brand";
@@ -9,6 +10,7 @@ interface AboutPageProps {
 }
 
 export function AboutPage({ onOpenPrivacy }: AboutPageProps) {
+  const t = useT();
   const [version, setVersion] = useState("1.0.1");
 
   useEffect(() => {
@@ -22,26 +24,24 @@ export function AboutPage({ onOpenPrivacy }: AboutPageProps) {
     <div className="about-embed">
       <Card className="about-hero">
         <div>
-          <h2>Processamento sob seu controle</h2>
-          <p>Sem conta obrigatória, sem bot convidado no Meet, Teams ou Zoom.</p>
+          <h2>{t("about.controlTitle")}</h2>
+          <p>{t("about.controlBody")}</p>
           <p className="muted">
-            No modo Modelos locais, áudio e texto não deixam a máquina. Com a API OpenAI ligada,
-            trechos de áudio e texto são enviados para processamento, mesmo sem salvar o WAV.{" "}
+            {t("about.controlHint")}{" "}
             {onOpenPrivacy ? <PrivacyLink onOpen={onOpenPrivacy} /> : null}
           </p>
         </div>
       </Card>
       <Card className="about-footer" tone="quiet">
         <div>
-          <h2>Atualizações e dados</h2>
+          <h2>{t("about.updatesTitle")}</h2>
           <p>
-            Instale uma versão nova por cima da atual. Notas, gravações e modelos ficam em
-            %APPDATA%\DroidNote. Esta versão não atualiza automaticamente.
+            {t("about.updatesBody")}
           </p>
           <p className="muted">DroidNote {version}</p>
         </div>
         <div className="about-product">
-          <span className="muted">Produto DroidWerk</span>
+          <span className="muted">{t("about.product")}</span>
           <SiteCredit />
         </div>
       </Card>

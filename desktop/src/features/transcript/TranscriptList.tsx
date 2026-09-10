@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 import type { Person, Segment } from "../../shared/api/types";
+import { currentUiLanguage, pluralForm, useT } from "../../shared/i18n";
+import type { TranslateFn } from "../../shared/i18n/I18nProvider";
 import { copyToClipboard, formatClock, highlight } from "../../shared/lib/format";
 import { formatPlain, resolveSpeaker, splitScene, groupTurns } from "../../shared/lib/segments";
 import { cssVar, useTheme } from "../../shared/lib/theme";
@@ -28,6 +30,7 @@ interface TranscriptListProps {
   onSeek?: (ms: number) => void;
   onPatchSegment?: (segmentId: string, payload: SegmentPatch) => Promise<void>;
   onAssignAll?: () => Promise<void>;
+  onAskSelected?: (segment: Segment) => void;
 }
 
 const LAST_SPEAKER_KEY = "droidnote.lastSpeaker";
@@ -46,6 +49,7 @@ export function TranscriptList({
   onSeek,
   onPatchSegment,
   onAssignAll,
+  onAskSelected,
 }: TranscriptListProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState<"all" | string | null>(null);
@@ -57,6 +61,8 @@ export function TranscriptList({
       return null;
     }
   });
+  const t = useT();
+  const locale = currentUiLanguage();
   useTheme();
 
   const stuckToBottom = useRef(true);
@@ -132,7 +138,7 @@ export function TranscriptList({
     if (await copyToClipboard(body)) flash("all");
   };
 
-  const emptyCopy = emptyHint ?? "A transcrição aparece aqui quando a captura estiver ligada.";
+  const emptyCopy = emptyHint ?? t("transcript.empty");
   const canLabel = Boolean(onPatchSegment);
   const keysActive = canLabel && Boolean(selectedId);
 
@@ -142,29 +148,45 @@ export function TranscriptList({
         <div className="transcript-meta">
           {liveLabel ? <span className="transcript-live">{liveLabel}</span> : null}
           <span className="transcript-count">
-            {segments.length === 0
-              ? "Nenhum trecho ainda"
-              : `${segments.length} ${segments.length === 1 ? "trecho" : "trechos"}`}
+            {t(`transcript.${pluralForm(locale, segments.length)}`, { count: segments.length })}
           </span>
         </div>
         <div className="transcript-actions">
+          {selectedId && onAskSelected ? (
+            <Button
+              size="sm"
+              variant="quiet"
+              onClick={() => {
+                const selected = segments.find((item) => item.id === selectedId);
+                if (selected) onAskSelected(selected);
+              }}
+            >
+              {t("transcript.ask")}
+            </Button>
+          ) : null}
           {lastSpeakerId && onPatchSegment && selectedId ? (
             <Button
               size="sm"
               variant="quiet"
               onClick={() => void assignSelected({ speaker_id: lastSpeakerId, apply_forward: true })}
             >
-              Daqui pra frente
+              {t("transcript.fromHere")}
             </Button>
           ) : null}
           {segments.length > 0 ? (
             <Button size="sm" variant="quiet" onClick={() => void copyAll()}>
-              {copied === "all" ? "Copiado" : "Copiar tudo"}
+              {copied === "all" ? t("common.copied") : t("transcript.copyAll")}
             </Button>
           ) : null}
           {onAssignAll && segments.length > 0 ? (
-            <Button size="sm" variant="quiet" disabled={assigningAll} onClick={() => void onAssignAll()}>
-              {assigningAll ? "Atribuindo…" : "Identificar falantes"}
+            <Button
+              size="sm"
+              variant="quiet"
+              disabled={assigningAll}
+              title={t("transcript.assignTitle")}
+              onClick={() => void onAssignAll()}
+            >
+              {assigningAll ? t("transcript.assigning") : t("transcript.assign")}
             </Button>
           ) : null}
         </div>
@@ -175,19 +197,19 @@ export function TranscriptList({
             <>
               <span>
                 <kbd>1–9</kbd>
-                rotular
+                {t("transcript.keysLabel")}
               </span>
               <span>
                 <kbd>L</kbd>
-                repetir
+                {t("transcript.keysRepeat")}
               </span>
               <span>
                 <kbd>F</kbd>
-                daqui pra frente
+                {t("transcript.keysForward")}
               </span>
             </>
           ) : (
-            <span>Selecione um trecho para rotular quem falou.</span>
+            <span>{t("transcript.keysIdle")}</span>
           )}
         </p>
       ) : null}
@@ -197,7 +219,7 @@ export function TranscriptList({
             <span className="transcript-empty-pulse" aria-hidden />
             <div>
               <strong>{emptyCopy}</strong>
-              <p>Os trechos entram sozinhos. Depois, identifique quem falou e corrija o texto.</p>
+              <p>{t("transcript.emptyHint")}</p>
             </div>
           </div>
         ) : (
@@ -241,6 +263,7 @@ export function TranscriptList({
                 live={live}
                 people={people}
                 lastSpeakerId={lastSpeakerId}
+                t={t}
                 onSelect={() => setSelectedId(head.id)}
                 onSeek={onSeek}
                 onPatchSegment={patch}
@@ -261,6 +284,7 @@ export function TranscriptList({
               live={live}
               people={people}
               lastSpeakerId={lastSpeakerId}
+              t={t}
               onSelect={() => setSelectedId(head.id)}
               onSeek={onSeek}
               onPatchSegment={patch}
@@ -286,6 +310,7 @@ function TurnRow({
   live,
   people,
   lastSpeakerId,
+  t,
   onSelect,
   onSeek,
   onPatchSegment,
@@ -301,6 +326,7 @@ function TurnRow({
   live: boolean;
   people: Person[];
   lastSpeakerId: string | null;
+  t: TranslateFn;
   onSelect: () => void;
   onSeek?: (ms: number) => void;
   onPatchSegment?: (segmentId: string, payload: SegmentPatch) => Promise<void>;
@@ -331,6 +357,7 @@ function TurnRow({
               source={head.source}
               people={people}
               lastSpeakerId={lastSpeakerId}
+              t={t}
               onAssign={(payload) => onPatchSegment(head.id, payload)}
             />
           ) : speaker ? (
@@ -338,7 +365,7 @@ function TurnRow({
               {speaker.name}
             </span>
           ) : (
-            <span className="speaker-chip empty">{sourceLabel(head.source)}</span>
+            <span className="speaker-chip empty">{sourceLabel(head.source, t)}</span>
           )}
           <div className="segment-actions">
             <time
@@ -362,7 +389,7 @@ function TurnRow({
                 });
               }}
             >
-              {copied ? "Copiado" : "Copiar"}
+              {copied ? t("common.copied") : t("common.copy")}
             </Button>
           </div>
         </div>
@@ -374,6 +401,7 @@ function TurnRow({
               scene={splitScene(segment.text)}
               query={query}
               editing={editingId === segment.id}
+              t={t}
               onStartEdit={() => setEditingId(segment.id)}
               onCancel={() => setEditingId(null)}
               onSave={
@@ -405,6 +433,7 @@ function SegmentRow({
   live,
   people,
   lastSpeakerId,
+  t,
   onSelect,
   onSeek,
   onPatchSegment,
@@ -422,6 +451,7 @@ function SegmentRow({
   live: boolean;
   people: Person[];
   lastSpeakerId: string | null;
+  t: TranslateFn;
   onSelect: () => void;
   onSeek?: (ms: number) => void;
   onPatchSegment?: (segmentId: string, payload: SegmentPatch) => Promise<void>;
@@ -449,6 +479,7 @@ function SegmentRow({
               source={segment.source}
               people={people}
               lastSpeakerId={lastSpeakerId}
+              t={t}
               onAssign={(payload) => onPatchSegment(segment.id, payload)}
             />
           ) : speaker ? (
@@ -456,7 +487,7 @@ function SegmentRow({
               {speaker.name}
             </span>
           ) : (
-            <span className="speaker-chip empty">{sourceLabel(segment.source)}</span>
+            <span className="speaker-chip empty">{sourceLabel(segment.source, t)}</span>
           )}
           <div className="segment-actions">
             <time
@@ -480,7 +511,7 @@ function SegmentRow({
                 });
               }}
             >
-              {copied ? "Copiado" : "Copiar"}
+              {copied ? t("common.copied") : t("common.copy")}
             </Button>
             {editable ? (
               <Button size="sm" variant="quiet" className="segment-action" onClick={() => setEditing(true)}>
@@ -494,6 +525,7 @@ function SegmentRow({
           scene={scene}
           query={query}
           editing={editing}
+          t={t}
           onStartEdit={() => setEditing(true)}
           onCancel={() => setEditing(false)}
           onSave={
@@ -515,6 +547,7 @@ function SegmentText({
   scene,
   query,
   editing,
+  t,
   onSave,
   onCancel,
   onStartEdit,
@@ -523,6 +556,7 @@ function SegmentText({
   scene: { label: string | null; body: string };
   query: string;
   editing: boolean;
+  t: TranslateFn;
   onSave?: (text: string) => Promise<void>;
   onCancel: () => void;
   onStartEdit: () => void;
@@ -556,7 +590,7 @@ function SegmentText({
         />
         <div className="segment-edit-actions">
           <Button size="sm" variant="primary" onClick={() => void onSave(draft)}>
-            Salvar
+            {t("common.save")}
           </Button>
           <Button
             size="sm"
@@ -565,7 +599,7 @@ function SegmentText({
               onCancel();
             }}
           >
-            Cancelar
+            {t("common.cancel")}
           </Button>
         </div>
       </div>
@@ -598,12 +632,14 @@ function SpeakerChip({
   source,
   people,
   lastSpeakerId,
+  t,
   onAssign,
 }: {
   speaker: Person | null;
   source?: string | null;
   people: Person[];
   lastSpeakerId: string | null;
+  t: TranslateFn;
   onAssign: (payload: { speaker_id?: string | null; name?: string; apply_forward?: boolean }) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -662,7 +698,7 @@ function SpeakerChip({
           toggle();
         }}
       >
-        {speaker ? speaker.name : sourceLabel(source)}
+        {speaker ? speaker.name : sourceLabel(source, t)}
       </button>
       {open && rect
         ? createPortal(
@@ -682,8 +718,8 @@ function SpeakerChip({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>Daqui pra frente</strong>
-                  <small>Mesmo canal, trechos seguintes sem nome</small>
+                  <strong>{t("transcript.forwardTitle")}</strong>
+                  <small>{t("transcript.forwardHint")}</small>
                 </span>
               </label>
               {lastSpeakerId
@@ -698,7 +734,7 @@ function SpeakerChip({
                           setOpen(false);
                         }}
                       >
-                        Última: {person.name}
+                        {t("transcript.lastSpeaker", { name: person.name })}
                       </button>
                     ))
                 : null}
@@ -722,12 +758,12 @@ function SpeakerChip({
                     setOpen(false);
                   }}
                 >
-                  Sem falante
+                  {t("transcript.noSpeaker")}
                 </button>
               ) : null}
               <input
                 className="search"
-                placeholder="Cadastrar nome"
+                placeholder={t("transcript.registerName")}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 onKeyDown={(event) => {
@@ -745,10 +781,10 @@ function SpeakerChip({
   );
 }
 
-function sourceLabel(source?: string | null): string {
-  if (source === "mic") return "Você";
-  if (source === "loopback") return "Outros";
-  return "Quem falou?";
+function sourceLabel(source: string | null | undefined, t: TranslateFn): string {
+  if (source === "mic") return t("common.you");
+  if (source === "loopback") return t("common.others");
+  return t("common.whoSpoke");
 }
 
 function speakerColor(id: string): string {

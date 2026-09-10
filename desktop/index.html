@@ -11,6 +11,11 @@
           if (theme === "light" || theme === "paper" || theme === "dark") {
             document.documentElement.setAttribute("data-theme", theme);
           }
+          var lang = localStorage.getItem("droidnote.ui_language");
+          var map = { pt: "pt-BR", en: "en", es: "es", it: "it", de: "de", fr: "fr", ru: "ru" };
+          if (lang && map[lang]) {
+            document.documentElement.lang = map[lang];
+          }
         } catch (error) {}
       })();
     </script>

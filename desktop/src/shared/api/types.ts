@@ -125,6 +125,7 @@ export interface Settings {
   has_api_key?: boolean;
   api_key_hint?: string;
   language?: string;
+  ui_language?: string;
   data_dir?: string;
   recordings_dir?: string;
   self_person_id?: string;
@@ -186,6 +187,43 @@ export interface TranscriptEvent {
   recording?: boolean;
   session_id?: string | null;
   segment?: Segment;
+}
+
+export interface ChatFocus {
+  sessionId?: string;
+  sessionTitle?: string;
+  segmentId?: string;
+  excerpt?: string;
+}
+
+export interface ChatCitation {
+  session_id: string;
+  session_title: string;
+  segment_id?: string | null;
+  start_ms: number;
+  excerpt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  chat_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  citations: ChatCitation[];
+}
+
+export interface ChatThread {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  focus_session_id?: string | null;
+}
+
+export interface ChatDetail {
+  chat: ChatThread;
+  messages: ChatMessage[];
 }
 
 export interface Device {
