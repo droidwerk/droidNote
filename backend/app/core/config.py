@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     asr_cloud_model: str = "whisper-1"
     llm_cloud_model: str = "gpt-4o-mini"
     language: str = "pt"
+    ui_language: str = "pt"
     sample_rate: int = 16_000
     window_seconds: float = 20.0
     overlap_seconds: float = 1.0

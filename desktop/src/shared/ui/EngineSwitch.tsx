@@ -1,4 +1,5 @@
 import type { Provider } from "../api/types";
+import { useT } from "../i18n";
 
 interface EngineSwitchProps {
   value: Provider;
@@ -7,12 +8,13 @@ interface EngineSwitchProps {
 }
 
 export function EngineSwitch({ value, disabled = false, onChange }: EngineSwitchProps) {
+  const t = useT();
   const cloud = value === "openai";
   return (
     <div
       className={cloud ? "engine-switch is-cloud" : "engine-switch"}
       role="radiogroup"
-      aria-label="Motor"
+      aria-label={t("engine.aria")}
     >
       <button
         type="button"
@@ -22,7 +24,7 @@ export function EngineSwitch({ value, disabled = false, onChange }: EngineSwitch
         className={!cloud ? "on" : ""}
         onClick={() => onChange("neste_pc")}
       >
-        Modelos locais
+        {t("engine.local")}
       </button>
       <button
         type="button"
@@ -32,7 +34,7 @@ export function EngineSwitch({ value, disabled = false, onChange }: EngineSwitch
         className={cloud ? "on" : ""}
         onClick={() => onChange("openai")}
       >
-        OpenAI
+        {t("engine.openai")}
       </button>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { api } from "../../shared/api/client";
 import type { Tag } from "../../shared/api/types";
+import { useT } from "../../shared/i18n";
 import { Button } from "../../shared/ui/primitives";
 
 interface SessionTagsProps {
@@ -12,6 +13,7 @@ interface SessionTagsProps {
 }
 
 export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsProps) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -46,16 +48,16 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
 
   return (
     <div className="session-tags">
-      <span className="session-tags-label">Pastas desta conversa</span>
+      <span className="session-tags-label">{t("folders.sessionFolders")}</span>
       <div className="session-tags-list">
-        {tags.length === 0 ? <span className="muted">Sem pasta</span> : null}
+        {tags.length === 0 ? <span className="muted">{t("folders.noFolder")}</span> : null}
         {tags.map((tag) => (
           <button
             key={tag.id}
             type="button"
             className="tag-chip on"
             disabled={busy}
-            title={`Remover de ${tag.name}`}
+            title={t("folders.removeFrom", { name: tag.name })}
             onClick={() => void persist(tags.filter((item) => item.id !== tag.id).map((item) => item.id))}
           >
             {tag.name}
@@ -69,7 +71,7 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
             type="button"
             className="tag-chip"
             disabled={busy}
-            title={`Adicionar a ${tag.name}`}
+            title={t("folders.addTo", { name: tag.name })}
             onClick={() => addExisting(tag)}
           >
             {tag.name}
@@ -77,7 +79,7 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
         ))}
         <input
           className="search"
-          placeholder="Nova pasta (Aulas, Clientes…)"
+          placeholder={t("folders.newFolderPlaceholder")}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -88,7 +90,7 @@ export function SessionTags({ sessionId, tags, catalog, onChange }: SessionTagsP
           }}
         />
         <Button size="sm" variant="quiet" disabled={busy || !draft.trim()} onClick={() => void create()}>
-          Adicionar
+          {t("common.add")}
         </Button>
       </div>
     </div>

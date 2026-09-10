@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
+from app.application.chat import ChatService
 from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
@@ -26,6 +27,7 @@ class AppContainer:
     setup: SetupService
     llm: LlmRouter
     speakers: SpeakersService
+    chat: ChatService
 
 
 def get_container(app: FastAPI) -> AppContainer:

@@ -1,6 +1,7 @@
 import { useState, type DragEvent, type KeyboardEvent } from "react";
 
 import type { Session, Tag } from "../../shared/api/types";
+import { useT } from "../../shared/i18n";
 import { formatDate } from "../../shared/lib/format";
 
 interface SessionSidebarItemProps {
@@ -18,6 +19,7 @@ export function SessionSidebarItem({
   onOpen,
   onMove,
 }: SessionSidebarItemProps) {
+  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moving, setMoving] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -31,7 +33,7 @@ export function SessionSidebarItem({
       await onMove(session.id, folderId);
       setMenuOpen(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível mover a conversa.");
+      setError(cause instanceof Error ? cause.message : t("folders.moveFail"));
     } finally {
       setMoving(false);
     }
@@ -76,9 +78,9 @@ export function SessionSidebarItem({
         <button
           type="button"
           className="sidebar-more"
-          aria-label={`Opções de ${session.title}`}
+          aria-label={t("folders.sessionOptions", { title: session.title })}
           aria-expanded={menuOpen}
-          title="Mais opções"
+          title={t("folders.more")}
           onClick={() => setMenuOpen((current) => !current)}
           onKeyDown={handleMenuKeyDown}
         >
@@ -88,14 +90,14 @@ export function SessionSidebarItem({
 
       {menuOpen ? (
         <div className="session-move-menu">
-          <span>Mover para</span>
+          <span>{t("folders.moveTo")}</span>
           <button
             type="button"
             className={!session.tags?.length ? "is-current" : ""}
             disabled={moving}
             onClick={() => void move(null)}
           >
-            Sem pasta
+            {t("folders.noFolder")}
           </button>
           {folders.map((folder) => (
             <button

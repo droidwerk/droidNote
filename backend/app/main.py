@@ -15,12 +15,14 @@ from app.api.v1.deps import AppContainer
 from app.api.v1.router import api_router
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
+from app.application.chat import ChatService
 from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
 from app.application.summarize import SummarizeService
 from app.core.config import Settings, get_settings
 from app.core.hardware import available_ram_gb, suggest_note_model, suggest_whisper_model, total_ram_gb
+from app.core.i18n import normalize_ui_language, read_install_language
 from app.core.logging import configure_logging, get_logger
 from app.infrastructure.asr.openai_engine import OpenAIWhisperEngine
 from app.infrastructure.asr.router import AsrRouter
@@ -59,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         saved_cloud = await store.get_setting("asr_cloud_model")
         saved_llm_cloud = await store.get_setting("llm_cloud_model")
         saved_language = await store.get_setting("language")
+        saved_ui_language = await store.get_setting("ui_language")
         saved_key = await store.get_setting("asr_api_key")
         saved_recordings = await store.get_setting("recordings_dir")
         if saved_whisper:
@@ -89,6 +92,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             resolved.llm_cloud_model = saved_llm_cloud
         if saved_language:
             resolved.language = saved_language
+        if saved_ui_language:
+            resolved.ui_language = saved_ui_language
+        else:
+            seeded = read_install_language(resolved.data_dir)
+            if seeded:
+                resolved.ui_language = normalize_ui_language(seeded)
         if saved_recordings:
             resolved.recordings_dir = Path(saved_recordings)
         audio = build_audio_capture(resolved.sample_rate)
@@ -119,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             setup=SetupService(resolved, store, audio, asr, llm),
             llm=llm,
             speakers=SpeakersService(llm, store),
+            chat=ChatService(llm, store),
         )
         app.state.container = container
         log.info("backend ready")

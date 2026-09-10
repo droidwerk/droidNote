@@ -1,6 +1,7 @@
 import { useState, type DragEvent, type FormEvent } from "react";
 
 import type { Tag } from "../../shared/api/types";
+import { useT } from "../../shared/i18n";
 import { useConfirm } from "../../shared/ui/ConfirmDialog";
 
 interface FolderSidebarProps {
@@ -24,6 +25,7 @@ export function FolderSidebar({
   onDelete,
   onMoveSession,
 }: FolderSidebarProps) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -44,7 +46,7 @@ export function FolderSidebar({
       setDraft("");
       setCreateOpen(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível criar a pasta.");
+      setError(cause instanceof Error ? cause.message : t("folders.createFail"));
     } finally {
       setCreating(false);
     }
@@ -53,11 +55,13 @@ export function FolderSidebar({
   const remove = async (folder: Tag) => {
     const count = countByFolder.get(folder.id) ?? 0;
     const ok = await confirm({
-      title: `Apagar a pasta “${folder.name}”?`,
+      title: t("folders.deleteTitle", { name: folder.name }),
       description: count
-        ? `${count} conversa${count === 1 ? "" : "s"} continuará no DroidNote, sem esta pasta.`
+        ? count === 1
+          ? t("folders.deleteOne")
+          : t("folders.deleteMany", { count })
         : undefined,
-      confirmLabel: "Apagar",
+      confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!ok) return;
@@ -67,7 +71,7 @@ export function FolderSidebar({
       await onDelete(folder);
       setMenuOpenId(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível apagar a pasta.");
+      setError(cause instanceof Error ? cause.message : t("folders.deleteFail"));
     } finally {
       setBusyId(null);
     }
@@ -83,7 +87,7 @@ export function FolderSidebar({
     try {
       await onMoveSession(sessionId, folder.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível mover a conversa.");
+      setError(cause instanceof Error ? cause.message : t("folders.moveFail"));
     } finally {
       setBusyId(null);
     }
@@ -92,13 +96,13 @@ export function FolderSidebar({
   return (
     <div className="folder-sidebar">
       <div className="folder-heading">
-        <span>Pastas</span>
+        <span>{t("folders.title")}</span>
         <button
           type="button"
           className="folder-add"
-          aria-label="Criar pasta"
+          aria-label={t("folders.create")}
           aria-expanded={createOpen}
-          title="Criar pasta"
+          title={t("folders.create")}
           onClick={() => setCreateOpen((current) => !current)}
         >
           <PlusIcon />
@@ -111,8 +115,8 @@ export function FolderSidebar({
             autoFocus
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Nome da pasta"
-            aria-label="Nome da nova pasta"
+            placeholder={t("folders.name")}
+            aria-label={t("folders.newName")}
             disabled={creating}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -122,12 +126,12 @@ export function FolderSidebar({
             }}
           />
           <button type="submit" disabled={creating || !draft.trim()}>
-            {creating ? "…" : "Criar"}
+            {creating ? "…" : t("folders.createAction")}
           </button>
         </form>
       ) : null}
 
-      <div className="folder-list" aria-label="Pastas">
+      <div className="folder-list" aria-label={t("folders.title")}>
         <button
           type="button"
           className={selectedId === null ? "folder-row folder-all is-selected" : "folder-row folder-all"}
@@ -135,7 +139,7 @@ export function FolderSidebar({
           onClick={() => onSelect(null)}
         >
           <FolderIcon />
-          <span>Todas as conversas</span>
+          <span>{t("folders.all")}</span>
           <small>{sessionCount}</small>
         </button>
 
@@ -178,9 +182,9 @@ export function FolderSidebar({
               <button
                 type="button"
                 className="sidebar-more"
-                aria-label={`Opções da pasta ${folder.name}`}
+                aria-label={t("folders.options", { name: folder.name })}
                 aria-expanded={menuOpenId === folder.id}
-                title="Mais opções"
+                title={t("folders.more")}
                 onClick={() => setMenuOpenId((current) => current === folder.id ? null : folder.id)}
               >
                 <MoreIcon />
@@ -189,7 +193,7 @@ export function FolderSidebar({
             {menuOpenId === folder.id ? (
               <div className="folder-action-menu">
                 <button type="button" disabled={busyId === folder.id} onClick={() => void remove(folder)}>
-                  Apagar pasta
+                  {t("folders.deleteFolder")}
                 </button>
               </div>
             ) : null}
@@ -197,7 +201,6 @@ export function FolderSidebar({
         ))}
       </div>
 
-      {folders.length > 0 ? <p className="folder-hint">Arraste uma conversa para uma pasta.</p> : null}
       {error ? <p className="folder-error" role="alert">{error}</p> : null}
     </div>
   );

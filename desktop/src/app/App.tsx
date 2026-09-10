@@ -3,11 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FolderSidebar } from "../features/session/FolderSidebar";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { Wizard } from "../features/setup/Wizard";
+import { ChatPage } from "../pages/ChatPage";
 import { LivePage } from "../pages/LivePage";
 import { SessionPage } from "../pages/SessionPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
-import type { CaptureMode, CaptureState, Device, MonitorFrame, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
+import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
+import { isCaptureLanguage, isUiLanguage, useI18n, type CaptureLanguage } from "../shared/i18n";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
@@ -15,7 +17,7 @@ import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { EngineSwitch } from "../shared/ui/EngineSwitch";
 import { useToast } from "../shared/ui/Toast";
 
-type View = "live" | "session" | "settings";
+type View = "live" | "session" | "settings" | "chat";
 
 const idleCapture: CaptureState = {
   recording: false,
@@ -27,6 +29,7 @@ const idleCapture: CaptureState = {
 };
 
 export function App() {
+  const { t, setLocale } = useI18n();
   const [ready, setReady] = useState(false);
   const [needsWizard, setNeedsWizard] = useState(true);
   const [view, setView] = useState<View>("live");
@@ -40,7 +43,7 @@ export function App() {
   const [captureMode, setCaptureMode] = useState<CaptureMode>("meeting");
   const [loopbackId, setLoopbackId] = useState("");
   const [participantIds, setParticipantIds] = useState<string[]>([]);
-  const [language, setLanguage] = useState("pt");
+  const [language, setLanguage] = useState<CaptureLanguage>("pt");
   const [asrProvider, setAsrProvider] = useState<Provider>("neste_pc");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [openaiDisclaimer, setOpenaiDisclaimer] = useState(false);
@@ -53,7 +56,6 @@ export function App() {
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [monitor, setMonitor] = useState<MonitorFrame | null>(null);
   const [asrBusy, setAsrBusy] = useState(false);
-  const [asrEmpty, setAsrEmpty] = useState(false);
   const [asrQueued, setAsrQueued] = useState(0);
   const [speakersBusy, setSpeakersBusy] = useState(false);
   const [socketLive, setSocketLive] = useState(false);
@@ -63,6 +65,12 @@ export function App() {
   const staleReconnectTriggered = useRef(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
+  const [chatFocus, setChatFocus] = useState<ChatFocus | null>(null);
+
+  const openChat = useCallback((focus?: ChatFocus) => {
+    setChatFocus(focus ?? null);
+    setView("chat");
+  }, []);
 
   const loadSessions = useCallback(async () => {
     const listed = await api.sessions();
@@ -92,8 +100,8 @@ export function App() {
     }
     toast.push({
       tone: "info",
-      title: "Preparando modelos locais",
-      description: "O Whisper ainda não está neste PC. O download começa agora.",
+      title: t("engine.preparingTitle"),
+      description: t("engine.preparingBody"),
     });
     setCaptureError(status.whisper.message);
     await api.bootstrap({ provider: "neste_pc" });
@@ -105,8 +113,8 @@ export function App() {
         setCaptureError(null);
         toast.push({
           tone: "success",
-          title: "Modelos locais prontos",
-          description: "Pode ligar a captura.",
+          title: t("engine.readyTitle"),
+          description: t("engine.readyBody"),
         });
         return;
       }
@@ -114,7 +122,7 @@ export function App() {
         setCaptureError(status.whisper.message);
         toast.push({
           tone: "error",
-          title: "Não deu para carregar os modelos locais",
+          title: t("engine.loadFailTitle"),
           description: status.whisper.message,
         });
         return;
@@ -131,7 +139,7 @@ export function App() {
       setCaptureError(status.whisper.message);
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
     }
-  }, [toast]);
+  }, [t, toast]);
 
   const switchProvider = useCallback(
     async (next: Provider) => {
@@ -139,18 +147,17 @@ export function App() {
       if (next === "openai" && !hasApiKey) {
         toast.push({
           tone: "info",
-          title: "Falta a chave da OpenAI",
-          description: "Cole a chave em Preferências para ligar a API.",
+          title: t("engine.missingKeyTitle"),
+          description: t("engine.missingKeyBody"),
         });
         setView("settings");
         return;
       }
       if (next === "openai" && !openaiDisclaimer) {
         const ok = await confirm({
-          title: "Usar a API OpenAI?",
-          description:
-            "O áudio da transcrição e trechos da nota saem deste computador e vão para a OpenAI.",
-          confirmLabel: "Usar OpenAI",
+          title: t("engine.useOpenaiTitle"),
+          description: t("engine.useOpenaiBody"),
+          confirmLabel: t("engine.useOpenaiConfirm"),
         });
         if (!ok) return;
       }
@@ -170,8 +177,8 @@ export function App() {
       } catch (err) {
         toast.push({
           tone: "error",
-          title: "Não foi possível trocar o motor",
-          description: err instanceof Error ? err.message : "Tente de novo em Preferências.",
+          title: t("engine.switchFailTitle"),
+          description: err instanceof Error ? err.message : t("engine.switchFailBody"),
         });
       } finally {
         setProviderBusy(false);
@@ -185,6 +192,7 @@ export function App() {
       openaiDisclaimer,
       prepareLocalEngine,
       providerBusy,
+      t,
       toast,
     ],
   );
@@ -203,18 +211,18 @@ export function App() {
         const status = await api.setupStatus();
         const settings = await api.getSettings();
         if (!cancelled) {
+          if (isUiLanguage(settings.ui_language)) setLocale(settings.ui_language);
           setMicOnly(settings.mic_only_default);
-          setLanguage(settings.language ?? "pt");
+          setLanguage(isCaptureLanguage(settings.language) ? settings.language : "pt");
           applyEngineSettings(settings);
           const wizard = !status.disclaimer_accepted || !status.setup_complete;
           setNeedsWizard(wizard);
           if (!status.audio_ok) {
             setCaptureError(
-              status.audio_message ||
-                "Nenhum microfone detectado. Verifique as permissões de privacidade do Windows.",
+              status.audio_message || t("engine.noMic"),
             );
           } else if (!status.capture_ready) {
-            setCaptureError(status.whisper.message || "Modelo de transcrição ainda não está pronto");
+            setCaptureError(status.whisper.message || t("engine.asrNotReady"));
             if (settings.provider !== "openai" && !wizard) void prepareLocalEngine();
           }
           setReady(true);
@@ -236,7 +244,7 @@ export function App() {
           setBootError(
             err instanceof Error
               ? err.message
-              : "Não foi possível abrir o backend local. Feche outras janelas do DroidNote e tente de novo.",
+              : t("boot.backendFailed"),
           );
           setReady(true);
         }
@@ -321,7 +329,6 @@ export function App() {
             setAsrBusy(true);
           }
           if (event.status === "done") {
-            setAsrEmpty(Boolean(event.empty));
             if (queued === 0) setAsrBusy(false);
           }
         }
@@ -395,7 +402,6 @@ export function App() {
         return;
       }
       setPending("start");
-      setAsrEmpty(false);
       staleReconnectTriggered.current = false;
       const state = await api.startCapture({
         mic_only: captureMode === "dictation" ? true : micOnly,
@@ -411,7 +417,7 @@ export function App() {
       await loadSessions();
     } catch (error) {
       setCapture(previous);
-      setCaptureError(error instanceof Error ? error.message : "Falha na captura");
+      setCaptureError(error instanceof Error ? error.message : t("engine.captureFail"));
       try {
         setCapture(await api.captureState());
       } catch {
@@ -421,7 +427,7 @@ export function App() {
       setPending(null);
       setBusy(false);
     }
-  }, [busy, capture, loadSessions, micOnly, loopbackId, participantIds, captureMode]);
+  }, [busy, capture, loadSessions, micOnly, loopbackId, participantIds, captureMode, t]);
 
   useEffect(() => {
     if (!ready || needsWizard) return undefined;
@@ -436,13 +442,13 @@ export function App() {
   }, [ready, needsWizard, toggle]);
 
   if (!ready) {
-    return <BootScreen message="Carregando…" />;
+    return <BootScreen message={t("boot.loading")} />;
   }
 
   if (bootError) {
     return (
       <BootScreen
-        message="Carregando…"
+        message={t("boot.loading")}
         error={bootError}
         onRetry={() => {
           setReady(false);
@@ -496,7 +502,7 @@ export function App() {
             onChange={(next) => void switchProvider(next)}
           />
         </div>
-        <nav className="nav nav-primary" aria-label="Principal">
+        <nav className="nav nav-primary" aria-label={t("nav.primary")}>
           <button
             className={view === "live" ? "active" : ""}
             aria-current={view === "live" ? "page" : undefined}
@@ -504,7 +510,19 @@ export function App() {
             type="button"
           >
             <NavIcon name="live" />
-            <span>Ao vivo</span>
+            <span>{t("nav.live")}</span>
+          </button>
+          <button
+            className={view === "chat" ? "active" : ""}
+            aria-current={view === "chat" ? "page" : undefined}
+            onClick={() => openChat()}
+            type="button"
+          >
+            <NavIcon name="chat" />
+            <span className="nav-label">
+              {t("nav.chat")}
+              <span className="beta-flag">{t("common.beta")}</span>
+            </span>
           </button>
           <button
             className={view === "settings" ? "active" : ""}
@@ -513,7 +531,7 @@ export function App() {
             type="button"
           >
             <NavIcon name="settings" />
-            <span>Preferências</span>
+            <span>{t("nav.settings")}</span>
           </button>
         </nav>
         <div className="sidebar-section">
@@ -527,10 +545,10 @@ export function App() {
             onDelete={deleteFolder}
             onMoveSession={(sessionId, folderId) => moveSessionToFolder(sessionId, folderId)}
           />
-          <div className="conversation-heading">Conversas</div>
+          <div className="conversation-heading">{t("nav.conversations")}</div>
           <div className="session-list">
             {visibleSessions.length === 0 ? (
-              <div className="empty-block">Nenhuma sessão ainda. Ligue a captura para criar a primeira.</div>
+              <div className="empty-block">{t("nav.emptySessions")}</div>
             ) : (
               visibleSessions.map((session) => (
                 <SessionSidebarItem
@@ -553,9 +571,9 @@ export function App() {
           <SiteCredit className="sidebar-credit" />
         </div>
       </aside>
-      <main className={view === "live" || view === "session" ? "main main-workspace" : "main"}>
+      <main className={view === "live" || view === "session" || view === "chat" ? "main main-workspace" : "main"}>
         {view !== "live" && (capture.recording || asrBusy || speakersBusy) ? (
-          <p className="banner processing-banner">Há uma transcrição ativa</p>
+          <p className="banner processing-banner">{t("nav.activeTranscript")}</p>
         ) : null}
         {view === "live" ? (
           <LivePage
@@ -568,7 +586,6 @@ export function App() {
             micOnly={micOnly}
             monitor={monitor}
             asrBusy={asrBusy}
-            asrEmpty={asrEmpty}
             asrQueued={asrQueued}
             speakersBusy={speakersBusy}
             socketLive={socketLive}
@@ -588,6 +605,7 @@ export function App() {
             participantIds={participantIds}
             onParticipantIdsChange={setParticipantIds}
             languageLocked={language !== "auto"}
+            captureLanguage={language}
             captureMode={captureMode}
             engineProvider={asrProvider}
             onCaptureModeChange={(mode) => {
@@ -595,6 +613,16 @@ export function App() {
               if (mode === "dictation") setMicOnly(true);
               if (mode === "lecture" || mode === "meeting") setMicOnly(false);
             }}
+            onCaptureLanguageChange={(id) => {
+              setLanguage(id);
+              void api.saveSettings({ language: id }).catch(() => {
+                toast.push({
+                  tone: "error",
+                  title: t("settings.saveFail"),
+                });
+              });
+            }}
+            onAsk={openChat}
           />
         ) : null}
         {view === "session" && activeId ? (
@@ -613,6 +641,17 @@ export function App() {
             }}
             onTagsChanged={() => void loadSessions()}
             languageLocked={language !== "auto"}
+            onAsk={openChat}
+          />
+        ) : null}
+        {view === "chat" ? (
+          <ChatPage
+            focus={chatFocus}
+            onFocusConsumed={() => setChatFocus(null)}
+            onOpenSession={(sessionId) => {
+              setActiveId(sessionId);
+              setView("session");
+            }}
           />
         ) : null}
         {view === "settings" ? (
@@ -620,8 +659,9 @@ export function App() {
             engineProvider={asrProvider}
             onSaved={(next) => {
               setMicOnly(next.mic_only_default);
-              setLanguage(next.language ?? "pt");
+              setLanguage(isCaptureLanguage(next.language) ? next.language : "pt");
               applyEngineSettings(next);
+              if (isUiLanguage(next.ui_language)) setLocale(next.ui_language);
             }}
           />
         ) : null}
@@ -630,7 +670,7 @@ export function App() {
   );
 }
 
-type NavIconName = "live" | "settings";
+type NavIconName = "live" | "settings" | "chat";
 
 function NavIcon({ name }: { name: NavIconName }) {
   return (
@@ -641,6 +681,12 @@ function NavIcon({ name }: { name: NavIconName }) {
             <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
             <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4" />
             <path d="M4.6 4.6a10.5 10.5 0 0 0 0 14.8M19.4 4.6a10.5 10.5 0 0 1 0 14.8" />
+          </>
+        ) : null}
+        {name === "chat" ? (
+          <>
+            <path d="M5 7.5h14M5 12h9" />
+            <path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4 3v-3H6A2.5 2.5 0 0 1 3.5 14V7A2.5 2.5 0 0 1 6 4.5Z" />
           </>
         ) : null}
         {name === "settings" ? (

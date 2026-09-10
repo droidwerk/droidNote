@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useT } from "../i18n";
 import { Button } from "./primitives";
 
 export type ConfirmTone = "danger" | "default";
@@ -35,6 +36,7 @@ const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const t = useT();
   const [request, setRequest] = useState<ConfirmRequest | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -117,13 +119,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </div>
             <div className="confirm-actions">
               <Button onClick={() => settle(false)}>
-                {request.cancelLabel ?? "Cancelar"}
+                {request.cancelLabel ?? t("common.cancel")}
               </Button>
               <Button
                 variant={tone === "danger" ? "danger" : "primary"}
                 onClick={() => settle(true)}
               >
-                {request.confirmLabel ?? "OK"}
+                {request.confirmLabel ?? t("common.ok")}
               </Button>
             </div>
           </div>

@@ -1,4 +1,7 @@
-import { Badge } from "../../shared/ui/primitives";
+import { useEffect, useState } from "react";
+
+import { useT } from "../../shared/i18n";
+import type { TranslateFn } from "../../shared/i18n/I18nProvider";
 
 interface CaptureMeterProps {
   recording: boolean;
@@ -15,7 +18,6 @@ interface CaptureMeterProps {
     whisper_loaded: boolean;
   } | null;
   asrBusy: boolean;
-  asrEmpty: boolean;
   asrQueued?: number;
 }
 
@@ -27,22 +29,16 @@ export function CaptureMeter({
   stale,
   monitor,
   asrBusy,
-  asrEmpty,
   asrQueued = 0,
 }: CaptureMeterProps) {
+  const t = useT();
+  const busy = useHeldBusy(asrBusy || asrQueued > 0);
   const bars = normalizeBars(monitor?.bars);
-  const status = statusCopy({ recording, phase, monitor, asrBusy, asrEmpty, stale, asrQueued });
-  const speech = monitor?.speech === true;
-  const signalTone = !recording
-    ? "idle"
-    : stale
-      ? "stale"
-      : speech
-        ? "speech"
-        : "listening";
+  const visual = visualState({ recording, phase, busy, stale, socketLive, loaded: monitor?.whisper_loaded });
+  const status = statusCopy(visual, t);
 
   return (
-    <section className={`meter meter-${signalTone}`}>
+    <section className={`meter meter-${visual}`}>
       <div className="meter-time">
         <span className="meter-state-dot" aria-hidden />
         <p className={recording ? "meter-clock live" : "meter-clock"}>{formatElapsed(elapsedMs)}</p>
@@ -51,22 +47,54 @@ export function CaptureMeter({
         {bars.map((value, index) => (
           <span
             key={index}
-            className={speech ? "on" : ""}
+            className={value > 0.1 ? "is-active" : ""}
             style={{ height: `${barHeight(value, index, recording && !monitor)}%` }}
           />
         ))}
       </div>
-      <p className="meter-status">{status}</p>
-      <div className="meter-badges">
-        <Badge tone={!socketLive || stale ? "warning" : "success"}>
-          {!socketLive ? "Reconectando" : stale ? "Sem sinal" : "Tempo real"}
-        </Badge>
-        <Badge tone={monitor?.whisper_loaded ? "success" : "neutral"}>
-          {monitor?.whisper_loaded ? "Motor pronto" : "Motor em espera"}
-        </Badge>
-      </div>
+      <p className="meter-status" aria-live="polite">
+        {status}
+      </p>
     </section>
   );
+}
+
+function useHeldBusy(busy: boolean): boolean {
+  const [held, setHeld] = useState(busy);
+  useEffect(() => {
+    if (busy) {
+      setHeld(true);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setHeld(false), 450);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
+  return held;
+}
+
+function visualState(input: {
+  recording: boolean;
+  phase: string;
+  busy: boolean;
+  stale: boolean;
+  socketLive: boolean;
+  loaded?: boolean;
+}): "idle" | "loading" | "listening" | "transcribing" | "stale" {
+  if (input.stale || (input.recording && !input.socketLive)) return "stale";
+  if (!input.recording) {
+    return input.busy ? "transcribing" : "idle";
+  }
+  if (input.phase === "loading" || input.loaded === false) return "loading";
+  if (input.busy) return "transcribing";
+  return "listening";
+}
+
+function statusCopy(visual: ReturnType<typeof visualState>, t: TranslateFn): string {
+  if (visual === "stale") return t("meter.stale");
+  if (visual === "loading") return t("meter.loading");
+  if (visual === "transcribing") return t("meter.transcribing");
+  if (visual === "listening") return t("meter.listening");
+  return t("meter.ready");
 }
 
 function normalizeBars(values?: number[]): number[] {
@@ -88,42 +116,4 @@ function formatElapsed(ms: number): string {
   const minutes = String(Math.floor(total / 60)).padStart(2, "0");
   const seconds = String(total % 60).padStart(2, "0");
   return `${minutes}:${seconds}`;
-}
-
-function statusCopy(input: {
-  recording: boolean;
-  phase: string;
-  monitor: CaptureMeterProps["monitor"];
-  asrBusy: boolean;
-  asrEmpty: boolean;
-  stale: boolean;
-  asrQueued: number;
-}): string {
-  if (!input.recording && input.asrBusy) {
-    return input.asrQueued > 0
-      ? `Captura parada. Ainda transcrevendo ${input.asrQueued} trecho${input.asrQueued === 1 ? "" : "s"}.`
-      : "Captura parada. Ainda transcrevendo o resto do áudio…";
-  }
-  if (!input.recording) {
-    return "Ligue a captura. As barras sobem quando o microfone ouve algo.";
-  }
-  if (input.stale) {
-    return "O sinal de áudio parou de chegar. Tentando restabelecer a conexão…";
-  }
-  if (input.phase === "loading" || (input.recording && !input.monitor?.whisper_loaded && !input.monitor)) {
-    return "Microfone já ouve. Carregando Whisper na memória…";
-  }
-  if (input.asrBusy) {
-    return "Transcrevendo o bloco de áudio…";
-  }
-  if (input.monitor?.speech) {
-    return "Fala no ar. O texto entra na pausa, ou no máximo a cada vinte segundos.";
-  }
-  if (input.monitor && input.monitor.buffer_ms > 0 && input.monitor.rms < 0.004) {
-    return "Sinal muito baixo. Fale mais perto do microfone ou marque só o mic.";
-  }
-  if (input.asrEmpty) {
-    return "O motor rodou neste bloco e não gerou texto. Continue falando.";
-  }
-  return "Ouvindo. Fale algo — as barras precisam se mexer se a captura estiver viva.";
 }

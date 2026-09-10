@@ -51,15 +51,17 @@ def test_filter_drops_hum_loops() -> None:
 
 def test_filter_drops_prompt_echo() -> None:
     assert filter_transcript("Do not invent phrases that were not said.") == ""
+    assert filter_transcript("dont invent informations") == ""
+    assert filter_transcript("contexto: ######") == ""
     assert filter_transcript("Olá pessoal", "pt") == "Olá pessoal"
+    mixed = filter_transcript("contexto: ######. A aula começa agora.")
+    assert mixed == "A aula começa agora."
 
 
-def test_prompt_locks_language_without_participant_names() -> None:
-    prompt = build_asr_prompt("pt")
-    assert "português brasileiro" in prompt
-    assert "Participantes" not in prompt
-    assert "[Pessoa" not in prompt
-    assert "Do not invent" not in prompt
+def test_prompt_is_empty_so_whisper_cannot_echo_instructions() -> None:
+    assert build_asr_prompt("pt") == ""
+    assert build_asr_prompt("en") == ""
+    assert build_asr_prompt("es") == ""
     assert build_asr_prompt("auto") == ""
     assert build_asr_prompt(None) == ""
 

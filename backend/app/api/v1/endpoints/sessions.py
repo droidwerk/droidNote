@@ -11,6 +11,7 @@ from app.api.v1.deps import AppContainer, get_container
 from app.application.export import export_docx, export_pdf
 from app.application.speakers import UNSET
 from app.core.config import session_recording_path
+from app.core.i18n import ui_message
 from app.core.security import verify_token
 from app.domain.models import Session
 from app.schemas.api import (
@@ -32,8 +33,11 @@ router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(
 _SAFE_NAME = re.compile(r"[^\w\s.-]+", re.UNICODE)
 
 
-def _missing() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sessão não encontrada")
+def _missing(request: Request | None = None) -> HTTPException:
+    locale = "pt"
+    if request is not None:
+        locale = get_container(request.app).settings.ui_language
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ui_message(locale, "session_missing"))
 
 
 def _download_name(title: str, session_id: str, suffix: str) -> str:
@@ -102,7 +106,7 @@ async def get_session(session_id: str, request: Request) -> SessionDetailOut:
     try:
         session = await container.sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     segments = await container.sessions.segments(session_id)
     summary = await container.store.get_summary(session_id)
     participants = await container.speakers.participants(session_id)
@@ -121,7 +125,7 @@ async def rename_session(session_id: str, payload: SessionUpdateIn, request: Req
     try:
         session = await container.sessions.rename(session_id, payload.title)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     return await _session_out(container, session)
 
 
@@ -135,7 +139,7 @@ async def set_session_tags(
     try:
         await container.sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     tags = await container.store.set_session_tags(session_id, payload.tag_ids)
     return [TagOut.from_domain(item) for item in tags]
 
@@ -147,7 +151,7 @@ async def save_note(session_id: str, payload: NoteUpdateIn, request: Request) ->
             session_id, payload.notes_markdown
         )
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     return SummaryOut.from_domain(summary)
 
 
@@ -156,7 +160,7 @@ async def delete_session(session_id: str, request: Request) -> None:
     try:
         await get_container(request.app).sessions.delete(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
 
 
 @router.get("/{session_id}/search", response_model=SearchOut)
@@ -168,7 +172,7 @@ async def search_session(
     try:
         await get_container(request.app).sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     segments = await get_container(request.app).sessions.search(q, session_id=session_id)
     return SearchOut(query=q, segments=await _named_segments(request, segments))
 
@@ -180,12 +184,12 @@ async def summarize_session(session_id: str, request: Request) -> SummaryOut:
     if not setup.summarize_ready:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=setup.llm.message or "O motor de notas ainda não está pronto",
+            detail=setup.llm.message or ui_message(container.settings.ui_language, "llm_not_ready"),
         )
     try:
         summary = await container.summarize.summarize(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     return SummaryOut.from_domain(summary)
 
 
@@ -199,7 +203,7 @@ async def set_participants(
     try:
         await container.sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     people = await container.speakers.set_participants(session_id, payload.person_ids)
     if container.capture.state.session_id == session_id:
         await container.capture.set_participants(session_id, payload.person_ids)
@@ -228,7 +232,10 @@ async def patch_segment_speaker(
             apply_forward=apply_forward,
         )
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Segmento não encontrado") from None
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ui_message(get_container(request.app).settings.ui_language, "segment_missing"),
+        ) from None
     if container.capture.state.session_id == session_id:
         await container.capture.set_participants(
             session_id,
@@ -245,7 +252,7 @@ async def assign_speakers(session_id: str, request: Request) -> list[SegmentOut]
     try:
         await container.sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     segments = await container.speakers.assign_from_context(session_id)
     names = await container.speakers.name_map()
     return [SegmentOut.from_domain(item, names) for item in segments]
@@ -257,10 +264,13 @@ async def session_audio(session_id: str, request: Request):
     try:
         session = await container.sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     path: Path = session_recording_path(container.settings, session.id)
     if not path.is_file() or path.stat().st_size <= 44:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Áudio WAV não encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ui_message(container.settings.ui_language, "audio_missing"),
+        )
     return FileResponse(
         path,
         media_type="audio/wav",
@@ -279,7 +289,7 @@ async def export_session(
     try:
         session = await container.sessions.get(session_id)
     except KeyError:
-        raise _missing() from None
+        raise _missing(request) from None
     filename_base = _download_name(session.title, session.id, "")
     if format == "markdown":
         content = await container.sessions.export_markdown(session_id)

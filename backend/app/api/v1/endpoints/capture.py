@@ -5,6 +5,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.v1.deps import AppContainer, get_container
+from app.core.i18n import ui_message
 from app.core.logging import get_logger
 from app.core.security import verify_token
 from app.schemas.api import CaptureStartIn, CaptureStateOut, DeviceOut
@@ -50,7 +51,7 @@ async def start_capture(payload: CaptureStartIn, request: Request) -> CaptureSta
     container = get_container(request.app)
     setup = await container.setup.status()
     if not setup.capture_ready:
-        detail = setup.whisper.message or "Modelo de transcrição ainda não está pronto"
+        detail = setup.whisper.message or ui_message(container.settings.ui_language, "asr_not_ready")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     try:
         state = await container.capture.start(

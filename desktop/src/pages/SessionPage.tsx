@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../shared/api/client";
-import type { Person, SessionDetail, Tag } from "../shared/api/types";
+import type { ChatFocus, Person, SessionDetail, Tag } from "../shared/api/types";
+import { useT } from "../shared/i18n";
 import { AudioPlayer } from "../features/audio/AudioPlayer";
 import { SessionTags } from "../features/session/SessionTags";
 import { TranscriptList } from "../features/transcript/TranscriptList";
@@ -19,6 +20,7 @@ interface SessionPageProps {
   onRenamed?: (title: string) => void;
   onTagsChanged?: () => void;
   languageLocked?: boolean;
+  onAsk?: (focus: ChatFocus) => void;
 }
 
 type ExportFormat = "markdown" | "pdf" | "docx" | "json";
@@ -36,7 +38,9 @@ export function SessionPage({
   onRenamed,
   onTagsChanged,
   languageLocked = false,
+  onAsk,
 }: SessionPageProps) {
+  const t = useT();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [query, setQuery] = useState("");
   const [loadingSummary, setLoadingSummary] = useState(false);
@@ -81,7 +85,7 @@ export function SessionPage({
   }, [exportOpen]);
 
   if (!detail) {
-    return <div className="empty-block">Carregando sessão…</div>;
+    return <div className="empty-block">{t("session.loading")}</div>;
   }
 
   const filtered = query.trim()
@@ -101,7 +105,7 @@ export function SessionPage({
       const summary = await api.summarize(sessionId);
       setDetail((current) => (current ? { ...current, summary } : current));
     } catch (err) {
-      setSummaryError(err instanceof Error ? err.message : "Falha ao gerar a nota");
+      setSummaryError(err instanceof Error ? err.message : t("session.noteFail"));
     } finally {
       setLoadingSummary(false);
     }
@@ -120,16 +124,16 @@ export function SessionPage({
       ]);
       if (result.status === "cancelled") return;
       if (result.status === "error") {
-        toast.push({ tone: "error", title: "Falha ao exportar", description: result.message });
+        toast.push({ tone: "error", title: t("session.exportFail"), description: result.message });
         return;
       }
       toast.push({
         tone: "success",
-        title: "Arquivo gravado",
+        title: t("session.fileSaved"),
         description: suggestedName,
         action: result.path
           ? {
-              label: "Abrir pasta",
+              label: t("session.openFolder"),
               onClick: () => void openLocalPath(parentDirectory(result.path ?? "")),
             }
           : undefined,
@@ -137,8 +141,8 @@ export function SessionPage({
     } catch (err) {
       toast.push({
         tone: "error",
-        title: "Falha ao exportar",
-        description: err instanceof Error ? err.message : "Não foi possível gerar o arquivo.",
+        title: t("session.exportFail"),
+        description: err instanceof Error ? err.message : t("session.exportFailBody"),
       });
     } finally {
       setExportBusy(false);
@@ -147,9 +151,9 @@ export function SessionPage({
 
   const remove = async () => {
     const ok = await confirm({
-      title: `Apagar “${detail.session.title}”?`,
-      description: "A transcrição, a nota e o áudio desta sessão serão removidos.",
-      confirmLabel: "Apagar",
+      title: t("session.deleteTitle", { title: detail.session.title }),
+      description: t("session.deleteBody"),
+      confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!ok) return;
@@ -171,7 +175,7 @@ export function SessionPage({
                 aria-haspopup="menu"
                 onClick={() => setExportOpen((open) => !open)}
               >
-                {exportBusy ? "Exportando…" : "Exportar"}
+                {exportBusy ? t("session.exporting") : t("session.export")}
               </Button>
               {exportOpen && !exportBusy ? (
                 <div className="export-menu-list" role="menu">
@@ -189,7 +193,7 @@ export function SessionPage({
               ) : null}
             </div>
             <Button variant="danger" onClick={() => void remove()}>
-              Apagar
+              {t("common.delete")}
             </Button>
           </>
         }
@@ -213,13 +217,13 @@ export function SessionPage({
           onTimeMs={setActiveMs}
         />
       ) : (
-        <p className="muted">Esta sessão não tem WAV neste PC. Ligue a opção em Preferências na próxima captura.</p>
+        <p className="muted">{t("session.noWav")}</p>
       )}
       <div className="workspace-grid">
         <section className="card transcript-card">
           <div className="workspace-head">
             <div>
-              <h2>Transcrição</h2>
+              <h2>{t("live.transcript")}</h2>
             </div>
             <div className="search-wrap">
               <span aria-hidden>
@@ -230,8 +234,8 @@ export function SessionPage({
               </span>
               <input
                 className="search"
-                placeholder="Pesquisar"
-                aria-label="Pesquisar nesta sessão"
+                placeholder={t("session.search")}
+                aria-label={t("session.searchAria")}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -246,6 +250,17 @@ export function SessionPage({
             assigningAll={assigning}
             activeMs={activeMs}
             onSeek={(ms) => setSeekMs(ms)}
+            onAskSelected={
+              onAsk
+                ? (segment) =>
+                    onAsk({
+                      sessionId,
+                      sessionTitle: detail.session.title,
+                      segmentId: segment.id,
+                      excerpt: segment.text,
+                    })
+                : undefined
+            }
             onAssignAll={async () => {
               setAssigning(true);
               try {

@@ -437,16 +437,7 @@ class CaptureService:
         if not session_id:
             return
         queue = pending or self._pending
-        self._transcribing = True
-        await self._bus.publish(
-            {
-                "type": "asr",
-                "status": "start",
-                "queued": queue.qsize(),
-                "phase": "transcribing",
-                "session_id": session_id,
-            }
-        )
+        await self._mark_asr(True, session_id, queue)
         text = ""
         language: str | None = None
         try:
@@ -462,18 +453,7 @@ class CaptureService:
             log.exception("transcribe window failed session=%s", session_id)
             text, language = "", None
         finally:
-            self._transcribing = False
-        await self._bus.publish(
-            {
-                "type": "asr",
-                "status": "done" if queue.qsize() == 0 else "start",
-                "empty": not bool(text),
-                "chars": len(text or ""),
-                "queued": queue.qsize(),
-                "phase": "listening" if self.state.recording else "transcribing",
-                "session_id": session_id,
-            }
-        )
+            await self._mark_asr(False, session_id, queue)
         if not text:
             log.info("whisper returned empty window session=%s", session_id)
             return
@@ -509,6 +489,43 @@ class CaptureService:
                     "speaker_name": speaker_name,
                     "source": segment.source,
                 },
+            }
+        )
+
+    async def _mark_asr(
+        self,
+        busy: bool,
+        session_id: str,
+        queue: asyncio.Queue[PendingWindow],
+    ) -> None:
+        queued = queue.qsize()
+        if busy:
+            if self._transcribing:
+                return
+            self._transcribing = True
+            await self._bus.publish(
+                {
+                    "type": "asr",
+                    "status": "start",
+                    "queued": queued,
+                    "phase": "transcribing",
+                    "session_id": session_id,
+                }
+            )
+            return
+        if queued > 0:
+            return
+        if not self._transcribing:
+            return
+        self._transcribing = False
+        await self._bus.publish(
+            {
+                "type": "asr",
+                "status": "done",
+                "empty": False,
+                "queued": 0,
+                "phase": "listening" if self.state.recording else "idle",
+                "session_id": session_id,
             }
         )
 

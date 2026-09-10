@@ -73,6 +73,34 @@ class Summary:
     notes_markdown: str = ""
 
 
+@dataclass(frozen=True)
+class ChatCitation:
+    session_id: str
+    session_title: str
+    segment_id: str | None = None
+    start_ms: int = 0
+    excerpt: str = ""
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    id: str
+    chat_id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+    citations: list[ChatCitation] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Chat:
+    id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    focus_session_id: str | None = None
+
+
 @dataclass
 class AudioChunk:
     samples: list[float]

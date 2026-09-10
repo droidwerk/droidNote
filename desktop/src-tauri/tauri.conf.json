@@ -42,12 +42,12 @@
         "type": "embedBootstrapper"
       },
       "nsis": {
-        "displayLanguageSelector": false,
+        "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
         "template": "./windows/installer.nsi",
         "installMode": "currentUser",
         "compression": "lzma",
-        "languages": ["PortugueseBR", "English"],
+        "languages": ["PortugueseBR", "English", "Spanish", "Italian", "German", "French", "Russian"],
         "startMenuFolder": "DroidNote",
         "installerHooks": "./windows/hooks.nsh"
       }

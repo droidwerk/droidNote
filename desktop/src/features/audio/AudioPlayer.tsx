@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { api } from "../../shared/api/client";
+import { useT } from "../../shared/i18n";
 import { formatClock } from "../../shared/lib/format";
 import { cssVar, useTheme } from "../../shared/lib/theme";
 import { Button } from "../../shared/ui/primitives";
@@ -22,6 +23,7 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const { theme } = useTheme();
+  const t = useT();
 
   useEffect(() => {
     let revoked: string | null = null;
@@ -54,7 +56,7 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
         if (!cancelled) setReady(true);
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Áudio WAV não encontrado");
+          setError(err instanceof Error ? err.message : t("audio.missing"));
         }
       }
     })();
@@ -119,7 +121,7 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
         onEnded={() => setPlaying(false)}
       />
       <Button variant="primary" size="sm" onClick={toggle} disabled={!ready}>
-        {playing ? "Pausar" : "Ouvir"}
+        {playing ? t("audio.pause") : t("audio.play")}
       </Button>
       <div className="audio-player-wave">
         <canvas
@@ -127,7 +129,7 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
           width={720}
           height={48}
           onClick={seekCanvas}
-          aria-label="Forma de onda da gravação"
+          aria-label={t("audio.waveform")}
         />
       </div>
       <span className="audio-player-clock">

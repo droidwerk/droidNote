@@ -35,6 +35,7 @@ def test_openai_engine_posts_wav(monkeypatch) -> None:
             captured["auth"] = headers["Authorization"]
             captured["model"] = data["model"]
             captured["language"] = data.get("language")
+            captured["prompt"] = data.get("prompt")
             captured["file_name"] = files["file"][0]
             return FakeResponse()
 
@@ -47,6 +48,7 @@ def test_openai_engine_posts_wav(monkeypatch) -> None:
     assert captured["auth"] == "Bearer sk-test-key"
     assert captured["language"] == "pt"
     assert captured["file_name"] == "audio.wav"
+    assert captured["prompt"] is None
 
 
 def test_openai_not_ready_without_key() -> None:
@@ -54,7 +56,10 @@ def test_openai_not_ready_without_key() -> None:
     assert engine.is_ready() is False
 
 
-def test_router_openai_does_not_touch_local(tmp_path) -> None:
+def test_router_openai_does_not_touch_local(tmp_path, monkeypatch) -> None:
+    from app.infrastructure.asr import whisper_engine
+
+    monkeypatch.setattr(whisper_engine, "whisper_search_roots", lambda primary: [primary])
     local = WhisperEngine("small", tmp_path / "models")
     openai = OpenAIWhisperEngine(api_key="sk-abc")
     router = AsrRouter(local, openai, provider="openai")

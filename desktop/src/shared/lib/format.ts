@@ -1,3 +1,6 @@
+import { bcp47 } from "../i18n/locales";
+import { currentUiLanguage } from "../i18n/runtime";
+
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(total / 3600);
@@ -11,7 +14,7 @@ export function formatClock(ms: number): string {
 
 export function formatDate(iso: string): string {
   const date = new Date(iso);
-  return date.toLocaleString("pt-BR", {
+  return date.toLocaleString(bcp47(currentUiLanguage()), {
     day: "2-digit",
     month: "short",
     hour: "2-digit",

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.domain.models import Person, Session, Summary, Tag, TranscriptSegment
+from app.domain.models import Chat, ChatCitation, ChatMessage, Person, Session, Summary, Tag, TranscriptSegment
 
 
 class HealthOut(BaseModel):
@@ -278,6 +278,7 @@ class SettingsOut(BaseModel):
     has_api_key: bool = False
     api_key_hint: str = ""
     language: str = "pt"
+    ui_language: str = "pt"
     data_dir: str = ""
     recordings_dir: str = ""
     self_person_id: str = ""
@@ -296,6 +297,7 @@ class SettingsIn(BaseModel):
     llm_cloud_model: str | None = None
     asr_api_key: str | None = None
     language: str | None = None
+    ui_language: str | None = None
     recordings_dir: str | None = None
     self_person_id: str | None = None
     save_recordings: bool | None = None
@@ -342,3 +344,71 @@ class ModelsCatalogOut(BaseModel):
     asr_cloud: list[ModelOptionOut] = Field(default_factory=list)
     llm_cloud: list[ModelOptionOut] = Field(default_factory=list)
     ollama_online: bool = False
+
+
+class ChatAskIn(BaseModel):
+    message: str = Field(min_length=1, max_length=8_000)
+    chat_id: str | None = None
+    session_id: str | None = None
+    segment_ids: list[str] = Field(default_factory=list)
+
+
+class ChatCitationOut(BaseModel):
+    session_id: str
+    session_title: str
+    segment_id: str | None = None
+    start_ms: int = 0
+    excerpt: str = ""
+
+    @classmethod
+    def from_domain(cls, item: ChatCitation) -> ChatCitationOut:
+        return cls(
+            session_id=item.session_id,
+            session_title=item.session_title,
+            segment_id=item.segment_id,
+            start_ms=item.start_ms,
+            excerpt=item.excerpt,
+        )
+
+
+class ChatMessageOut(BaseModel):
+    id: str
+    chat_id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+    citations: list[ChatCitationOut] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(cls, message: ChatMessage) -> ChatMessageOut:
+        return cls(
+            id=message.id,
+            chat_id=message.chat_id,
+            role=message.role,
+            content=message.content,
+            created_at=message.created_at,
+            citations=[ChatCitationOut.from_domain(item) for item in message.citations],
+        )
+
+
+class ChatOut(BaseModel):
+    id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    focus_session_id: str | None = None
+
+    @classmethod
+    def from_domain(cls, chat: Chat) -> ChatOut:
+        return cls(
+            id=chat.id,
+            title=chat.title,
+            created_at=chat.created_at,
+            updated_at=chat.updated_at,
+            focus_session_id=chat.focus_session_id,
+        )
+
+
+class ChatDetailOut(BaseModel):
+    chat: ChatOut
+    messages: list[ChatMessageOut]

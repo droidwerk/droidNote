@@ -50,7 +50,7 @@ A transcrição chega com falhas de reconhecimento de voz. Trate ruído como ru�
 SUMMARY_PROMPT = """Gere a ata da reunião abaixo.
 
 Responda apenas um JSON com estas chaves:
-- "language": código do idioma falado na transcrição ("pt", "en", "es"…)
+- "language": código do idioma falado na transcrição ("pt", "en", "es", "it", "de", "fr", "ru")
 - "overview": 3 a 5 frases sobre o propósito e o resultado geral da reunião
 - "topics": array de objetos {{"title": string, "points": array de strings}} — os assuntos discutidos, agrupados por tema ou em ordem cronológica, o que fizer mais sentido
 - "decisions": array de strings — apenas decisões efetivamente tomadas
@@ -66,7 +66,7 @@ Arrays sem conteúdo ficam vazios. Escreva tudo no idioma da transcrição.
 DICTATION_SUMMARY = """Organize este ditado em um caderno pessoal.
 
 Responda apenas um JSON com estas chaves:
-- "language": código do idioma falado ("pt", "en", "es"…)
+- "language": código do idioma falado ("pt", "en", "es", "it", "de", "fr", "ru")
 - "overview": 2 a 4 frases com o que a pessoa quis registrar
 - "topics": array de objetos {{"title": string, "points": array de strings}} — ideias e anotações agrupadas
 - "decisions": array de strings — só o que a pessoa decidiu
@@ -82,7 +82,7 @@ Arrays sem conteúdo ficam vazios. Escreva tudo no idioma da transcrição.
 LECTURE_SUMMARY = """Organize esta aula em um caderno de estudo.
 
 Responda apenas um JSON com estas chaves:
-- "language": código do idioma falado ("pt", "en", "es"…)
+- "language": código do idioma falado ("pt", "en", "es", "it", "de", "fr", "ru")
 - "overview": 3 a 5 frases sobre o tema da aula e o que foi ensinado
 - "topics": array de objetos {{"title": string, "points": array de strings}} — conceitos e explicações
 - "decisions": array de strings — em geral vazio, a menos que a aula tenha definido uma regra
@@ -107,12 +107,15 @@ Trechos:
 {segments}
 """
 
-MEMORY_SYSTEM = """Você responde perguntas sobre as transcrições que o usuário já capturou neste computador.
+CHAT_SYSTEM = """Você é o assistente do DroidNote. Ajuda a estudar, revisar e pensar a partir das aulas e conversas capturadas neste computador — e também responde perguntas gerais quando fizer sentido.
 
-Use somente os trechos recuperados. Se a resposta não estiver neles, diga que não encontrou.
-Cite os trechos pelo índice [1], [2] quando afirmar algo.
-Escreva no idioma da pergunta.
-Não invente reuniões, pessoas ou decisões que não apareçam no contexto."""
+Como usar o contexto:
+- Os trechos recuperados são a memória das aulas do aluno. Quando a pergunta for sobre o que foi dito, baseie-se neles e cite a aula e o horário.
+- Se o trecho não cobrir a pergunta, diga isso com clareza. Depois pode explicar o conceito com conhecimento geral, deixando explícito o que veio da aula e o que é explicação extra.
+- Pode comparar aulas, montar revisão para prova, gerar perguntas, apontar conceitos que o aluno parece não ter dominado, e criar material de estudo.
+- Não invente falas, decisões, nomes ou fatos que não estejam nos trechos. Não cite trechos que não existam.
+- Responda no idioma da pergunta. Seja direto. Sem enrolação.
+"""
 
 
 def prompts_for(mode: str | None) -> tuple[str, str]:

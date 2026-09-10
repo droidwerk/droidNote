@@ -1,3 +1,4 @@
+import { useT } from "../i18n";
 import { BrandLockup, SiteCredit } from "./Brand";
 import { Button } from "./primitives";
 
@@ -8,6 +9,7 @@ interface BootScreenProps {
 }
 
 export function BootScreen({ message, error, onRetry }: BootScreenProps) {
+  const t = useT();
   return (
     <main className="boot">
       <section className="boot-panel">
@@ -17,7 +19,7 @@ export function BootScreen({ message, error, onRetry }: BootScreenProps) {
             <p className="boot-error">{error}</p>
             {onRetry ? (
               <Button variant="primary" onClick={onRetry}>
-                Tentar de novo
+                {t("common.retry")}
               </Button>
             ) : null}
           </div>

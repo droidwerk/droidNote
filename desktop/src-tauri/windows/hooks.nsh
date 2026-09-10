@@ -4,6 +4,10 @@
 !macro NSIS_HOOK_POSTINSTALL
   SetOutPath "$INSTDIR"
   CreateShortCut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL
+  CreateDirectory "$APPDATA\DroidNote"
+  FileOpen $0 "$APPDATA\DroidNote\install-lang.txt" w
+  FileWrite $0 "$LANGUAGE"
+  FileClose $0
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
