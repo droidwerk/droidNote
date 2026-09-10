@@ -1,4 +1,8 @@
 !macro NSIS_HOOK_PREINSTALL
+  ; Sidecar keeps .pyd files locked even after the window is gone.
+  ExecWait '"$SYSDIR\taskkill.exe" /F /IM ${MAINBINARYNAME}.exe /T'
+  ExecWait '"$SYSDIR\taskkill.exe" /F /IM droidnote-backend.exe /T'
+  Sleep 2000
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -12,6 +16,7 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   ExecWait '"$SYSDIR\taskkill.exe" /F /IM ${MAINBINARYNAME}.exe /T'
+  ExecWait '"$SYSDIR\taskkill.exe" /F /IM droidnote-backend.exe /T'
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   Delete "$SMPROGRAMS\DroidNote\${PRODUCTNAME}.lnk"
