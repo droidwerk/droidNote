@@ -1,10 +1,40 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Backend = Join-Path $Root "backend"
-$Desktop = Join-Path $Root "desktop"
+$TimestampUrl = "http://timestamp.digicert.com"
+
+# O macro generate_context! do Tauri grava CARGO_MANIFEST_DIR dentro do binário, e
+# o remap de caminhos do rustc não alcança isso: é variável de ambiente lida em
+# tempo de compilação. Se o repositório mora em C:\Users\<alguém>, esse nome vai
+# junto para o PC de todo mundo que instalar. Compilar através de uma junção num
+# caminho sem dado pessoal resolve sem copiar o projeto (a junção aponta para os
+# mesmos arquivos, então node_modules e target continuam sendo reaproveitados).
+function Get-NeutralBuildRoot([string]$Target) {
+    $link = Join-Path $env:PUBLIC "droidnote-build"
+    if (Test-Path -LiteralPath $link) {
+        $item = Get-Item -LiteralPath $link -Force
+        if ($item.LinkType -ne "Junction") {
+            Write-Warning "$link existe e não é junção. Compilando pelo caminho original."
+            return $Target
+        }
+        if (($item.Target | Select-Object -First 1) -eq $Target) {
+            return $link
+        }
+        cmd /c rmdir "$link" | Out-Null
+    }
+    cmd /c mklink /J "$link" "$Target" | Out-Null
+    if (Test-Path -LiteralPath (Join-Path $link "desktop\src-tauri\Cargo.toml")) {
+        Write-Host "Compilando por $link (mantém o caminho desta máquina fora do binário)."
+        return $link
+    }
+    Write-Warning "Não foi possível criar a junção em $link. O binário levará o caminho desta máquina."
+    return $Target
+}
+
+$BuildRoot = Get-NeutralBuildRoot $Root
+$Backend = Join-Path $BuildRoot "backend"
+$Desktop = Join-Path $BuildRoot "desktop"
 $SidecarSrc = Join-Path $Backend "dist\droidnote-backend"
 $SidecarDestDir = Join-Path $Desktop "src-tauri\resources\droidnote-backend"
-$TimestampUrl = "http://timestamp.digicert.com"
 
 function Sign-IfConfigured([string]$Path) {
     $thumb = $env:DROIDNOTE_CERT_THUMBPRINT
@@ -47,6 +77,7 @@ $Sep = [char]0x1F
 $env:CARGO_ENCODED_RUSTFLAGS = @(
     "--remap-path-prefix=$CargoHome=/cargo",
     "--remap-path-prefix=$RustUp=/rustup",
+    "--remap-path-prefix=$BuildRoot=/droidnote",
     "--remap-path-prefix=$Root=/droidnote"
 ) -join $Sep
 
@@ -78,11 +109,25 @@ if (Test-Path $BundledSidecar) {
     Sign-IfConfigured $BundledSidecar
 }
 
-Push-Location $Desktop
+# O rollup recusa a junção (compara o caminho canônico com o caminho do projeto e
+# acha que index.html está fora da raiz), então o frontend compila pelo caminho
+# real e o tauri build só empacota o que já está em desktop/dist.
+Push-Location (Join-Path $Root "desktop")
 npm install
+npm run build
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    throw "npm run build falhou"
+}
+Pop-Location
+
+$SkipBefore = Join-Path $env:TEMP "droidnote-skip-before-build.json"
+'{ "build": { "beforeBuildCommand": "" } }' | Set-Content -LiteralPath $SkipBefore -Encoding utf8
+
+Push-Location $Desktop
 $bundleOk = $false
 for ($attempt = 1; $attempt -le 3; $attempt++) {
-    npm run tauri build
+    npm run tauri -- build --config $SkipBefore
     if ($LASTEXITCODE -eq 0) {
         $bundleOk = $true
         break
