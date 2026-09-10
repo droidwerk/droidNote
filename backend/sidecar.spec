@@ -31,6 +31,7 @@ a = Analysis(
         "starlette",
         "ctranslate2",
         "huggingface_hub",
+        "certifi",
         "tokenizers",
         "onnxruntime",
     ],

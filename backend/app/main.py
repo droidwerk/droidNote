@@ -24,6 +24,7 @@ from app.core.config import Settings, get_settings
 from app.core.hardware import available_ram_gb, suggest_note_model, suggest_whisper_model, total_ram_gb
 from app.core.i18n import normalize_ui_language, read_install_language
 from app.core.logging import configure_logging, get_logger
+from app.core.net_tls import install_system_trust
 from app.infrastructure.asr.openai_engine import OpenAIWhisperEngine
 from app.infrastructure.asr.router import AsrRouter
 from app.infrastructure.asr.whisper_engine import WhisperEngine
@@ -49,6 +50,9 @@ ALLOWED_ORIGINS = [
 def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging()
     resolved = settings or get_settings()
+    # Antes de qualquer download: em PC com proxy ou antivírus que inspeciona
+    # HTTPS, a CA está só no Windows e o certifi sozinho recusa a conexão.
+    install_system_trust(resolved.data_dir)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

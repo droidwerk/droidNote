@@ -15,6 +15,7 @@ import httpx
 from app.application.prompts import SYSTEM_PROMPT
 from app.core.distribution import OLLAMA_SETUP_SHA256, OLLAMA_SETUP_URL, OLLAMA_SETUP_VERSION
 from app.core.logging import get_logger
+from app.core.net_tls import ssl_verify
 from app.core.user_errors import explain
 from app.domain.models import SetupComponentStatus
 
@@ -414,7 +415,7 @@ def verify_sha256(path: Path, expected: str) -> None:
 def _download_installer() -> Path:
     dest = Path(tempfile.gettempdir()) / f"DroidNote-OllamaSetup-{OLLAMA_SETUP_VERSION}.exe"
     timeout = httpx.Timeout(30.0, read=600.0)
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+    with httpx.Client(timeout=timeout, follow_redirects=True, verify=ssl_verify()) as client:
         with client.stream("GET", OLLAMA_SETUP_URL) as response:
             response.raise_for_status()
             with dest.open("wb") as handle:

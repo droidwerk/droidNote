@@ -8,6 +8,7 @@ import httpx
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.net_tls import ssl_verify
 from app.infrastructure.asr.whisper_engine import build_asr_prompt, filter_transcript, whisper_language_arg
 
 log = get_logger("asr.openai")
@@ -64,7 +65,7 @@ class OpenAIWhisperEngine:
             data["prompt"] = prompt
         if locked:
             data["language"] = locked
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=60.0, verify=ssl_verify()) as client:
             response = client.post(
                 OPENAI_TRANSCRIBE_URL,
                 headers={"Authorization": f"Bearer {self.api_key.strip()}"},
@@ -84,7 +85,7 @@ class OpenAIWhisperEngine:
         if not key:
             return False, "Informe uma chave da API OpenAI."
         try:
-            with httpx.Client(timeout=15.0) as client:
+            with httpx.Client(timeout=15.0, verify=ssl_verify()) as client:
                 response = client.get(
                     "https://api.openai.com/v1/models",
                     headers={"Authorization": f"Bearer {key}"},
