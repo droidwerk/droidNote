@@ -224,6 +224,7 @@ export async function askChat(
     chat_id?: string | null;
     session_id?: string | null;
     segment_ids?: string[];
+    ui_language?: string;
   },
   onToken: (token: string) => void,
 ): Promise<{ chat: ChatThread; message: ChatMessage }> {

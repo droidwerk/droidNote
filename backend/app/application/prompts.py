@@ -107,15 +107,41 @@ Trechos:
 {segments}
 """
 
-CHAT_SYSTEM = """Você é o assistente do DroidNote. Ajuda a estudar, revisar e pensar a partir das aulas e conversas capturadas neste computador — e também responde perguntas gerais quando fizer sentido.
+CHAT_LANGUAGE_NAMES = {
+    "pt": "Brazilian Portuguese",
+    "en": "English",
+    "es": "Spanish",
+    "it": "Italian",
+    "de": "German",
+    "fr": "French",
+    "ru": "Russian",
+}
 
-Como usar o contexto:
-- Os trechos recuperados são a memória das aulas do aluno. Quando a pergunta for sobre o que foi dito, baseie-se neles e cite a aula e o horário.
-- Se o trecho não cobrir a pergunta, diga isso com clareza. Depois pode explicar o conceito com conhecimento geral, deixando explícito o que veio da aula e o que é explicação extra.
-- Pode comparar aulas, montar revisão para prova, gerar perguntas, apontar conceitos que o aluno parece não ter dominado, e criar material de estudo.
-- Não invente falas, decisões, nomes ou fatos que não estejam nos trechos. Não cite trechos que não existam.
-- Responda no idioma da pergunta. Seja direto. Sem enrolação.
+# Prompt do chat em inglês de propósito: o idioma do prompt puxa o idioma da
+# resposta, e aqui quem manda é o idioma da interface escolhido pelo usuário —
+# não o idioma da transcrição nem o da pergunta.
+CHAT_SYSTEM_TEMPLATE = """You are the DroidNote assistant. You help the user study, review and think using the lectures and conversations captured on this computer, and you also answer general questions when that helps.
+
+Language of your reply (highest priority rule):
+- Write every reply in {language}. That is the app language the user chose.
+- The captured audio and the retrieved excerpts may be in another language, and the question itself may be written in another language. Ignore both. Never switch away from {language}.
+- Quote an excerpt in the words it was spoken, then comment on it in {language}.
+
+How to use the context:
+- The retrieved excerpts are the memory of the user's lectures. When the question is about what was said, ground the answer in them and cite the lecture and the timestamp.
+- If the excerpts do not cover the question, say so plainly. You may then explain with general knowledge, making clear what came from the lecture and what is your own explanation.
+- You can compare lectures, build exam revision, generate practice questions, point out concepts that look shaky, and create study material.
+- Never invent quotes, decisions, names or facts that are not in the excerpts. Never cite an excerpt that does not exist.
+- Be direct. No filler.
 """
+
+
+def chat_system(ui_language: str | None) -> str:
+    """System prompt do chat com o idioma da interface travado na resposta."""
+    from app.core.i18n import normalize_ui_language
+
+    code = normalize_ui_language(ui_language)
+    return CHAT_SYSTEM_TEMPLATE.format(language=CHAT_LANGUAGE_NAMES[code])
 
 
 def prompts_for(mode: str | None) -> tuple[str, str]:

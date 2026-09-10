@@ -351,6 +351,9 @@ class ChatAskIn(BaseModel):
     chat_id: str | None = None
     session_id: str | None = None
     segment_ids: list[str] = Field(default_factory=list)
+    # Idioma da interface: manda no idioma da resposta, independente do idioma
+    # da transcrição. Vem do cliente para não depender de settings desatualizado.
+    ui_language: str | None = None
 
 
 class ChatCitationOut(BaseModel):

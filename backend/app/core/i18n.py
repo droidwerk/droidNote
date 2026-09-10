@@ -28,6 +28,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Modelo de transcrição pronto",
         "openai_key_missing": "Falta a chave da API OpenAI.",
         "whisper_not_downloaded": "Modelo de transcrição ainda não baixado neste PC. O DroidNote vai baixar o Whisper agora.",
+        "chat_empty_question": "Escreva uma pergunta.",
+        "chat_no_reply": "Não consegui responder agora.",
+        "chat_untitled": "Conversa",
     },
     "en": {
         "session_missing": "Session not found",
@@ -40,6 +43,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Transcription model ready",
         "openai_key_missing": "The OpenAI API key is missing.",
         "whisper_not_downloaded": "The transcription model is not on this PC yet. DroidNote will download Whisper now.",
+        "chat_empty_question": "Write a question.",
+        "chat_no_reply": "I could not answer right now.",
+        "chat_untitled": "Conversation",
     },
     "es": {
         "session_missing": "Sesión no encontrada",
@@ -52,6 +58,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Modelo de transcripción listo",
         "openai_key_missing": "Falta la clave de la API de OpenAI.",
         "whisper_not_downloaded": "El modelo de transcripción aún no está en este PC. DroidNote descargará Whisper ahora.",
+        "chat_empty_question": "Escribe una pregunta.",
+        "chat_no_reply": "No pude responder ahora.",
+        "chat_untitled": "Conversación",
     },
     "it": {
         "session_missing": "Sessione non trovata",
@@ -64,6 +73,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Modello di trascrizione pronto",
         "openai_key_missing": "Manca la chiave API OpenAI.",
         "whisper_not_downloaded": "Il modello di trascrizione non è ancora su questo PC. DroidNote scaricherà Whisper ora.",
+        "chat_empty_question": "Scrivi una domanda.",
+        "chat_no_reply": "Non sono riuscito a rispondere ora.",
+        "chat_untitled": "Conversazione",
     },
     "de": {
         "session_missing": "Sitzung nicht gefunden",
@@ -76,6 +88,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Transkriptionsmodell bereit",
         "openai_key_missing": "Der OpenAI-API-Schlüssel fehlt.",
         "whisper_not_downloaded": "Das Transkriptionsmodell ist noch nicht auf diesem PC. DroidNote lädt Whisper jetzt herunter.",
+        "chat_empty_question": "Schreiben Sie eine Frage.",
+        "chat_no_reply": "Ich konnte gerade nicht antworten.",
+        "chat_untitled": "Unterhaltung",
     },
     "fr": {
         "session_missing": "Session introuvable",
@@ -88,6 +103,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Modèle de transcription prêt",
         "openai_key_missing": "La clé API OpenAI est manquante.",
         "whisper_not_downloaded": "Le modèle de transcription n'est pas encore sur ce PC. DroidNote va télécharger Whisper maintenant.",
+        "chat_empty_question": "Écrivez une question.",
+        "chat_no_reply": "Je n'ai pas pu répondre maintenant.",
+        "chat_untitled": "Conversation",
     },
     "ru": {
         "session_missing": "Сессия не найдена",
@@ -100,6 +118,9 @@ HTTP_MESSAGES: dict[str, dict[str, str]] = {
         "whisper_ready": "Модель транскрипции готова",
         "openai_key_missing": "Отсутствует ключ API OpenAI.",
         "whisper_not_downloaded": "Модели транскрипции ещё нет на этом ПК. DroidNote сейчас загрузит Whisper.",
+        "chat_empty_question": "Напишите вопрос.",
+        "chat_no_reply": "Сейчас не удалось ответить.",
+        "chat_untitled": "Беседа",
     },
 }
 
