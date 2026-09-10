@@ -89,13 +89,15 @@ class FakeLlm:
             '"open_items":["Pendência D"]}'
         )
         self.model = "qwen2.5:3b"
+        self.last_system: str | None = None
 
     async def generate_json(self, prompt: str, *, system: str | None = None) -> str:
-        del prompt, system
+        del prompt
+        self.last_system = system
         return self.payload
 
     async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
-        del system
+        self.last_system = system
         return f"Sobre: {prompt[:80]}"
 
     async def generate_text_stream(

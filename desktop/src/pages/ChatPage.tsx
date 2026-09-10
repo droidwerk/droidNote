@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, askChat } from "../shared/api/client";
-import type { ChatCitation, ChatFocus, ChatMessage, ChatThread } from "../shared/api/types";
-import { useT } from "../shared/i18n";
-import { copyToClipboard, formatClock } from "../shared/lib/format";
+import type { ChatCitation, ChatFocus, ChatMessage, ChatThread, Session } from "../shared/api/types";
+import { useI18n, useT } from "../shared/i18n";
+import { copyToClipboard, formatClock, formatDate } from "../shared/lib/format";
 import { Button } from "../shared/ui/primitives";
+
+const CONTEXT_LIMIT = 6;
 
 interface ChatPageProps {
   focus: ChatFocus | null;
@@ -20,28 +22,10 @@ interface SourceRow {
   count: number;
 }
 
-const SUGGESTIONS = (t: (key: string) => string): { label: string; prompt: string }[] => [
-  {
-    label: t("chat.suggestConcepts"),
-    prompt: t("chat.suggestConceptsPrompt"),
-  },
-  {
-    label: t("chat.suggestReview"),
-    prompt: t("chat.suggestReviewPrompt"),
-  },
-  {
-    label: t("chat.suggestGaps"),
-    prompt: t("chat.suggestGapsPrompt"),
-  },
-  {
-    label: t("chat.suggestCompare"),
-    prompt: t("chat.suggestComparePrompt"),
-  },
-];
-
 export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProps) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [recent, setRecent] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -59,6 +43,12 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
 
   useEffect(() => {
     void loadThreads();
+    // As aulas reais viram o contexto oferecido: nada de pergunta pronta que
+    // não tem relação com o que foi capturado.
+    void api
+      .sessions()
+      .then((items) => setRecent(items.slice(0, CONTEXT_LIMIT)))
+      .catch(() => setRecent([]));
   }, []);
 
   useEffect(() => {
@@ -98,6 +88,10 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
     setPendingFocus(null);
     setError(null);
     input.current?.focus();
+    void api
+      .sessions()
+      .then((items) => setRecent(items.slice(0, CONTEXT_LIMIT)))
+      .catch(() => undefined);
   };
 
   const send = async (text: string) => {
@@ -131,6 +125,7 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
           chat_id: activeId,
           session_id: pendingFocus?.sessionId,
           segment_ids: pendingFocus?.segmentId ? [pendingFocus.segmentId] : [],
+          ui_language: locale,
         },
         (token) => {
           setMessages((current) =>
@@ -162,13 +157,22 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
   };
 
   const empty = messages.length === 0;
-  const suggestions = pendingFocus?.excerpt
-    ? [
-        { label: t("chat.suggestExcerpt"), prompt: t("chat.suggestExcerptPrompt") },
-        { label: t("chat.suggestQuestions"), prompt: t("chat.suggestQuestionsPrompt") },
-        ...SUGGESTIONS(t).slice(0, 2),
-      ]
-    : SUGGESTIONS(t);
+  const focusedSession = pendingFocus?.sessionId ?? null;
+
+  const focusSession = (session: Session) => {
+    setPendingFocus(
+      focusedSession === session.id
+        ? null
+        : { sessionId: session.id, sessionTitle: session.title },
+    );
+    input.current?.focus();
+  };
+
+  const placeholder = pendingFocus?.excerpt
+    ? t("chat.placeholderFocus")
+    : pendingFocus?.sessionTitle
+      ? t("chat.placeholderSession", { title: pendingFocus.sessionTitle })
+      : t("chat.placeholder");
 
   return (
     <div className="chat-page">
@@ -207,13 +211,32 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
                 <p>{pendingFocus.excerpt}</p>
               </div>
             ) : null}
-            <div className="chat-suggestions">
-              {suggestions.map((item) => (
-                <button key={item.label} type="button" onClick={() => void send(item.prompt)}>
-                  <strong>{item.label}</strong>
-                </button>
-              ))}
-            </div>
+            {recent.length > 0 && !pendingFocus?.excerpt ? (
+              <div className="chat-context">
+                <p className="chat-context-label">{t("chat.contextLabel")}</p>
+                <div className="chat-context-list" role="group" aria-label={t("chat.contextLabel")}>
+                  {recent.map((session) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      aria-pressed={focusedSession === session.id}
+                      className={
+                        focusedSession === session.id
+                          ? "chat-context-chip is-active"
+                          : "chat-context-chip"
+                      }
+                      onClick={() => focusSession(session)}
+                    >
+                      <strong>{session.title}</strong>
+                      <small>{formatDate(session.started_at)}</small>
+                    </button>
+                  ))}
+                </div>
+                <p className="chat-context-hint">
+                  {focusedSession ? t("chat.contextHintFocused") : t("chat.contextHint")}
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div
@@ -261,9 +284,7 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
             ref={input}
             value={draft}
             rows={1}
-            placeholder={
-              pendingFocus?.excerpt ? t("chat.placeholderFocus") : t("chat.placeholder")
-            }
+            placeholder={placeholder}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {

@@ -4661,17 +4661,32 @@ textarea:focus-visible,
   font-size: 13px;
 }
 
-.chat-suggestions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.chat-context {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-8);
 }
 
-.chat-suggestions button {
+.chat-context-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chat-context-list {
   display: flex;
-  align-items: center;
-  min-height: 52px;
-  padding: var(--space-12) var(--space-16);
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.chat-context-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 260px;
+  padding: var(--space-8) var(--space-12);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
@@ -4680,14 +4695,33 @@ textarea:focus-visible,
   text-align: left;
 }
 
-.chat-suggestions button strong {
+.chat-context-chip strong {
+  overflow: hidden;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.chat-suggestions button:hover {
+.chat-context-chip small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chat-context-chip:hover {
   border-color: var(--border-strong);
   background: var(--hover);
+}
+
+.chat-context-chip.is-active {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.chat-context-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .chat-log {

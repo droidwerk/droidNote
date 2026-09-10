@@ -60,6 +60,7 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
                 session_id=payload.session_id,
                 segment_ids=payload.segment_ids,
                 on_token=on_token,
+                ui_language=payload.ui_language or container.settings.ui_language,
             )
             queue.put_nowait(
                 (
@@ -79,7 +80,8 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
         except ValueError as exc:
             queue.put_nowait(("error", str(exc)))
         except Exception as exc:
-            queue.put_nowait(("error", str(exc) or "Falha ao responder"))
+            fallback = ui_message(container.settings.ui_language, "chat_no_reply")
+            queue.put_nowait(("error", str(exc) or fallback))
 
     async def events():
         task = asyncio.create_task(run())

@@ -78,3 +78,34 @@ async def test_chat_uses_transcripts_and_stays_generalist(client: AsyncClient, a
     assert messages[1]["role"] == "assistant"
     assert messages[1]["citations"]
     assert messages[1]["citations"][0]["session_title"] == "Aula de grafos"
+
+
+@pytest.mark.asyncio
+async def test_chat_answers_in_ui_language_not_transcript_language(
+    client: AsyncClient, app
+) -> None:
+    """Idioma da ferramenta manda na resposta; o idioma da transcrição não."""
+    container = app.state.container
+    container.settings.language = "pt"
+    container.settings.ui_language = "en"
+    llm = container.chat._llm
+
+    async with client.stream(
+        "POST", "/chat/ask", headers=auth(), json={"message": "O que é Dijkstra?"}
+    ) as response:
+        assert response.status_code == 200
+        async for _ in response.aiter_lines():
+            pass
+    assert "Write every reply in English" in (llm.last_system or "")
+
+    # O cliente pode mandar o idioma junto e ele ganha do settings do backend.
+    async with client.stream(
+        "POST",
+        "/chat/ask",
+        headers=auth(),
+        json={"message": "O que é Dijkstra?", "ui_language": "es"},
+    ) as response:
+        assert response.status_code == 200
+        async for _ in response.aiter_lines():
+            pass
+    assert "Write every reply in Spanish" in (llm.last_system or "")

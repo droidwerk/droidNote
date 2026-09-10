@@ -4,8 +4,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from app.application.prompts import CHAT_SYSTEM
+from app.application.prompts import chat_system
 from app.application.sessions import _fts_query
+from app.core.i18n import ui_message
 from app.domain.models import Chat, ChatCitation, ChatMessage, Session, TranscriptSegment
 from app.domain.ports import LlmPort
 from app.infrastructure.persistence.sqlite import SqliteStore, new_id
@@ -40,12 +41,13 @@ class ChatService:
         session_id: str | None = None,
         segment_ids: Sequence[str] | None = None,
         on_token: Callable[[str], None] | None = None,
+        ui_language: str | None = None,
     ) -> tuple[Chat, ChatMessage, list[ChatCitation]]:
         cleaned = message.strip()
         if not cleaned:
-            raise ValueError("Escreva uma pergunta.")
+            raise ValueError(ui_message(ui_language, "chat_empty_question"))
         now = datetime.now(tz=UTC)
-        chat = await self._ensure_chat(chat_id, session_id, cleaned, now)
+        chat = await self._ensure_chat(chat_id, session_id, cleaned, now, ui_language)
         citations, context = await self._retrieve(
             cleaned,
             session_id=session_id or chat.focus_session_id,
@@ -61,17 +63,16 @@ class ChatService:
         )
         await self._store.add_chat_message(user)
         prompt = _build_prompt(cleaned, context, history[-HISTORY_TURNS:])
+        system = chat_system(ui_language)
         if on_token:
-            reply_text = await self._llm.generate_text_stream(
-                prompt, on_token, system=CHAT_SYSTEM
-            )
+            reply_text = await self._llm.generate_text_stream(prompt, on_token, system=system)
         else:
-            reply_text = await self._llm.generate_text(prompt, system=CHAT_SYSTEM)
+            reply_text = await self._llm.generate_text(prompt, system=system)
         assistant = ChatMessage(
             id=new_id(),
             chat_id=chat.id,
             role="assistant",
-            content=(reply_text or "").strip() or "Não consegui responder agora.",
+            content=(reply_text or "").strip() or ui_message(ui_language, "chat_no_reply"),
             created_at=datetime.now(tz=UTC),
             citations=citations,
         )
@@ -86,6 +87,7 @@ class ChatService:
         session_id: str | None,
         message: str,
         now: datetime,
+        ui_language: str | None = None,
     ) -> Chat:
         if chat_id:
             existing = await self._store.get_chat(chat_id)
@@ -95,7 +97,7 @@ class ChatService:
         title = message.strip().split("\n", 1)[0][:72]
         chat = Chat(
             id=new_id(),
-            title=title or "Conversa",
+            title=title or ui_message(ui_language, "chat_untitled"),
             created_at=now,
             updated_at=now,
             focus_session_id=session_id,
@@ -123,13 +125,13 @@ class ChatService:
             picked.append((segment, reason))
 
         for segment in await self._store.get_segments_by_ids(list(segment_ids)):
-            add(segment, "trecho selecionado")
+            add(segment, "selected excerpt")
         hits = await self._store.search(_fts_query(query))
         for segment in hits[:24]:
-            add(segment, "busca")
+            add(segment, "search")
         if session_id:
             for segment in await self._store.list_segments(session_id):
-                add(segment, "aula em foco")
+                add(segment, "focused lecture")
 
         catalog = _session_catalog(sessions)
         blocks: list[str] = []
@@ -142,7 +144,7 @@ class ChatService:
             summary = await self._store.get_summary(session_id)
             if summary and (summary.overview or summary.notes_markdown):
                 note = (summary.notes_markdown or summary.overview)[:1_800]
-                block = f"Nota da aula em foco ({titles.get(session_id, session_id)}):\n{note}"
+                block = f"Note of the focused lecture ({titles.get(session_id, session_id)}):\n{note}"
                 blocks.append(block)
                 used += len(block)
 
@@ -152,7 +154,7 @@ class ChatService:
                 continue
             if len(excerpt) > MAX_EXCERPT:
                 excerpt = excerpt[: MAX_EXCERPT - 1] + "…"
-            title = titles.get(segment.session_id, "Aula")
+            title = titles.get(segment.session_id, "Lecture")
             stamp = _fmt_ms(segment.start_ms)
             speaker = people.get(segment.speaker_id or "", "")
             who = f" {speaker}" if speaker else ""
@@ -175,11 +177,11 @@ class ChatService:
 
 def _session_catalog(sessions: list[Session]) -> str:
     if not sessions:
-        return "Ainda não há aulas capturadas."
-    lines = ["Aulas no caderno:"]
+        return "No lectures captured yet."
+    lines = ["Lectures in the notebook:"]
     for item in sessions[:20]:
-        when = item.started_at.astimezone().strftime("%d/%m/%Y")
-        mode = {"lecture": "aula", "meeting": "reunião", "dictation": "ditado"}.get(
+        when = item.started_at.astimezone().strftime("%Y-%m-%d")
+        mode = {"lecture": "lecture", "meeting": "meeting", "dictation": "dictation"}.get(
             item.capture_mode, item.capture_mode
         )
         lines.append(f"- {item.title} ({mode}, {when})")
@@ -187,14 +189,14 @@ def _session_catalog(sessions: list[Session]) -> str:
 
 
 def _build_prompt(message: str, context: str, history: list[ChatMessage]) -> str:
-    parts = ["Contexto das aulas e transcrições:", context or "(nenhum trecho recuperado)", ""]
+    parts = ["Context from lectures and transcripts:", context or "(no excerpt retrieved)", ""]
     if history:
-        parts.append("Conversa até aqui:")
+        parts.append("Conversation so far:")
         for item in history:
-            label = "Aluno" if item.role == "user" else "Assistente"
+            label = "User" if item.role == "user" else "Assistant"
             parts.append(f"{label}: {item.content}")
         parts.append("")
-    parts.append(f"Pergunta do aluno:\n{message}")
+    parts.append(f"User question:\n{message}")
     return "\n".join(parts)
 
 
