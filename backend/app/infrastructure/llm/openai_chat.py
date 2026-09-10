@@ -6,6 +6,7 @@ import httpx
 
 from app.application.prompts import SYSTEM_PROMPT
 from app.core.logging import get_logger
+from app.core.net_tls import ssl_verify
 from app.domain.models import SetupComponentStatus
 
 log = get_logger("llm.openai")
@@ -93,7 +94,7 @@ class OpenAIChatEngine:
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
-        async with httpx.AsyncClient(timeout=180.0) as client:
+        async with httpx.AsyncClient(timeout=180.0, verify=ssl_verify()) as client:
             response = await client.post(
                 OPENAI_CHAT_URL,
                 headers={"Authorization": f"Bearer {self.api_key.strip()}"},

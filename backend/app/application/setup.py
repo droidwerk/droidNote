@@ -515,6 +515,26 @@ def _friendly_download_error(exc: BaseException, *, kind: str) -> str:
     if "espaço" in text.lower() or "disk" in text.lower() or "GB livres" in text:
         return text
     lowered = text.lower()
+    # Certificado assinado por CA que não está no repositório do Windows:
+    # proxy corporativo ou antivírus com inspeção de HTTPS no meio do caminho.
+    tls_tokens = (
+        "certificate_verify_failed",
+        "certificate verify failed",
+        "self-signed certificate",
+        "self signed certificate",
+        "ssl:",
+    )
+    if any(token in lowered for token in tls_tokens):
+        return explain(
+            "A rede deste PC inspeciona conexões HTTPS com um certificado próprio, e o download não conseguiu confiar nele.",
+            severe=True,
+            app_will="O DroidNote não baixou o modelo por um canal que não pôde verificar.",
+            user_can=(
+                "Instale o certificado da sua rede no Windows (Autoridades de Certificação Raiz Confiáveis) "
+                "e toque em Tentar de novo. Em rede corporativa, peça isso ao TI. "
+                "Numa rede sem inspeção, como um celular por tethering, o download também funciona."
+            ),
+        )
     network = any(token in lowered for token in ("timeout", "timed out", "connect", "network", "proxy", "403", "451"))
     if network:
         return explain(

@@ -21,8 +21,9 @@ def test_openai_engine_posts_wav(monkeypatch) -> None:
             return {"text": "Olá mundo"}
 
     class FakeClient:
-        def __init__(self, timeout: float) -> None:
+        def __init__(self, timeout: float, verify: str | bool = True) -> None:
             captured["timeout"] = timeout
+            captured["verify"] = verify
 
         def __enter__(self) -> FakeClient:
             return self
