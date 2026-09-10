@@ -473,6 +473,12 @@ export const fr: Messages = {
     pause: "Pause",
     waveform: "Forme d’onde de l’enregistrement",
   },
+  update: {
+    title: "Nouvelle version disponible",
+    body: "DroidNote {latest} est sorti. Vous êtes en {current}. L’installation se fait par-dessus l’actuelle ; notes et modèles sont conservés.",
+    download: "Télécharger",
+    later: "Pas maintenant",
+  },
   about: {
     controlTitle: "Traitement sous votre contrôle",
     controlBody: "Pas de compte obligatoire, pas de bot invité dans Meet, Teams ou Zoom.",
@@ -480,7 +486,7 @@ export const fr: Messages = {
       "En mode Modèles locaux, l’audio et le texte ne quittent pas la machine. Avec l’API OpenAI activée, des extraits audio et texte sont envoyés pour traitement, même si le WAV n’est pas enregistré.",
     updatesTitle: "Mises à jour et données",
     updatesBody:
-      "Installez une nouvelle version par-dessus l’actuelle. Notes, enregistrements et modèles restent dans %APPDATA%\\DroidNote. Cette version ne se met pas à jour automatiquement.",
+      "DroidNote prévient s’il y a une nouvelle version. Installez-la par-dessus l’actuelle. Notes, enregistrements et modèles restent dans %APPDATA%\\DroidNote. La mise à jour n’est pas automatique.",
     product: "Produit DroidWerk",
   },
   privacy: {

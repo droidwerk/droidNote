@@ -11,6 +11,7 @@ import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
 import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
 import { isCaptureLanguage, isUiLanguage, useI18n, type CaptureLanguage } from "../shared/i18n";
 import { mergeSegmentLists } from "../shared/lib/segments";
+import { useUpdateNotice } from "../shared/lib/useUpdateNotice";
 import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
@@ -66,6 +67,7 @@ export function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [chatFocus, setChatFocus] = useState<ChatFocus | null>(null);
+  useUpdateNotice(ready && !needsWizard && !bootError);
 
   const openChat = useCallback((focus?: ChatFocus) => {
     setChatFocus(focus ?? null);
