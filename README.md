@@ -70,6 +70,13 @@ A instalação é por cima da atual. Notas, gravações e modelos não são apag
 
 ---
 
+## Documentação técnica
+
+- [Arquitetura](docs/architecture.md) — processos, camadas, dados, captura, notas, atualização
+- [Desenvolvimento](docs/development.md) — `dev.ps1`, testes, build do Setup
+
+---
+
 ## Requisitos
 
 - Windows 10 ou 11, 64 bits
