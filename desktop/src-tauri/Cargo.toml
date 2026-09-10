@@ -26,3 +26,7 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+# Os caminhos absolutos da máquina de build são removidos por
+# CARGO_ENCODED_RUSTFLAGS em installer/build-windows.ps1. `strip` não resolve:
+# eles ficam como literais de string, não como símbolos. `trim-paths` ainda é
+# instável no cargo estável.

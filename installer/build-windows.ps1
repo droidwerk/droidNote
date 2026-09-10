@@ -36,6 +36,20 @@ if (Test-Path (Join-Path $CargoBin "cargo.exe")) {
     throw "Rust/Cargo não encontrado em $CargoBin. Instale o rustup e abra um terminal novo."
 }
 
+# O rustc grava o caminho de cada arquivo compilado nas mensagens de panic, então
+# o binário entregue ao usuário carregaria "C:\Users\<quem compilou>\.cargo\...".
+# Os prefixos são calculados aqui para não haver nome de usuário no repositório.
+# CARGO_ENCODED_RUSTFLAGS (separador 0x1F) em vez de RUSTFLAGS: este último quebra
+# em caminhos com espaço.
+$CargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+$RustUp = if ($env:RUSTUP_HOME) { $env:RUSTUP_HOME } else { Join-Path $env:USERPROFILE ".rustup" }
+$Sep = [char]0x1F
+$env:CARGO_ENCODED_RUSTFLAGS = @(
+    "--remap-path-prefix=$CargoHome=/cargo",
+    "--remap-path-prefix=$RustUp=/rustup",
+    "--remap-path-prefix=$Root=/droidnote"
+) -join $Sep
+
 # O .exe solto na raiz não leva o backend. Só o Setup instala o app completo.
 $LooseApp = Join-Path $Root "DroidNote.exe"
 if (Test-Path $LooseApp) {
