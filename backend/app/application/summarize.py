@@ -18,7 +18,7 @@ class SummarizeService:
         session = await self._require_session(session_id)
         segments = await self._store.list_segments(session_id)
         people = {item.id: item.name for item in await self._store.list_people()}
-        transcript = render_transcript(segments, people)
+        transcript = render_transcript(segments, people, session.language)
         if not transcript:
             summary = self._empty_summary(session)
             await self._store.save_summary(summary)
@@ -31,6 +31,7 @@ class SummarizeService:
             started_at=session.started_at.astimezone().strftime("%d/%m/%Y %H:%M"),
             participants=participants,
             duration=_duration(session, segments),
+            voices=len({item.speaker_cluster for item in segments if item.speaker_cluster}),
         )
         system, template = prompts_for(session.capture_mode)
         raw = await self._llm.generate_json(
@@ -78,10 +79,35 @@ class SummarizeService:
         return session
 
 
-def render_transcript(segments: list[TranscriptSegment], people: dict[str, str]) -> str:
+VOICE_WORD = {
+    "pt": "Voz",
+    "en": "Speaker",
+    "es": "Voz",
+    "it": "Voce",
+    "de": "Stimme",
+    "fr": "Voix",
+    "ru": "Голос",
+}
+
+
+def voice_label(cluster: str, language: str | None = None) -> str:
+    """Rótulo de uma voz sem nome, no idioma da conversa ("Voz 2", "Speaker 2")."""
+    digits = "".join(ch for ch in cluster if ch.isdigit()) or "?"
+    word = VOICE_WORD.get((language or "pt")[:2].lower(), "Voz")
+    return f"{word} {digits}"
+
+
+def render_transcript(
+    segments: list[TranscriptSegment],
+    people: dict[str, str],
+    language: str | None = None,
+) -> str:
     lines: list[str] = []
     for item in segments:
         name = people.get(item.speaker_id or "")
+        if not name and item.speaker_cluster:
+            # Voz detectada e ainda sem nome: o modelo distingue quem disse o quê.
+            name = voice_label(item.speaker_cluster, language or item.language)
         if not name:
             name = "Você" if item.source == "mic" else "Falante não identificado"
         lines.append(f"[{_clock(item.start_ms)}] {name}: {item.text}")

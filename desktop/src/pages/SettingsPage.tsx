@@ -12,6 +12,7 @@ import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Button, Card, PageHeader, ProgressBar } from "../shared/ui/primitives";
 import { ModelSelect, StatusGlyph } from "../shared/ui/ModelSelect";
 import { PrivacyLink } from "../shared/ui/PrivacyPolicy";
+import { Icon } from "../shared/ui/Icon";
 import { useToast } from "../shared/ui/Toast";
 
 export type SettingsTab =
@@ -26,10 +27,20 @@ export type SettingsTab =
 interface SettingsPageProps {
   onSaved?: (settings: Settings) => void;
   initialTab?: SettingsTab;
+  voiceReady?: boolean;
+  voiceDownloading?: boolean;
+  onDownloadVoice?: () => void;
   engineProvider?: Settings["provider"];
 }
 
-export function SettingsPage({ onSaved, initialTab = "transcription", engineProvider }: SettingsPageProps) {
+export function SettingsPage({
+  onSaved,
+  initialTab = "transcription",
+  engineProvider,
+  voiceReady = false,
+  voiceDownloading = false,
+  onDownloadVoice,
+}: SettingsPageProps) {
   const { t } = useI18n();
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "transcription", label: t("settings.tabTranscription") },
@@ -316,6 +327,18 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
     if (!ok) return;
     await api.deletePerson(id);
     setPeople((current) => current.filter((item) => item.id !== id));
+  };
+
+  const forgetVoice = async (person: Person) => {
+    const ok = await confirm({
+      title: t("voices.forgetTitle", { name: person.name }),
+      description: t("voices.forgetBody"),
+      confirmLabel: t("voices.forget"),
+      tone: "danger",
+    });
+    if (!ok) return;
+    await api.forgetVoiceprint(person.id);
+    setPeople((current) => current.map((item) => (item.id === person.id ? { ...item, has_voiceprint: false } : item)));
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -652,6 +675,23 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
         ) : null}
 
         {tab === "people" ? (
+          <>
+          <Card className={voiceReady ? "settings-card settings-card-wide voice-engine is-ready" : "settings-card settings-card-wide voice-engine"}>
+            <div className="voice-engine-row">
+              <span className="voice-engine-icon" aria-hidden>
+                <Icon name="voice" size={22} />
+              </span>
+              <div>
+                <h2>{voiceReady ? t("voices.engineReady") : t("voices.engineOff")}</h2>
+                <p className="muted">{voiceReady ? "WeSpeaker ResNet34 · ONNX · CPU" : t("voices.engineOffHint")}</p>
+              </div>
+              {!voiceReady && onDownloadVoice ? (
+                <Button variant="primary" disabled={voiceDownloading} onClick={onDownloadVoice}>
+                  {voiceDownloading ? t("voices.downloading") : t("voices.download")}
+                </Button>
+              ) : null}
+            </div>
+          </Card>
           <Card className="settings-card settings-card-people settings-card-wide">
             <h2>{t("settings.peopleTitle")}</h2>
             <p className="muted">
@@ -695,12 +735,27 @@ export function SettingsPage({ onSaved, initialTab = "transcription", engineProv
               {people.length === 0 ? <li className="muted">{t("settings.nobody")}</li> : null}
               {people.map((person) => (
                 <li key={person.id}>
-                  <span>{person.name}</span>
-                  <Button onClick={() => void removePerson(person.id)}>{t("common.delete")}</Button>
+                  <span className="people-name">
+                    {person.name}
+                    <small className={person.has_voiceprint ? "voice-flag is-on" : "voice-flag"}>
+                      {person.has_voiceprint ? t("voices.printSaved") : t("voices.noPrint")}
+                    </small>
+                  </span>
+                  <span className="people-actions">
+                    {person.has_voiceprint ? (
+                      <Button size="sm" variant="quiet" onClick={() => void forgetVoice(person)}>
+                        {t("voices.forget")}
+                      </Button>
+                    ) : null}
+                    <Button size="sm" onClick={() => void removePerson(person.id)}>
+                      {t("common.delete")}
+                    </Button>
+                  </span>
                 </li>
               ))}
             </ul>
           </Card>
+          </>
         ) : null}
 
         {tab === "files" ? (

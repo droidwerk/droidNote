@@ -49,16 +49,23 @@ class SessionService:
         await self._store.save_summary(updated)
         return updated
 
-    async def export_markdown(self, session_id: str) -> str:
+    async def export_markdown(self, session_id: str, locale: str | None = None) -> str:
+        from app.application.summarize import voice_label
+        from app.core.i18n import ui_message
+
         session = await self.get(session_id)
         segments = await self._store.list_segments(session_id)
         summary = await self._store.get_summary(session_id)
-        lines = [f"# {session.title}", "", f"- Início: {session.started_at.isoformat()}"]
+        lines = [
+            f"# {session.title}",
+            "",
+            f"- {ui_message(locale, 'export_start')}: {session.started_at.isoformat()}",
+        ]
         if session.ended_at:
-            lines.append(f"- Fim: {session.ended_at.isoformat()}")
+            lines.append(f"- {ui_message(locale, 'export_end')}: {session.ended_at.isoformat()}")
         if session.language:
-            lines.append(f"- Idioma: {session.language}")
-        lines.extend(["", "## Transcrição", ""])
+            lines.append(f"- {ui_message(locale, 'export_language')}: {session.language}")
+        lines.extend(["", f"## {ui_message(locale, 'export_transcript')}", ""])
         people = {item.id: item.name for item in await self._store.list_people()}
         for segment in segments:
             stamp = _fmt_ms(segment.start_ms)
@@ -66,13 +73,17 @@ class SessionService:
             speaker = ""
             if segment.speaker_id and segment.speaker_id in people:
                 speaker = f" {people[segment.speaker_id]}"
+            elif segment.speaker_cluster:
+                speaker = f" {voice_label(segment.speaker_cluster, segment.language or session.language)}"
             lines.append(f"- [{stamp}]{speaker}{lang} {segment.text}")
         if summary:
-            lines.extend(["", "## Resumo", "", "### Pontos principais"])
+            lines.extend(
+                ["", f"## {ui_message(locale, 'export_summary')}", "", f"### {ui_message(locale, 'export_highlights')}"]
+            )
             lines.extend([f"- {item}" for item in summary.highlights] or ["- —"])
-            lines.extend(["", "### Decisões"])
+            lines.extend(["", f"### {ui_message(locale, 'export_decisions')}"])
             lines.extend([f"- {item}" for item in summary.decisions] or ["- —"])
-            lines.extend(["", "### Action items"])
+            lines.extend(["", f"### {ui_message(locale, 'export_actions')}"])
             if summary.action_items:
                 for item in summary.action_items:
                     owner = f" ({item.owner})" if item.owner else ""

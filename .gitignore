@@ -46,6 +46,8 @@ exports/
 *.docx
 *.pdf
 models/
+*.onnx
+backend/voice/
 
 # Estado da máquina e diagnóstico (token do backend, caminhos, logs)
 runtime.json

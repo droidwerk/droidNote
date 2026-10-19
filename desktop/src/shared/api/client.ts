@@ -13,10 +13,12 @@ import type {
   Session,
   SessionDetail,
   Settings,
+  SetupComponent,
   SetupPlan,
   SetupStatus,
   Summary,
   Tag,
+  VoicesResult,
 } from "./types";
 import { tr } from "../i18n/runtime";
 
@@ -164,6 +166,17 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
+  voices: (sessionId: string) => request<VoicesResult>(`/sessions/${sessionId}/voices`),
+  refineVoices: (sessionId: string) =>
+    request<VoicesResult>(`/sessions/${sessionId}/voices/refine`, { method: "POST" }),
+  assignVoice: (sessionId: string, cluster: string, payload: { person_id?: string | null; name?: string }) =>
+    request<VoicesResult>(`/sessions/${sessionId}/voices/${encodeURIComponent(cluster)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  forgetVoiceprint: (personId: string) =>
+    request<void>(`/people/${personId}/voiceprint`, { method: "DELETE" }),
+  downloadVoice: () => request<SetupComponent>("/setup/voice/download", { method: "POST" }),
   assignSpeakers: (sessionId: string) =>
     request<Segment[]>(`/sessions/${sessionId}/speakers/assign`, { method: "POST" }),
   devices: () => request<Device[]>("/capture/devices"),

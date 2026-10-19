@@ -7,6 +7,9 @@ import { I18nProvider } from "./shared/i18n";
 import { ThemeProvider } from "./shared/lib/theme";
 import { ToastProvider } from "./shared/ui/Toast";
 import "./shared/styles/tokens.css";
+import "./shared/styles/shell.css";
+import "./shared/styles/console.css";
+import "./shared/styles/pages.css";
 
 const root = document.getElementById("root");
 if (!root) {

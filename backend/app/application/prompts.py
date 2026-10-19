@@ -152,11 +152,23 @@ def prompts_for(mode: str | None) -> tuple[str, str]:
     return SYSTEM_PROMPT, SUMMARY_PROMPT
 
 
-def summary_context(*, title: str, started_at: str, participants: list[str], duration: str) -> str:
+def summary_context(
+    *,
+    title: str,
+    started_at: str,
+    participants: list[str],
+    duration: str,
+    voices: int = 0,
+) -> str:
     """Metadados que a ata pode citar no cabeçalho, sem precisar inventá-los."""
     lines = [f"Título: {title}", f"Início: {started_at}", f"Duração: {duration}"]
     if participants:
         lines.append("Participantes identificados: " + ", ".join(participants))
     else:
         lines.append("Participantes: não identificados na transcrição")
+    if voices:
+        lines.append(
+            f"Vozes distintas detectadas pelo áudio: {voices}. Rótulos como \"Voz 2\" são pessoas reais "
+            "ainda sem nome: atribua falas e ações a eles quando a transcrição mostrar quem falou."
+        )
     return "\n".join(lines) + "\n\n"

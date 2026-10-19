@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { createPortal } from "react-dom";
 
 import type { ModelOption } from "../api/types";
+import { useI18n } from "../i18n";
 
 interface ModelSelectProps {
   label: string;
@@ -52,6 +53,7 @@ export function StatusGlyph({ installed }: { installed: boolean }) {
 }
 
 export function ModelSelect({ label, value, options, onChange, showStatus = true }: ModelSelectProps) {
+  const { t } = useI18n();
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -174,7 +176,7 @@ export function ModelSelect({ label, value, options, onChange, showStatus = true
         {selected ? (
           <ModelRow item={selected} meta={meta} showStatus={showStatus} />
         ) : (
-          <span className="model-select-empty">Escolher modelo</span>
+          <span className="model-select-empty">{t("common.chooseModel")}</span>
         )}
         <svg className="model-select-caret" viewBox="0 0 12 8" aria-hidden>
           <path
@@ -232,7 +234,8 @@ export function ModelSelect({ label, value, options, onChange, showStatus = true
 }
 
 function ModelRow({ item, meta, showStatus }: { item: ModelOption; meta: string; showStatus: boolean }) {
-  const status = item.installed ? "Já neste PC" : "Será baixado";
+  const { t } = useI18n();
+  const status = item.installed ? t("common.alreadyOnPc") : t("common.willBeDownloaded");
   return (
     <span className="model-select-row">
       {showStatus ? <StatusGlyph installed={item.installed} /> : null}

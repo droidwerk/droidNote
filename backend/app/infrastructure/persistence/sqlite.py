@@ -124,6 +124,36 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TEXT NOT NULL,
     FOREIGN KEY (chat_id) REFERENCES chats(id)
 );
+
+CREATE TABLE IF NOT EXISTS segment_voices (
+    segment_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    embedding BLOB NOT NULL,
+    frames BLOB NOT NULL,
+    frame_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS session_voices (
+    session_id TEXT NOT NULL,
+    cluster TEXT NOT NULL,
+    person_id TEXT,
+    PRIMARY KEY (session_id, cluster)
+);
+
+CREATE TABLE IF NOT EXISTS voiceprints (
+    person_id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    embedding BLOB NOT NULL,
+    samples INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+"""
+
+INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_segments_session ON segments(session_id, start_ms);
+CREATE INDEX IF NOT EXISTS idx_segment_voices_session ON segment_voices(session_id);
 """
 
 
@@ -157,6 +187,11 @@ class SqliteStore:
             await _ensure_column(db, "summaries", "language", "TEXT")
             await _ensure_column(db, "summaries", "notes_markdown", "TEXT")
             await _ensure_column(db, "sessions", "capture_mode", "TEXT")
+            await _ensure_column(db, "segments", "speaker_cluster", "TEXT")
+            await _ensure_column(db, "segments", "speaker_confidence", "REAL")
+            await _ensure_column(db, "segments", "speaker_locked", "INTEGER NOT NULL DEFAULT 0")
+            await db.executescript(INDEXES)
+            await db.execute("PRAGMA journal_mode=WAL")
             await db.execute("DROP TABLE IF EXISTS memory_messages")
             await db.execute("DROP TABLE IF EXISTS memory_threads")
             await db.commit()
@@ -224,6 +259,8 @@ class SqliteStore:
             await db.execute("DELETE FROM session_participants WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM segments WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM summaries WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM segment_voices WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM session_voices WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             await db.commit()
 
@@ -231,8 +268,9 @@ class SqliteStore:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
-                INSERT INTO segments (id, session_id, start_ms, end_ms, text, language, speaker_id, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO segments (id, session_id, start_ms, end_ms, text, language, speaker_id, source,
+                                      speaker_cluster, speaker_confidence, speaker_locked)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     segment.id,
@@ -243,6 +281,9 @@ class SqliteStore:
                     segment.language,
                     segment.speaker_id,
                     segment.source,
+                    segment.speaker_cluster,
+                    segment.speaker_confidence,
+                    1 if segment.speaker_locked else 0,
                 ),
             )
             await db.commit()
@@ -401,6 +442,8 @@ class SqliteStore:
                 (person_id,),
             )
             await db.execute("DELETE FROM session_participants WHERE person_id = ?", (person_id,))
+            await db.execute("UPDATE session_voices SET person_id = NULL WHERE person_id = ?", (person_id,))
+            await db.execute("DELETE FROM voiceprints WHERE person_id = ?", (person_id,))
             await db.execute("DELETE FROM people WHERE id = ?", (person_id,))
             await db.commit()
 
@@ -472,10 +515,20 @@ class SqliteStore:
             await db.execute(
                 """
                 UPDATE segments
-                SET text = ?, language = ?, speaker_id = ?, source = ?
+                SET text = ?, language = ?, speaker_id = ?, source = ?,
+                    speaker_cluster = ?, speaker_confidence = ?, speaker_locked = ?
                 WHERE id = ?
                 """,
-                (segment.text, segment.language, segment.speaker_id, segment.source, segment.id),
+                (
+                    segment.text,
+                    segment.language,
+                    segment.speaker_id,
+                    segment.source,
+                    segment.speaker_cluster,
+                    segment.speaker_confidence,
+                    1 if segment.speaker_locked else 0,
+                    segment.id,
+                ),
             )
             await db.commit()
         return await self.get_segment(segment.id)
@@ -672,6 +725,136 @@ class SqliteStore:
             by_id = {item.id: item for item in mapped}
             return [by_id[item] for item in wanted if item in by_id]
 
+    # --- Motor de voz -----------------------------------------------------
+
+    async def save_segment_voice(
+        self,
+        segment_id: str,
+        session_id: str,
+        *,
+        dim: int,
+        embedding: bytes,
+        frames: bytes,
+        frame_count: int,
+    ) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO segment_voices (segment_id, session_id, dim, embedding, frames, frame_count)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(segment_id) DO UPDATE SET
+                    dim = excluded.dim, embedding = excluded.embedding,
+                    frames = excluded.frames, frame_count = excluded.frame_count
+                """,
+                (segment_id, session_id, dim, embedding, frames, frame_count),
+            )
+            await db.commit()
+
+    async def list_segment_voices(self, session_id: str) -> list[tuple[str, int, bytes, bytes, int]]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                """
+                SELECT segment_voices.segment_id, segment_voices.dim, segment_voices.embedding,
+                       segment_voices.frames, segment_voices.frame_count
+                FROM segment_voices
+                JOIN segments ON segments.id = segment_voices.segment_id
+                WHERE segment_voices.session_id = ?
+                ORDER BY segments.start_ms ASC
+                """,
+                (session_id,),
+            )
+            rows = await cur.fetchall()
+        return [(str(r[0]), int(r[1]), bytes(r[2]), bytes(r[3]), int(r[4])) for r in rows]
+
+    async def update_segment_voices(
+        self,
+        rows: Sequence[tuple[str, str | None, float | None, str | None]],
+    ) -> None:
+        """(segment_id, voz, confiança, pessoa). Trecho travado mantém a pessoa."""
+        if not rows:
+            return
+        async with aiosqlite.connect(self._path) as db:
+            await db.executemany(
+                """
+                UPDATE segments
+                SET speaker_cluster = ?,
+                    speaker_confidence = ?,
+                    speaker_id = CASE WHEN speaker_locked = 1 THEN speaker_id ELSE ? END
+                WHERE id = ?
+                """,
+                [(cluster, confidence, person, segment_id) for segment_id, cluster, confidence, person in rows],
+            )
+            await db.commit()
+
+    async def assign_cluster_person(self, session_id: str, cluster: str, person_id: str | None) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO session_voices (session_id, cluster, person_id) VALUES (?, ?, ?)
+                ON CONFLICT(session_id, cluster) DO UPDATE SET person_id = excluded.person_id
+                """,
+                (session_id, cluster, person_id),
+            )
+            await db.execute(
+                """
+                UPDATE segments SET speaker_id = ?
+                WHERE session_id = ? AND speaker_cluster = ? AND speaker_locked = 0
+                """,
+                (person_id, session_id, cluster),
+            )
+            await db.commit()
+
+    async def list_session_voices(self, session_id: str) -> dict[str, str | None]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT cluster, person_id FROM session_voices WHERE session_id = ?",
+                (session_id,),
+            )
+            rows = await cur.fetchall()
+        return {str(r[0]): (str(r[1]) if r[1] else None) for r in rows}
+
+    async def replace_session_voices(self, session_id: str, links: dict[str, str | None]) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM session_voices WHERE session_id = ?", (session_id,))
+            await db.executemany(
+                "INSERT INTO session_voices (session_id, cluster, person_id) VALUES (?, ?, ?)",
+                [(session_id, cluster, person) for cluster, person in links.items()],
+            )
+            await db.commit()
+
+    async def list_voiceprints(self, model: str) -> dict[str, tuple[int, bytes, int]]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT person_id, dim, embedding, samples FROM voiceprints WHERE model = ?",
+                (model,),
+            )
+            rows = await cur.fetchall()
+        return {str(r[0]): (int(r[1]), bytes(r[2]), int(r[3])) for r in rows}
+
+    async def voiceprint_people(self) -> set[str]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute("SELECT person_id FROM voiceprints")
+            rows = await cur.fetchall()
+        return {str(r[0]) for r in rows}
+
+    async def save_voiceprint(self, person_id: str, *, model: str, dim: int, embedding: bytes, samples: int) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO voiceprints (person_id, model, dim, embedding, samples, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(person_id) DO UPDATE SET
+                    model = excluded.model, dim = excluded.dim, embedding = excluded.embedding,
+                    samples = excluded.samples, updated_at = excluded.updated_at
+                """,
+                (person_id, model, dim, embedding, samples, _dump_dt(datetime.now(tz=UTC))),
+            )
+            await db.commit()
+
+    async def delete_voiceprint(self, person_id: str) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM voiceprints WHERE person_id = ?", (person_id,))
+            await db.commit()
 
 def new_id() -> str:
     return str(uuid4())
@@ -704,6 +887,13 @@ def _row_to_segment(row: aiosqlite.Row) -> TranscriptSegment:
         language=row["language"],
         speaker_id=row["speaker_id"] if "speaker_id" in keys else None,
         source=row["source"] if "source" in keys else None,
+        speaker_cluster=row["speaker_cluster"] if "speaker_cluster" in keys else None,
+        speaker_confidence=(
+            float(row["speaker_confidence"])
+            if "speaker_confidence" in keys and row["speaker_confidence"] is not None
+            else None
+        ),
+        speaker_locked=bool(row["speaker_locked"]) if "speaker_locked" in keys else False,
     )
 
 

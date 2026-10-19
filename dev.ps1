@@ -61,7 +61,7 @@ $backendCmd = @"
 `$env:DROIDNOTE_PORT='$Port'
 `$env:DROIDNOTE_DATA_DIR='$devData'
 Set-Location -LiteralPath '$Backend'
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port $Port --reload-dir app
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port $Port --reload-dir app --timeout-graceful-shutdown 2
 "@
 Start-Process powershell -ArgumentList @("-NoExit", "-Command", $backendCmd) | Out-Null
 

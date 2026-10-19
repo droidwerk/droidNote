@@ -81,6 +81,7 @@ class SpeakersService:
         name: str | None = None,
         text: str | None = None,
         apply_forward: bool = False,
+        lock: bool = False,
     ) -> TranscriptSegment:
         segment = await self._store.get_segment(segment_id)
         if segment is None or segment.session_id != session_id:
@@ -104,7 +105,12 @@ class SpeakersService:
         if not next_text:
             next_text = segment.text
         updated = await self._store.save_segment(
-            replace(segment, speaker_id=person_id, text=next_text)
+            replace(
+                segment,
+                speaker_id=person_id,
+                text=next_text,
+                speaker_locked=segment.speaker_locked or lock,
+            )
         )
         if updated is None:
             raise KeyError(segment_id)
@@ -119,7 +125,7 @@ class SpeakersService:
         segments = await self._store.list_segments(session_id)
         if not people or not segments:
             return segments
-        if len(people) == 1:
+        if len(people) == 1 and not any(item.speaker_cluster for item in segments):
             only = people[0].id
             for item in segments:
                 if item.speaker_id:
@@ -128,7 +134,8 @@ class SpeakersService:
             return await self._store.list_segments(session_id)
         sticky: str | None = None
         for item in segments:
-            if item.source == "mic":
+            if item.source == "mic" or item.speaker_cluster:
+                # Trecho com voz detectada fica com o motor de voz, não com palpite por texto.
                 continue
             if item.speaker_id:
                 sticky = item.speaker_id
@@ -144,7 +151,7 @@ class SpeakersService:
         pending = [
             item
             for item in await self._store.list_segments(session_id)
-            if not item.speaker_id and item.source != "mic"
+            if not item.speaker_id and item.source != "mic" and not item.speaker_cluster
         ]
         if not pending:
             return await self._store.list_segments(session_id)

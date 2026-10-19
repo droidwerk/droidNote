@@ -11,9 +11,16 @@ except Exception:
 
 datas = []
 try:
+    # Inclui o Silero VAD (assets/silero_vad_v6.onnx), usado pelo motor de voz.
     datas += collect_data_files("faster_whisper")
 except Exception:
     pass
+
+# Motor de voz embutido (baixado e conferido por installer/build-windows.ps1).
+import os
+
+if os.path.isfile(os.path.join("voice", "wespeaker_resnet34_lm.onnx")):
+    datas += [(os.path.join("voice", "wespeaker_resnet34_lm.onnx"), "voice")]
 
 a = Analysis(
     ["app/__main__.py"],

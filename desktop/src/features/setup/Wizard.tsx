@@ -421,6 +421,12 @@ export function Wizard({ onDone }: WizardProps) {
             <div><strong>{t("wizard.notes")}</strong><span>{status?.llm.message || t("common.preparing")}</span></div>
             <ProgressBar value={status?.llm.progress ?? 0} />
           </div>
+          {status?.voice ? (
+            <div className="setup-progress-item">
+              <div><strong>{t("voices.title")}</strong><span>{status.voice.message || t("common.preparing")}</span></div>
+              <ProgressBar value={status.voice.progress ?? 0} />
+            </div>
+          ) : null}
           {status?.whisper.status === "error" || status?.llm.status === "error" ? (
             <div className="row">
               <p className="warning">{status.whisper.status === "error" ? status.whisper.message : status.llm.message}</p>

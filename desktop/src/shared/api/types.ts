@@ -39,11 +39,51 @@ export interface Segment {
   speaker_id?: string | null;
   speaker_name?: string | null;
   source?: "mic" | "loopback" | string | null;
+  speaker_cluster?: string | null;
+  speaker_confidence?: number | null;
+  speaker_locked?: boolean;
 }
 
 export interface Person {
   id: string;
   name: string;
+  has_voiceprint?: boolean;
+}
+
+export interface Voice {
+  cluster: string;
+  index: number;
+  person_id: string | null;
+  person_name: string | null;
+  talk_ms: number;
+  share: number;
+  segments: number;
+  first_ms: number;
+  sources: string[];
+  confidence: number;
+  has_voiceprint: boolean;
+}
+
+export interface VoicesResult {
+  engine_ready: boolean;
+  model: string;
+  live: boolean;
+  voices: Voice[];
+  segments: Segment[];
+}
+
+export interface ChannelLevel {
+  rms: number;
+  speech: boolean;
+  echo?: number;
+}
+
+export interface LiveVoice {
+  cluster: string;
+  person_id: string | null;
+  name: string | null;
+  source: string | null;
+  at_ms: number;
 }
 
 export interface Summary {
@@ -86,6 +126,8 @@ export interface MonitorFrame {
   buffer_ms: number;
   phase: string;
   whisper_loaded: boolean;
+  channels?: { mic: ChannelLevel; system: ChannelLevel | null } | null;
+  voice?: LiveVoice | null;
 }
 
 export interface SetupComponent {
@@ -97,6 +139,7 @@ export interface SetupComponent {
 export interface SetupStatus {
   llm: SetupComponent;
   whisper: SetupComponent;
+  voice?: SetupComponent | null;
   disclaimer_accepted: boolean;
   audio_ok: boolean;
   capture_ready: boolean;

@@ -46,12 +46,17 @@ class SetupService:
         audio: AudioCapturePort,
         asr: AsrPort,
         llm: LlmRouter,
+        *,
+        voice: object | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
         self._audio = audio
         self._asr = asr
         self._llm = llm
+        self._voice = voice
+        self._voice_status: SetupComponentStatus | None = None
+        self._voice_lock = asyncio.Lock()
         self._whisper_status = self._whisper_component()
         self._task: asyncio.Task[None] | None = None
         self._preload_task: asyncio.Task[None] | None = None
@@ -73,6 +78,43 @@ class SetupService:
             progress=0,
             message=ui_message(self._settings.ui_language, "whisper_not_downloaded"),
         )
+
+    def voice_component(self) -> SetupComponentStatus:
+        locale = self._settings.ui_language
+        if self._voice is None:
+            return SetupComponentStatus(status="missing", progress=0, message=ui_message(locale, "voice_unavailable"))
+        if self._voice_status is not None and self._voice_status.status in {"downloading", "error"}:
+            return self._voice_status
+        if self._voice.is_ready():  # type: ignore[attr-defined]
+            return SetupComponentStatus(status="ready", progress=100, message=ui_message(locale, "voice_ready"))
+        return SetupComponentStatus(status="missing", progress=0, message=ui_message(locale, "voice_missing"))
+
+    async def download_voice(self) -> None:
+        """Baixa o motor de voz (26 MB, conferido por SHA-256). Falha não bloqueia a captura."""
+        voice = self._voice
+        if voice is None or voice.is_ready():  # type: ignore[attr-defined]
+            return
+        if self._voice_lock.locked():
+            return
+        async with self._voice_lock:
+            def progress(value: int, message: str) -> None:
+                self._voice_status = SetupComponentStatus(
+                    status="downloading" if value < 100 else "ready",
+                    progress=value,
+                    message=message,
+                )
+
+            try:
+                progress(1, ui_message(self._settings.ui_language, "voice_downloading"))
+                await asyncio.to_thread(voice.download, progress)  # type: ignore[attr-defined]
+                self._voice_status = None
+            except Exception as exc:
+                log.warning("voice model download failed: %s", exc)
+                self._voice_status = SetupComponentStatus(
+                    status="error",
+                    progress=0,
+                    message=_friendly_download_error(exc, kind="voice"),
+                )
 
     def _refresh_whisper_status(self) -> None:
         if self._whisper_status.status == "downloading":
@@ -99,6 +141,7 @@ class SetupService:
         return SetupStatus(
             llm=llm,
             whisper=self._whisper_status,
+            voice=self.voice_component(),
             disclaimer_accepted=disclaimer,
             audio_ok=audio_ok,
             capture_ready=capture_ready,
@@ -224,6 +267,8 @@ class SetupService:
                 progress=0,
                 message=_friendly_download_error(exc, kind="whisper"),
             )
+
+        await self.download_voice()
 
         try:
             await self._llm.ensure_ready()
@@ -542,6 +587,13 @@ def _friendly_download_error(exc: BaseException, *, kind: str) -> str:
             severe=True,
             app_will="O DroidNote parou e não trata o arquivo incompleto como pronto.",
             user_can="Verifique a rede, VPN ou firewall e toque em Tentar de novo.",
+        )
+    if kind == "voice":
+        return explain(
+            "Não deu para baixar o motor de voz.",
+            severe=False,
+            app_will="A transcrição funciona; os falantes ficam separados só por microfone e áudio do sistema.",
+            user_can="Tente de novo em Preferências › Vozes quando a rede estiver estável.",
         )
     if kind == "whisper":
         return explain(

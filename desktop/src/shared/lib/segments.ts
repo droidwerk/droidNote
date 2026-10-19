@@ -65,7 +65,9 @@ export function groupTurns(segments: Segment[]): Segment[][] {
       previous &&
       last &&
       (last.source ?? "") === (item.source ?? "") &&
-      (last.speaker_id ?? "") === (item.speaker_id ?? "")
+      (last.speaker_id ?? "") === (item.speaker_id ?? "") &&
+      (last.speaker_cluster ?? "") === (item.speaker_cluster ?? "") &&
+      item.start_ms - last.end_ms < 12_000
     ) {
       previous.push(item);
     } else {

@@ -284,3 +284,41 @@ async def test_stop_does_not_drop_queued_windows(client: AsyncClient, app) -> No
     segments = await _wait_segments(app, session_id, 3, attempts=200)
     assert len(segments) >= 3
     assert all(item.session_id == session_id for item in segments)
+
+
+@pytest.mark.asyncio
+async def test_default_title_follows_ui_language(client: AsyncClient, app) -> None:
+    app.state.container.settings.ui_language = "en"
+    started = await client.post(
+        "/capture/start",
+        headers=auth(),
+        json={"mic_only": True, "capture_mode": "lecture"},
+    )
+    assert started.status_code == 200
+    session_id = started.json()["session_id"]
+    detail = await client.get(f"/sessions/{session_id}", headers=auth())
+    assert detail.json()["session"]["title"].startswith("Lecture ")
+    await client.post("/capture/stop", headers=auth())
+
+
+@pytest.mark.asyncio
+async def test_word_times_drop_repeated_short_phrase(client: AsyncClient, app) -> None:
+    started = await client.post("/capture/start", headers=auth(), json={"mic_only": True})
+    assert started.status_code == 200
+    session_id = started.json()["session_id"]
+    capture = app.state.container.capture
+    scripts = [
+        [(10.0, 12.0, "reunião"), (19.2, 19.7, "ok")],
+        [(0.2, 0.7, "ok"), (2.0, 3.0, "seguimos")],
+    ]
+
+    def transcribe_words(samples, sample_rate, *, language=None):
+        del samples, sample_rate, language
+        return list(scripts.pop(0)), "pt"
+
+    capture._asr.transcribe_words = transcribe_words  # type: ignore[method-assign]
+    await capture._transcribe([0.2], 0, 20_000, "mic", session_id)
+    await capture._transcribe([0.2], 19_000, 39_000, "mic", session_id)
+    segments = await app.state.container.store.list_segments(session_id)
+    assert [item.text for item in segments] == ["reunião ok", "seguimos"]
+    await client.post("/capture/stop", headers=auth())
