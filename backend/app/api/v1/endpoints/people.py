@@ -11,8 +11,15 @@ router = APIRouter(prefix="/people", tags=["people"], dependencies=[Depends(veri
 
 @router.get("", response_model=list[PersonOut])
 async def list_people(request: Request) -> list[PersonOut]:
-    people = await get_container(request.app).speakers.list_people()
-    return [PersonOut.from_domain(item) for item in people]
+    container = get_container(request.app)
+    people = await container.speakers.list_people()
+    printed = await container.store.voiceprint_people()
+    return [PersonOut.from_domain(item, has_voiceprint=item.id in printed) for item in people]
+
+
+@router.delete("/{person_id}/voiceprint", status_code=status.HTTP_204_NO_CONTENT)
+async def forget_voiceprint(person_id: str, request: Request) -> None:
+    await get_container(request.app).store.delete_voiceprint(person_id)
 
 
 @router.post("", response_model=PersonOut, status_code=status.HTTP_201_CREATED)

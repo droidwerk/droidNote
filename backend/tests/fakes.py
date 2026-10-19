@@ -79,6 +79,35 @@ class FakeAsr:
         return self.text, language or "pt"
 
 
+class FakeVoiceEmbedder:
+    """Embedder determinístico: o sinal médio do áudio escolhe a "voz"."""
+
+    model_id = "fake-voice"
+    dim = 8
+
+    def __init__(self) -> None:
+        import numpy as np
+
+        self._np = np
+        self.ready = True
+        # Vozes ortogonais: pessoas diferentes ficam com cosseno zero.
+        self.prototypes = list(np.eye(self.dim, dtype=np.float32)[:4])
+
+    def is_ready(self) -> bool:
+        return self.ready
+
+    def embed(self, samples, sample_rate: int = 16_000):
+        np = self._np
+        audio = np.asarray(samples, dtype=np.float32)
+        if audio.size < 9_600:
+            return None
+        index = int(abs(round(float(audio.mean()) * 10))) % len(self.prototypes)
+        return self.prototypes[index].astype(np.float32)
+
+    def embed_batch(self, features):
+        return None
+
+
 class FakeLlm:
     def __init__(self, payload: str | None = None) -> None:
         self.payload = payload or (

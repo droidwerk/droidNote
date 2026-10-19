@@ -25,12 +25,13 @@
 
 ## O que faz
 
-O DroidNote captura o microfone e, se você quiser, o áudio de outros aplicativos. A transcrição aparece ao vivo. Depois você identifica falantes e gera uma nota para ditado, aula ou reunião.
+O DroidNote captura o microfone e, se você quiser, o áudio de outros aplicativos. A transcrição aparece ao vivo, já separada por voz: o motor de voz roda neste PC e mostra quem está falando agora. Dê nome a uma voz uma vez e o DroidNote a reconhece nas próximas gravações. No fim, gere uma nota para ditado, aula ou reunião.
 
-| Captura | Transcrição | Notas |
-| --- | --- | --- |
-| Microfone e áudio do sistema, neste PC | Whisper local ou API OpenAI | Resumo no dispositivo ou via OpenAI |
-| Sem bot convidado na chamada | Idioma da captura independente do idioma da interface | Chat sobre as sessões, com fontes agrupadas |
+| Captura | Quem falou | Transcrição | Notas |
+| --- | --- | --- | --- |
+| Microfone e áudio do sistema, neste PC | Separa as vozes pelo som, palavra a palavra | Whisper local ou API OpenAI | Resumo no dispositivo ou via OpenAI |
+| Filtro de eco: sem fone, a chamada não entra duas vezes | Dê nome a uma voz uma vez; ela é reconhecida nas próximas gravações | Idioma da captura independente do idioma da interface | Chat sobre as sessões, com fontes agrupadas |
+| Sem bot convidado na chamada | Linha do tempo de quem falou quando e quanto | Busca em tudo o que já foi dito (`Ctrl+K`) | A ata atribui falas e ações a cada voz |
 
 A interface e a transcrição são duas escolhas distintas. O app pode ficar em português e a captura em alemão, por exemplo.
 
@@ -74,6 +75,7 @@ A instalação é por cima da atual. Notas, gravações e modelos não são apag
 
 - [Arquitetura](docs/architecture.md) — processos, camadas, dados, captura, notas, atualização
 - [Desenvolvimento](docs/development.md) — `dev.ps1`, testes, build do Setup
+- [Diagnóstico e melhorias](docs/melhorias.md) — o que foi medido, corrigido e o que vem a seguir
 
 ---
 

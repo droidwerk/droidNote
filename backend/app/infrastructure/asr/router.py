@@ -80,6 +80,15 @@ class AsrRouter:
             language=language,
         )
 
+    def transcribe_words(
+        self,
+        samples: Sequence[float],
+        sample_rate: int,
+        *,
+        language: str | None = None,
+    ) -> tuple[list[tuple[float, float, str]], str | None]:
+        return self._engine().transcribe_words(samples, sample_rate, language=language)
+
     def set_api_key(self, key: str) -> None:
         self.openai.api_key = key
 

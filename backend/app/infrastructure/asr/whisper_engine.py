@@ -100,6 +100,18 @@ def filter_transcript(text: str, language: str | None = None) -> str:
     return cleaned
 
 
+def join_words(words: Sequence[tuple[float, float, str]]) -> str:
+    """Junta tokens do Whisper (que já trazem o espaço à esquerda) ou frases inteiras."""
+    text = ""
+    for _, _, token in words:
+        if not token:
+            continue
+        if text and not token.startswith(" "):
+            text += " "
+        text += token
+    return " ".join(text.split()).strip()
+
+
 def whisper_language_arg(language: str | None) -> str | None:
     if not language or language == "auto":
         return None
@@ -374,8 +386,21 @@ class WhisperEngine:
         *,
         language: str | None = None,
     ) -> tuple[str, str | None]:
+        words, detected = self.transcribe_words(samples, sample_rate, language=language)
+        joined = filter_transcript(join_words(words), whisper_language_arg(language))
+        return joined, detected
+
+    def transcribe_words(
+        self,
+        samples: Sequence[float],
+        sample_rate: int,
+        *,
+        language: str | None = None,
+    ) -> tuple[list[tuple[float, float, str]], str | None]:
+        """Palavras com início/fim (segundos na janela). Base do motor de voz."""
         import numpy as np
 
+        del sample_rate
         self.load()
         audio = np.asarray(samples, dtype=np.float32)
         try:
@@ -422,7 +447,7 @@ class WhisperEngine:
     def _warmup(self) -> None:
         import numpy as np
 
-        self._decode(np.zeros(16_000, dtype=np.float32), language=None)
+        self._decode(np.zeros(16_000, dtype=np.float32), language=None, words=False)
 
     def _cache_path(self) -> Path:
         return self.models_dir / "whisper-compute.json"
@@ -461,10 +486,11 @@ class WhisperEngine:
         audio: object,
         *,
         language: str | None,
-    ) -> tuple[str, str | None]:
+        words: bool = True,
+    ) -> tuple[list[tuple[float, float, str]], str | None]:
         model = self._model
         if model is None:
-            return "", None
+            return [], None
         locked = whisper_language_arg(language)
         beam_size = 1 if self._device == "cpu" else 3
         segments, info = model.transcribe(  # type: ignore[union-attr]
@@ -473,23 +499,38 @@ class WhisperEngine:
             vad_filter=False,
             beam_size=beam_size,
             temperature=0,
-            without_timestamps=True,
+            without_timestamps=not words,
+            word_timestamps=words,
             condition_on_previous_text=False,
             initial_prompt=None,
             no_speech_threshold=0.7,
             compression_ratio_threshold=2.4,
             log_prob_threshold=-1.0,
         )
-        texts: list[str] = []
         detected: str | None = getattr(info, "language", None)
+        out: list[tuple[float, float, str]] = []
         for segment in segments:
             if not _segment_is_speech(segment):
                 continue
-            piece = (segment.text or "").strip()
-            if piece:
-                texts.append(piece)
-        joined = filter_transcript(" ".join(texts).strip(), locked)
-        return joined, locked or detected
+            # O filtro de alucinação vale por frase: uma frase inventada não
+            # derruba mais a janela inteira.
+            piece = filter_transcript((segment.text or "").strip(), locked)
+            if not piece:
+                continue
+            start = float(getattr(segment, "start", 0.0) or 0.0)
+            end = float(getattr(segment, "end", start) or start)
+            items = getattr(segment, "words", None) or []
+            if words and items:
+                for item in items:
+                    token = str(getattr(item, "word", "") or "")
+                    if not token.strip():
+                        continue
+                    w_start = float(getattr(item, "start", start) or start)
+                    w_end = float(getattr(item, "end", w_start) or w_start)
+                    out.append((w_start, max(w_end, w_start), token))
+            else:
+                out.append((start, max(end, start), piece))
+        return out, locked or detected
 
 
 def _segment_is_speech(segment: object) -> bool:

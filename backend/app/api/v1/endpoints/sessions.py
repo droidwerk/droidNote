@@ -27,6 +27,9 @@ from app.schemas.api import (
     SessionUpdateIn,
     SummaryOut,
     TagOut,
+    VoiceAssignIn,
+    VoiceOut,
+    VoicesOut,
 )
 
 router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(verify_token)])
@@ -222,6 +225,11 @@ async def patch_segment_speaker(
     apply_forward = payload.apply_forward
     if speaker_id is UNSET and not payload.name:
         apply_forward = False
+    voices = container.voices
+    current = await container.store.get_segment(segment_id)
+    speaker_change = speaker_id is not UNSET or bool(payload.name)
+    clustered = bool(current is not None and current.speaker_cluster)
+    by_voice = bool(speaker_change and clustered and voices is not None and payload.apply_forward)
     try:
         segment = await container.speakers.patch_segment(
             session_id,
@@ -229,8 +237,14 @@ async def patch_segment_speaker(
             speaker_id=speaker_id,
             name=payload.name,
             text=payload.text,
-            apply_forward=apply_forward,
+            apply_forward=apply_forward and not clustered,
+            lock=speaker_change and not by_voice,
         )
+        if by_voice and voices is not None and segment.speaker_cluster:
+            # Nomear um trecho nomeia a voz inteira e ensina a impressão vocal.
+            await voices.assign(session_id, segment.speaker_cluster, segment.speaker_id)
+            refreshed = await container.store.get_segment(segment.id)
+            segment = refreshed or segment
     except KeyError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -244,6 +258,84 @@ async def patch_segment_speaker(
         container.capture.note_speaker(segment.speaker_id, segment.source)
     names = await container.speakers.name_map()
     return SegmentOut.from_domain(segment, names)
+
+
+async def _voices_out(container: AppContainer, session_id: str) -> VoicesOut:
+    voices = container.voices
+    segments = await container.store.list_segments(session_id)
+    names = await container.speakers.name_map()
+    printed = await container.store.voiceprint_people()
+    summary = await voices.voices(session_id) if voices is not None else []
+    total = sum(item.talk_ms for item in summary)
+    return VoicesOut(
+        engine_ready=bool(voices and voices.available()),
+        model=voices.model_id() if voices else "",
+        live=bool(voices and voices.is_live(session_id)),
+        voices=[
+            VoiceOut.from_domain(item, names=names, total_ms=total, printed=printed) for item in summary
+        ],
+        segments=[SegmentOut.from_domain(item, names) for item in segments],
+    )
+
+
+@router.get("/{session_id}/voices", response_model=VoicesOut)
+async def session_voices(session_id: str, request: Request) -> VoicesOut:
+    container = get_container(request.app)
+    try:
+        await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    return await _voices_out(container, session_id)
+
+
+@router.post("/{session_id}/voices/refine", response_model=VoicesOut)
+async def refine_voices(session_id: str, request: Request) -> VoicesOut:
+    container = get_container(request.app)
+    try:
+        await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    voices = container.voices
+    if voices is not None and voices.available():
+        await voices.refine(session_id, final=not voices.is_live(session_id))
+    return await _voices_out(container, session_id)
+
+
+@router.put("/{session_id}/voices/{cluster}", response_model=VoicesOut)
+async def assign_voice(
+    session_id: str,
+    cluster: str,
+    payload: VoiceAssignIn,
+    request: Request,
+) -> VoicesOut:
+    container = get_container(request.app)
+    locale = container.settings.ui_language
+    try:
+        await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    voices = container.voices
+    if voices is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ui_message(locale, "voice_unavailable"))
+    segments = await container.store.list_segments(session_id)
+    if not any(item.speaker_cluster == cluster for item in segments):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ui_message(locale, "voice_not_found"))
+    person_id = payload.person_id or None
+    if payload.name and payload.name.strip():
+        person = await container.speakers.create_person(payload.name)
+        person_id = person.id
+    elif person_id and await container.store.get_person(person_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ui_message(locale, "voice_not_found"))
+    await voices.assign(session_id, cluster, person_id)
+    if person_id:
+        participants = [item.id for item in await container.speakers.participants(session_id)]
+        if person_id not in participants:
+            await container.speakers.set_participants(session_id, [*participants, person_id])
+        if container.capture.state.session_id == session_id:
+            await container.capture.set_participants(
+                session_id, [item.id for item in await container.speakers.participants(session_id)]
+            )
+    return await _voices_out(container, session_id)
 
 
 @router.post("/{session_id}/speakers/assign", response_model=list[SegmentOut])
@@ -291,8 +383,9 @@ async def export_session(
     except KeyError:
         raise _missing(request) from None
     filename_base = _download_name(session.title, session.id, "")
+    locale = container.settings.ui_language
     if format == "markdown":
-        content = await container.sessions.export_markdown(session_id)
+        content = await container.sessions.export_markdown(session_id, locale)
         return PlainTextResponse(
             content,
             media_type="text/markdown; charset=utf-8",
@@ -303,13 +396,13 @@ async def export_session(
         summary = await container.store.get_summary(session_id)
         people = await container.store.list_people()
         if format == "pdf":
-            payload = export_pdf(session, segments, summary, people)
+            payload = export_pdf(session, segments, summary, people, locale)
             return Response(
                 content=payload,
                 media_type="application/pdf",
                 headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'},
             )
-        payload = export_docx(session, segments, summary, people)
+        payload = export_docx(session, segments, summary, people, locale)
         return Response(
             content=payload,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

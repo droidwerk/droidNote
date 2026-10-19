@@ -86,6 +86,9 @@ async def _assign_after_stop(container: AppContainer, session_id: str) -> None:
         await container.bus.publish(
             {"type": "speakers", "status": "start", "session_id": session_id}
         )
+        voices = container.voices
+        if voices is not None and voices.is_live(session_id):
+            await voices.finish(session_id)
         await container.speakers.assign_from_context(session_id)
     except Exception:
         log.exception("speaker assign after stop failed session=%s", session_id)

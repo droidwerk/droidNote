@@ -5,9 +5,34 @@ import type { Person, Segment } from "../../shared/api/types";
 import { currentUiLanguage, pluralForm, useT } from "../../shared/i18n";
 import type { TranslateFn } from "../../shared/i18n/I18nProvider";
 import { copyToClipboard, formatClock, highlight } from "../../shared/lib/format";
-import { formatPlain, resolveSpeaker, splitScene, groupTurns } from "../../shared/lib/segments";
-import { cssVar, useTheme } from "../../shared/lib/theme";
+import { formatPlain, splitScene, groupTurns } from "../../shared/lib/segments";
+import { useTheme } from "../../shared/lib/theme";
+import { speakerName, voiceToken } from "../../shared/lib/voices";
 import { Button } from "../../shared/ui/primitives";
+
+interface SpeakerInfo {
+  name: string;
+  color: string;
+  named: boolean;
+  cluster: string | null;
+  uncertain: boolean;
+}
+
+const UNCERTAIN = 0.42;
+
+function speakerInfo(segment: Segment, people: Person[]): SpeakerInfo {
+  const named = Boolean(segment.speaker_id && (people.some((item) => item.id === segment.speaker_id) || segment.speaker_name));
+  return {
+    name: speakerName(segment, people),
+    color: voiceToken(segment),
+    named,
+    cluster: segment.speaker_cluster ?? null,
+    uncertain:
+      Boolean(segment.speaker_cluster) &&
+      typeof segment.speaker_confidence === "number" &&
+      segment.speaker_confidence < UNCERTAIN,
+  };
+}
 
 export interface SegmentPatch {
   speaker_id?: string | null;
@@ -69,9 +94,9 @@ export function TranscriptList({
 
   useEffect(() => {
     const node = scroller.current;
-    if (!node || !stuckToBottom.current) return;
+    if (!node || !stuckToBottom.current || !receiving) return;
     node.scrollTop = node.scrollHeight;
-  }, [segments]);
+  }, [segments, receiving]);
 
   const rememberSpeaker = (personId: string | null | undefined) => {
     if (!personId) return;
@@ -227,7 +252,7 @@ export function TranscriptList({
         {groupTurns(segments).map((turn) => {
           const head = turn[0];
           if (!head) return null;
-          const speaker = resolveSpeaker(head, people);
+          const speaker = speakerInfo(head, people);
           const live = turn.some(
             (segment) =>
               activeMs !== null &&
@@ -317,7 +342,7 @@ function TurnRow({
   onCopied,
 }: {
   turn: Segment[];
-  speaker: Person | null;
+  speaker: SpeakerInfo;
   query: string;
   languageLocked: boolean;
   sessionId?: string | null;
@@ -345,7 +370,7 @@ function TurnRow({
   return (
     <article
       className={classes.join(" ")}
-      style={{ "--chip": speaker ? speakerColor(speaker.id) : "var(--border)" } as CSSProperties}
+      style={{ "--chip": speaker.color } as CSSProperties}
       onClick={onSelect}
     >
       <span className="segment-rail" aria-hidden="true" />
@@ -354,18 +379,15 @@ function TurnRow({
           {onPatchSegment && sessionId ? (
             <SpeakerChip
               speaker={speaker}
-              source={head.source}
               people={people}
               lastSpeakerId={lastSpeakerId}
               t={t}
               onAssign={(payload) => onPatchSegment(head.id, payload)}
             />
-          ) : speaker ? (
-            <span className="speaker-chip" style={{ "--chip": speakerColor(speaker.id) } as CSSProperties}>
+          ) : (
+            <span className={speaker.named || speaker.cluster ? "speaker-chip" : "speaker-chip empty"}>
               {speaker.name}
             </span>
-          ) : (
-            <span className="speaker-chip empty">{sourceLabel(head.source, t)}</span>
           )}
           <div className="segment-actions">
             <time
@@ -441,7 +463,7 @@ function SegmentRow({
 }: {
   segment: Segment;
   scene: { label: string | null; body: string };
-  speaker: Person | null;
+  speaker: SpeakerInfo;
   continued: boolean;
   query: string;
   languageLocked: boolean;
@@ -467,7 +489,7 @@ function SegmentRow({
   return (
     <article
       className={classes.join(" ")}
-      style={{ "--chip": speaker ? speakerColor(speaker.id) : "var(--border)" } as CSSProperties}
+      style={{ "--chip": speaker.color } as CSSProperties}
       onClick={onSelect}
     >
       <span className="segment-rail" aria-hidden="true" />
@@ -476,18 +498,15 @@ function SegmentRow({
           {onPatchSegment && sessionId ? (
             <SpeakerChip
               speaker={speaker}
-              source={segment.source}
               people={people}
               lastSpeakerId={lastSpeakerId}
               t={t}
               onAssign={(payload) => onPatchSegment(segment.id, payload)}
             />
-          ) : speaker ? (
-            <span className="speaker-chip" style={{ "--chip": speakerColor(speaker.id) } as CSSProperties}>
+          ) : (
+            <span className={speaker.named || speaker.cluster ? "speaker-chip" : "speaker-chip empty"}>
               {speaker.name}
             </span>
-          ) : (
-            <span className="speaker-chip empty">{sourceLabel(segment.source, t)}</span>
           )}
           <div className="segment-actions">
             <time
@@ -515,7 +534,7 @@ function SegmentRow({
             </Button>
             {editable ? (
               <Button size="sm" variant="quiet" className="segment-action" onClick={() => setEditing(true)}>
-                Editar
+                {t("transcript.edit")}
               </Button>
             ) : null}
           </div>
@@ -629,14 +648,12 @@ function SegmentText({
 
 function SpeakerChip({
   speaker,
-  source,
   people,
   lastSpeakerId,
   t,
   onAssign,
 }: {
-  speaker: Person | null;
-  source?: string | null;
+  speaker: SpeakerInfo;
   people: Person[];
   lastSpeakerId: string | null;
   t: TranslateFn;
@@ -691,14 +708,19 @@ function SpeakerChip({
       <button
         type="button"
         ref={buttonRef}
-        className={speaker ? "speaker-chip" : "speaker-chip empty"}
-        style={speaker ? ({ "--chip": speakerColor(speaker.id) } as CSSProperties) : undefined}
+        className={[
+          "speaker-chip",
+          speaker.named || speaker.cluster ? "" : "empty",
+          speaker.uncertain ? "is-uncertain" : "",
+        ].filter(Boolean).join(" ")}
+        title={speaker.uncertain ? t("voices.lowConfidence") : undefined}
         onClick={(event) => {
           event.stopPropagation();
           toggle();
         }}
       >
-        {speaker ? speaker.name : sourceLabel(source, t)}
+        <span className="speaker-dot" aria-hidden />
+        {speaker.name}
       </button>
       {open && rect
         ? createPortal(
@@ -718,8 +740,8 @@ function SpeakerChip({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>{t("transcript.forwardTitle")}</strong>
-                  <small>{t("transcript.forwardHint")}</small>
+                  <strong>{speaker.cluster ? t("voices.applyVoice") : t("transcript.forwardTitle")}</strong>
+                  <small>{speaker.cluster ? t("voices.applyVoiceHint") : t("transcript.forwardHint")}</small>
                 </span>
               </label>
               {lastSpeakerId
@@ -750,7 +772,7 @@ function SpeakerChip({
                   {person.name}
                 </button>
               ))}
-              {speaker ? (
+              {speaker.named ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -779,26 +801,4 @@ function SpeakerChip({
         : null}
     </div>
   );
-}
-
-function sourceLabel(source: string | null | undefined, t: TranslateFn): string {
-  if (source === "mic") return t("common.you");
-  if (source === "loopback") return t("common.others");
-  return t("common.whoSpoke");
-}
-
-function speakerColor(id: string): string {
-  const colors = [
-    cssVar("--ink-1", "#ff6a14"),
-    cssVar("--ink-2", "#3dd68c"),
-    cssVar("--ink-3", "#6ea8ff"),
-    cssVar("--ink-4", "#f59e0b"),
-    cssVar("--ink-5", "#c084fc"),
-    cssVar("--ink-6", "#ff6b6b"),
-  ];
-  let hash = 0;
-  for (let index = 0; index < id.length; index += 1) {
-    hash = (hash * 31 + id.charCodeAt(index)) | 0;
-  }
-  return colors[Math.abs(hash) % colors.length] ?? colors[0] ?? "#ff6a14";
 }

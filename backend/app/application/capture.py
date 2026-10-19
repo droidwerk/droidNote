@@ -2,25 +2,40 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from app.application.bus import EventBus
 from app.core.config import Settings, session_recording_path
+from app.core.i18n import ui_message
 from app.core.logging import get_logger
 from app.domain.models import AudioChunk, Person, Session, TranscriptSegment
 from app.domain.ports import AudioCapturePort, AsrPort, SessionRepository
-from app.infrastructure.asr.overlap import strip_overlap
+from app.infrastructure.asr.overlap import drop_covered_words, strip_overlap
 from app.infrastructure.asr.scene import annotate_transcript
-from app.infrastructure.asr.vad import SpeechBuffer, chunk_monitor, has_speech
+from app.infrastructure.asr.vad import SpeechBuffer, chunk_monitor, has_speech, rms_level
+from app.infrastructure.asr.whisper_engine import join_words
 from app.infrastructure.audio.wav_writer import SessionWavWriter
 from app.infrastructure.audio.windows_wasapi import WindowsWasapiCapture
 from app.infrastructure.persistence.sqlite import new_id
+from app.infrastructure.voice.echo import EchoGate
+from app.infrastructure.voice.vad import SileroModel, StreamingVad
+
+if TYPE_CHECKING:
+    from app.application.voices import LabeledTurn, VoiceService
 
 log = get_logger("capture")
 
 START_AUDIO_GRACE = 0.35
 LEVEL_EVERY = 0.08
+PROBE_EVERY = 0.6
+PROBE_SECONDS = 1.5
+PROBE_FRESH = 1.6
 PendingWindow = tuple[list[float], int, int, str, str]
 
 
@@ -43,8 +58,25 @@ class CaptureService:
         asr: AsrPort,
         store: SessionRepository,
         bus: EventBus,
+        *,
+        voices: VoiceService | None = None,
+        neural_vad: bool = False,
     ) -> None:
         self._settings = settings
+        self._voices = voices
+        self._neural_vad = neural_vad
+        self._echo = EchoGate()
+        self._mic_vad = StreamingVad()
+        self._loop_vad = StreamingVad()
+        self._channel_level: dict[str, float] = {"mic": 0.0, "system": 0.0}
+        self._channel_speech: dict[str, bool] = {"mic": False, "system": False}
+        self._probe_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="droidnote-probe")
+        self._probe_future: Future[None] | None = None
+        self._probe_audio: dict[str, deque[np.ndarray]] = {"mic": deque(), "loopback": deque()}
+        self._last_probe = 0.0
+        self._now_voice: dict[str, object] | None = None
+        self._now_voice_at = 0.0
+        self._capture_mode = "meeting"
         self._audio = audio
         self._asr = asr
         self._store = store
@@ -61,6 +93,7 @@ class CaptureService:
         self._people: list[Person] = []
         self._self_person_id: str | None = None
         self._last_text: dict[str, str] = {}
+        self._covered_until: dict[str, int] = {}
         self._writer: SessionWavWriter | None = None
         self._drain_events: dict[str, asyncio.Event] = {}
 
@@ -107,7 +140,7 @@ class CaptureService:
         mode = _normalize_mode(capture_mode)
         session = Session(
             id=new_id(),
-            title=title or _default_title(mode),
+            title=title or _default_title(mode, self._settings.ui_language),
             started_at=datetime.now(tz=UTC),
             ended_at=None,
             status="recording",
@@ -119,11 +152,30 @@ class CaptureService:
         saved_self = await self._store.get_setting("self_person_id")
         self._self_person_id = saved_self or None
         self._last_text = {}
+        self._covered_until = {}
         await self.set_participants(session.id, participant_ids or [])
         self._mic_buf = self._new_buffer()
         self._loop_buf = self._new_buffer()
+        self._echo = EchoGate()
+        self._mic_vad = StreamingVad()
+        self._loop_vad = StreamingVad()
+        self._now_voice = None
+        self._probe_audio = {"mic": deque(), "loopback": deque()}
+        self._capture_mode = mode
         self._pending = asyncio.Queue()
         self._transcribing = False
+        if self._voices is not None:
+            try:
+                await self._voices.begin(
+                    session.id,
+                    mode=mode,
+                    self_person_id=self._self_person_id,
+                    call=not mic_only,
+                )
+            except Exception:
+                log.exception("voice engine start failed session=%s", session.id)
+        if self._neural_vad:
+            await asyncio.to_thread(SileroModel.get)
         if await self._should_save_recordings():
             self._open_writer(session.id)
         else:
@@ -250,6 +302,8 @@ class CaptureService:
 
     def set_self_person(self, person_id: str | None) -> None:
         self._self_person_id = person_id or None
+        if self._voices is not None and self.state.session_id:
+            self._voices.set_self(self.state.session_id, self._self_person_id)
 
     async def _should_save_recordings(self) -> bool:
         stored = await self._store.get_setting("save_recordings")
@@ -311,7 +365,9 @@ class CaptureService:
         if not session_id:
             return
         for samples, start_ms, end_ms in windows:
-            if not samples or not has_speech(samples):
+            if not samples:
+                continue
+            if not self._neural_vad and not has_speech(samples):
                 continue
             self._loop.call_soon_threadsafe(
                 self._pending.put_nowait,
@@ -335,10 +391,84 @@ class CaptureService:
                 self._close_writer()
         mic = chunk.mic if chunk.mic is not None else chunk.samples
         loopback = None if self.state.mic_only else chunk.loopback
-        self._enqueue(self._mic_buf.push(mic, chunk.timestamp_ms), "mic")
         if loopback:
-            self._enqueue(self._loop_buf.push(loopback, chunk.timestamp_ms), "loopback")
+            # Sem fone, o microfone escuta o alto-falante: o eco sai do canal do
+            # microfone antes da transcrição (o WAV continua com tudo).
+            mic = self._echo.process(np.asarray(mic, dtype=np.float32), np.asarray(loopback, dtype=np.float32)).tolist()
+        mic_mask = self._mic_vad.mask(mic) if self._neural_vad else None
+        self._channel_level["mic"] = rms_level(mic)
+        self._channel_speech["mic"] = bool(mic_mask.any()) if mic_mask is not None else has_speech(mic)
+        self._enqueue(self._mic_buf.push(mic, chunk.timestamp_ms, mic_mask), "mic")
+        if loopback:
+            loop_mask = self._loop_vad.mask(loopback) if self._neural_vad else None
+            self._channel_level["system"] = rms_level(loopback)
+            self._channel_speech["system"] = (
+                bool(loop_mask.any()) if loop_mask is not None else has_speech(loopback)
+            )
+            self._enqueue(self._loop_buf.push(loopback, chunk.timestamp_ms, loop_mask), "loopback")
+        else:
+            self._channel_level["system"] = 0.0
+            self._channel_speech["system"] = False
+        self._feed_probe("mic", mic)
+        if loopback:
+            self._feed_probe("loopback", loopback)
+        self._maybe_probe()
         self._emit_monitor(chunk.samples)
+
+    def _feed_probe(self, source: str, samples: list[float]) -> None:
+        if self._voices is None:
+            return
+        buf = self._probe_audio[source]
+        buf.append(np.asarray(samples, dtype=np.float32))
+        limit = int(PROBE_SECONDS * self._settings.sample_rate)
+        while sum(item.size for item in buf) - buf[0].size >= limit:
+            buf.popleft()
+
+    def _maybe_probe(self) -> None:
+        """A cada ~0,6 s, compara o último 1,5 s do canal com voz às vozes da sessão."""
+        voices = self._voices
+        session_id = self.state.session_id
+        if voices is None or not session_id or not voices.is_live(session_id):
+            return
+        now = time.monotonic()
+        if now - self._last_probe < PROBE_EVERY:
+            return
+        if self._probe_future is not None and not self._probe_future.done():
+            return
+        speaking = [
+            (self._channel_level["system" if source == "loopback" else "mic"], source)
+            for source in ("mic", "loopback")
+            if self._channel_speech["system" if source == "loopback" else "mic"]
+        ]
+        if not speaking:
+            return
+        _, source = max(speaking)
+        clip = np.concatenate(list(self._probe_audio[source])) if self._probe_audio[source] else None
+        if clip is None or clip.size < int(self._settings.sample_rate):
+            return
+        self._last_probe = now
+
+        def run() -> None:
+            try:
+                found = voices.probe(session_id, clip)
+            except Exception:
+                log.exception("voice probe failed")
+                return
+            if found is None:
+                return
+            cluster, person_id, score = found
+            name = next((item.name for item in self._people if item.id == person_id), None)
+            self._now_voice = {
+                "cluster": cluster,
+                "person_id": person_id,
+                "name": name,
+                "source": source,
+                "at_ms": 0,
+                "similarity": round(score, 3),
+            }
+            self._now_voice_at = time.monotonic()
+
+        self._probe_future = self._probe_pool.submit(run)
 
     def _emit_monitor(self, samples: list[float]) -> None:
         if not self._loop:
@@ -365,6 +495,22 @@ class CaptureService:
                 "buffer_ms": buffer_ms,
                 "phase": "transcribing" if self._transcribing else self.state.phase,
                 "whisper_loaded": self.whisper_loaded(),
+                "channels": {
+                    "mic": {
+                        "rms": round(self._channel_level["mic"], 4),
+                        "speech": self._channel_speech["mic"],
+                        "echo": round(self._echo.gated_ratio, 3),
+                    },
+                    "system": None
+                    if self.state.mic_only
+                    else {
+                        "rms": round(self._channel_level["system"], 4),
+                        "speech": self._channel_speech["system"],
+                    },
+                },
+                "voice": self._now_voice
+                if self._now_voice is not None and now - self._now_voice_at < PROBE_FRESH
+                else None,
             },
         )
 
@@ -438,43 +584,121 @@ class CaptureService:
             return
         queue = pending or self._pending
         await self._mark_asr(True, session_id, queue)
-        text = ""
+        words: list[tuple[float, float, str]] = []
         language: str | None = None
+        turns: list[LabeledTurn] | None = None
+        overlap_only = False
         try:
             async with self._worker_lock:
-                text, language = await asyncio.to_thread(
-                    self._asr.transcribe_window,
-                    window,
-                    self._settings.sample_rate,
-                    language=_locked_language(self._settings.language),
-                )
-                text = annotate_transcript(text, window)
+                words, language = await asyncio.to_thread(self._words_for, window)
+                covered = self._covered_until.get(source)
+                fresh = drop_covered_words(words, start_ms, covered)
+                self._covered_until[source] = end_ms if covered is None else max(covered, end_ms)
+                overlap_only = bool(words) and not fresh
+                words = fresh
+                if not overlap_only:
+                    turns = await self._label(session_id, source, window, start_ms, words)
         except Exception:
             log.exception("transcribe window failed session=%s", session_id)
-            text, language = "", None
+            words, language, turns = [], None, None
+            overlap_only = False
         finally:
             await self._mark_asr(False, session_id, queue)
-        if not text:
-            log.info("whisper returned empty window session=%s", session_id)
+        if overlap_only:
             return
+        if not turns:
+            text = annotate_transcript(join_words(words), window)
+            if not text:
+                log.info("whisper returned empty window session=%s", session_id)
+                return
+            turns = None
+            pieces: list[tuple[int, int, str, str | None, str | None, float | None]] = [
+                (start_ms, end_ms, text, None, self._speaker_for(source), None)
+            ]
+        else:
+            pieces = [
+                (item.start_ms, item.end_ms, item.text, item.cluster, item.person_id, item.confidence)
+                for item in turns
+            ]
         previous = self._last_text.get(source, "")
-        text = strip_overlap(previous, text)
-        if not text:
-            return
-        self._last_text[source] = text
-        speaker_id = self._speaker_for(source)
-        speaker_name = next((item.name for item in self._people if item.id == speaker_id), None)
-        segment = TranscriptSegment(
-            id=new_id(),
-            session_id=session_id,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            text=text,
-            language=language,
-            speaker_id=speaker_id,
-            source=source,
+        first_start, first_end, first_text, *rest = pieces[0]
+        trimmed = strip_overlap(previous, first_text)
+        pieces[0] = (first_start, first_end, trimmed, *rest)  # type: ignore[assignment]
+        emitted = 0
+        for index, (seg_start, seg_end, text, cluster, person_id, confidence) in enumerate(pieces):
+            if not text:
+                continue
+            if person_id is None and cluster is None:
+                person_id = self._speaker_for(source)
+            segment = TranscriptSegment(
+                id=new_id(),
+                session_id=session_id,
+                start_ms=seg_start,
+                end_ms=max(seg_end, seg_start + 1),
+                text=text,
+                language=language,
+                speaker_id=person_id,
+                source=source,
+                speaker_cluster=cluster,
+                speaker_confidence=confidence,
+            )
+            await self._store.add_segment(segment)
+            if turns is not None and self._voices is not None:
+                try:
+                    await self._voices.persist_turn(segment, turns[index])
+                except Exception:
+                    log.exception("voice persist failed segment=%s", segment.id)
+            self._last_text[source] = text
+            emitted += 1
+            await self._publish_segment(segment)
+        if emitted and turns is not None and self._voices is not None:
+            self._voices.schedule_refine(session_id)
+
+    def _words_for(self, window: list[float]) -> tuple[list[tuple[float, float, str]], str | None]:
+        language = _locked_language(self._settings.language)
+        transcriber = getattr(self._asr, "transcribe_words", None)
+        if callable(transcriber):
+            words, detected = transcriber(window, self._settings.sample_rate, language=language)
+            return list(words), detected
+        text, detected = self._asr.transcribe_window(
+            window, self._settings.sample_rate, language=language
         )
-        await self._store.add_segment(segment)
+        if not text:
+            return [], detected
+        return [(0.0, len(window) / float(self._settings.sample_rate), text)], detected
+
+    async def _label(
+        self,
+        session_id: str,
+        source: str,
+        window: list[float],
+        start_ms: int,
+        words: list[tuple[float, float, str]],
+    ) -> list[LabeledTurn] | None:
+        voices = self._voices
+        if voices is None or not words or not voices.is_live(session_id):
+            return None
+        audio = np.asarray(window, dtype=np.float32)
+        speech = None
+        if self._neural_vad:
+            probs = await asyncio.to_thread(SileroModel.probabilities, audio)
+            if probs is not None:
+                speech = np.repeat(probs >= 0.5, 512)[: audio.size]
+        try:
+            return await asyncio.to_thread(
+                voices.label_window, session_id, source, audio, start_ms, words, speech
+            )
+        except Exception:
+            log.exception("voice labeling failed session=%s", session_id)
+            return None
+
+    async def _publish_segment(self, segment: TranscriptSegment) -> None:
+        speaker_name = next(
+            (item.name for item in self._people if item.id == segment.speaker_id), None
+        )
+        if speaker_name is None and segment.speaker_id:
+            person = await self._store.get_person(segment.speaker_id)
+            speaker_name = person.name if person else None
         await self._bus.publish(
             {
                 "type": "segment",
@@ -488,6 +712,9 @@ class CaptureService:
                     "speaker_id": segment.speaker_id,
                     "speaker_name": speaker_name,
                     "source": segment.source,
+                    "speaker_cluster": segment.speaker_cluster,
+                    "speaker_confidence": segment.speaker_confidence,
+                    "speaker_locked": False,
                 },
             }
         )
@@ -530,6 +757,9 @@ class CaptureService:
         )
 
     def _speaker_for(self, source: str) -> str | None:
+        if source == "mic" and self._capture_mode == "lecture":
+            # Em aula o microfone pega quem ensina, não quem grava.
+            return self._people[0].id if len(self._people) == 1 else None
         if source == "mic":
             if self._self_person_id:
                 return self._self_person_id
@@ -559,10 +789,14 @@ def _audio_startup_error(audio: AudioCapturePort) -> str | None:
     return None
 
 
-def _default_title(mode: str = "meeting") -> str:
+def _default_title(mode: str = "meeting", locale: str | None = None) -> str:
     now = datetime.now()
-    labels = {"dictation": "Ditado", "lecture": "Aula", "meeting": "Reunião"}
-    prefix = labels.get(mode, "Sessão")
+    keys = {
+        "dictation": "title_dictation",
+        "lecture": "title_lecture",
+        "meeting": "title_meeting",
+    }
+    prefix = ui_message(locale, keys.get(mode, "title_session"))
     return f"{prefix} {now.strftime('%d/%m/%Y %H:%M')}"
 
 

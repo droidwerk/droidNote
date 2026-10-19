@@ -64,17 +64,27 @@ class SpeechBuffer:
         self.silence = 0
         self.speech_seen = False
 
-    def push(self, chunk: list[float], timestamp_ms: int) -> list[tuple[list[float], int, int]]:
+    def push(
+        self,
+        chunk: list[float],
+        timestamp_ms: int,
+        mask: np.ndarray | None = None,
+    ) -> list[tuple[list[float], int, int]]:
+        """`mask` (opcional) é a decisão de fala por amostra do VAD neural."""
         if not chunk:
             return []
         emitted: list[tuple[list[float], int, int]] = []
         offset = 0
+        use_mask = mask is not None and len(mask) == len(chunk)
         while offset < len(chunk):
             frame = chunk[offset : offset + FRAME_SAMPLES]
             offset += FRAME_SAMPLES
             if not frame:
                 break
-            speaking = has_speech(frame)
+            if use_mask:
+                speaking = bool(np.any(mask[offset - len(frame) : offset]))  # type: ignore[index]
+            else:
+                speaking = has_speech(frame)
             frame_start = timestamp_ms + int((offset - len(frame)) * 1000 / self.sample_rate)
             if speaking:
                 if not self.samples:

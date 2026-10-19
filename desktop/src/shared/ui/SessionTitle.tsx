@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { useI18n } from "../i18n";
+
 interface SessionTitleProps {
   value: string;
   disabled?: boolean;
@@ -7,6 +9,7 @@ interface SessionTitleProps {
 }
 
 export function SessionTitle({ value, disabled = false, onCommit }: SessionTitleProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
@@ -28,7 +31,7 @@ export function SessionTitle({ value, disabled = false, onCommit }: SessionTitle
       className="title-input"
       value={draft}
       disabled={disabled}
-      aria-label="Título da sessão"
+      aria-label={t("session.titleAria")}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {

@@ -2,11 +2,14 @@ import { useState, type DragEvent, type KeyboardEvent } from "react";
 
 import type { Session, Tag } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
-import { formatDate } from "../../shared/lib/format";
+import { formatClock } from "../../shared/lib/format";
+import { Icon } from "../../shared/ui/Icon";
+import { modeIcon } from "../command/CommandPalette";
 
 interface SessionSidebarItemProps {
   session: Session;
   active: boolean;
+  live?: boolean;
   folders: Tag[];
   onOpen: () => void;
   onMove: (sessionId: string, folderId: string | null) => Promise<void>;
@@ -15,6 +18,7 @@ interface SessionSidebarItemProps {
 export function SessionSidebarItem({
   session,
   active,
+  live = false,
   folders,
   onOpen,
   onMove,
@@ -69,10 +73,16 @@ export function SessionSidebarItem({
           className={active ? "session-item active" : "session-item"}
           onClick={onOpen}
         >
-          <span className="session-item-dot" aria-hidden />
+          <span className={live ? "session-item-mode is-live" : "session-item-mode"} aria-hidden>
+            <Icon name={modeIcon(session.capture_mode)} size={14} />
+          </span>
           <span className="session-item-copy">
             <strong>{session.title}</strong>
-            <span>{formatDate(session.started_at)}</span>
+            <span>
+              {new Date(session.started_at).toLocaleTimeString(document.documentElement.lang || undefined, { hour: "2-digit", minute: "2-digit" })}
+              {" · "}
+              {formatClock(session.duration_ms)}
+            </span>
           </span>
         </button>
         <button

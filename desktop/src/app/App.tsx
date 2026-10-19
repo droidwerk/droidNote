@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CommandPalette } from "../features/command/CommandPalette";
 import { FolderSidebar } from "../features/session/FolderSidebar";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { Wizard } from "../features/setup/Wizard";
@@ -16,6 +17,8 @@ import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { EngineSwitch } from "../shared/ui/EngineSwitch";
+import { Icon, type IconName } from "../shared/ui/Icon";
+import { StatusStrip } from "../shared/ui/StatusStrip";
 import { useToast } from "../shared/ui/Toast";
 
 type View = "live" | "session" | "settings" | "chat";
@@ -67,6 +70,14 @@ export function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [chatFocus, setChatFocus] = useState<ChatFocus | null>(null);
+  const [voicesRevision, setVoicesRevision] = useState(0);
+  const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
+  const [voiceDownloading, setVoiceDownloading] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sessionSeek, setSessionSeek] = useState<number | null>(null);
+  const [engineInfo, setEngineInfo] = useState({ asr: "—", note: "—" });
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
   useUpdateNotice(ready && !needsWizard && !bootError);
 
   const openChat = useCallback((focus?: ChatFocus) => {
@@ -85,10 +96,58 @@ export function App() {
   }, []);
 
   const applyEngineSettings = useCallback((settings: Settings) => {
-    setAsrProvider(settings.provider === "openai" ? "openai" : "neste_pc");
+    const cloud = settings.provider === "openai";
+    setAsrProvider(cloud ? "openai" : "neste_pc");
     setHasApiKey(Boolean(settings.has_api_key));
     setOpenaiDisclaimer(Boolean(settings.openai_disclaimer_accepted));
+    setEngineInfo({
+      asr: cloud
+        ? settings.asr_cloud_model ?? "OpenAI"
+        : `Whisper ${settings.whisper_model}${settings.whisper_device && settings.whisper_device !== "auto" ? ` · ${settings.whisper_device}` : ""}`,
+      note: cloud ? settings.llm_cloud_model ?? "OpenAI" : settings.ollama_model,
+    });
   }, []);
+
+  const watchVoiceEngine = useCallback(async () => {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      try {
+        const status = await api.setupStatus();
+        const voice = status.voice;
+        if (!voice) {
+          setVoiceReady(false);
+          setVoiceDownloading(false);
+          return;
+        }
+        if (voice.status === "ready") {
+          setVoiceReady(true);
+          setVoiceDownloading(false);
+          return;
+        }
+        setVoiceReady(false);
+        if (voice.status === "error" || voice.status === "missing") {
+          setVoiceDownloading(false);
+          return;
+        }
+        setVoiceDownloading(true);
+      } catch {
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    }
+  }, []);
+
+  const downloadVoice = useCallback(async () => {
+    setVoiceDownloading(true);
+    try {
+      await api.downloadVoice();
+    } catch (err) {
+      setVoiceDownloading(false);
+      toast.push({ tone: "error", title: err instanceof Error ? err.message : t("voices.download") });
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    await watchVoiceEngine();
+  }, [toast, t, watchVoiceEngine]);
 
   const enginePrepRef = useRef(0);
 
@@ -219,6 +278,11 @@ export function App() {
           applyEngineSettings(settings);
           const wizard = !status.disclaimer_accepted || !status.setup_complete;
           setNeedsWizard(wizard);
+          setVoiceReady(status.voice ? status.voice.status === "ready" : false);
+          if (status.voice?.status === "downloading") {
+            setVoiceDownloading(true);
+            void watchVoiceEngine();
+          }
           if (!status.audio_ok) {
             setCaptureError(
               status.audio_message || t("engine.noMic"),
@@ -337,6 +401,16 @@ export function App() {
         if (event.type === "speakers") {
           setSpeakersBusy(event.status === "start");
         }
+        if (event.type === "voices") {
+          setVoicesRevision((value) => value + 1);
+          const current = activeIdRef.current;
+          if (current && event.session_id === current) {
+            void api
+              .session(current)
+              .then((detail) => setLiveSegments((list) => mergeSegmentLists(list, detail.segments)))
+              .catch(() => undefined);
+          }
+        }
       },
       (live) => {
         setSocketLive(live);
@@ -433,6 +507,22 @@ export function App() {
 
   useEffect(() => {
     if (!ready || needsWizard) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "r") {
+        event.preventDefault();
+        void toggle();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ready, needsWizard, toggle]);
+
+  useEffect(() => {
+    if (!ready || needsWizard) return undefined;
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/event")
       .then(({ listen }) => listen("tray-toggle-capture", () => void toggle()))
@@ -493,48 +583,24 @@ export function App() {
     );
   };
 
+  const openSession = (sessionId: string, atMs?: number) => {
+    setActiveId(sessionId);
+    setSessionSeek(atMs ?? null);
+    setView("session");
+  };
+
+  const groups = groupByDay(visibleSessions, t);
+
   return (
-    <div className="shell">
+    <div className={capture.recording ? "shell is-recording" : "shell"}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <BrandLockup size="sidebar" />
-          <EngineSwitch
-            value={asrProvider}
-            disabled={providerBusy || capture.recording || pending !== null}
-            onChange={(next) => void switchProvider(next)}
-          />
         </div>
-        <nav className="nav nav-primary" aria-label={t("nav.primary")}>
-          <button
-            className={view === "live" ? "active" : ""}
-            aria-current={view === "live" ? "page" : undefined}
-            onClick={() => setView("live")}
-            type="button"
-          >
-            <NavIcon name="live" />
-            <span>{t("nav.live")}</span>
-          </button>
-          <button
-            className={view === "chat" ? "active" : ""}
-            aria-current={view === "chat" ? "page" : undefined}
-            onClick={() => openChat()}
-            type="button"
-          >
-            <NavIcon name="chat" />
-            <span className="nav-label">
-              {t("nav.chat")}
-              <span className="beta-flag">{t("common.beta")}</span>
-            </span>
-          </button>
-          <button
-            className={view === "settings" ? "active" : ""}
-            aria-current={view === "settings" ? "page" : undefined}
-            onClick={() => setView("settings")}
-            type="button"
-          >
-            <NavIcon name="settings" />
-            <span>{t("nav.settings")}</span>
-          </button>
+        <nav className="nav" aria-label={t("nav.primary")}>
+          <NavButton icon="console" label={t("nav.live")} active={view === "live"} onClick={() => setView("live")} badge={capture.recording ? "rec" : undefined} />
+          <NavButton icon="chat" label={t("nav.chat")} active={view === "chat"} onClick={() => openChat()} badge={t("common.beta")} />
+          <NavButton icon="settings" label={t("nav.settings")} active={view === "settings"} onClick={() => setView("settings")} />
         </nav>
         <div className="sidebar-section">
           <FolderSidebar
@@ -547,161 +613,209 @@ export function App() {
             onDelete={deleteFolder}
             onMoveSession={(sessionId, folderId) => moveSessionToFolder(sessionId, folderId)}
           />
-          <div className="conversation-heading">{t("nav.conversations")}</div>
           <div className="session-list">
             {visibleSessions.length === 0 ? (
               <div className="empty-block">{t("nav.emptySessions")}</div>
             ) : (
-              visibleSessions.map((session) => (
-                <SessionSidebarItem
-                  key={session.id}
-                  session={session}
-                  folders={tags}
-                  active={session.id === activeId && view === "session"}
-                  onOpen={() => {
-                    setActiveId(session.id);
-                    setView("session");
-                  }}
-                  onMove={moveSessionToFolder}
-                />
+              groups.map((group) => (
+                <div className="session-group" key={group.label}>
+                  <span className="session-group-label">{group.label}</span>
+                  {group.items.map((session) => (
+                    <SessionSidebarItem
+                      key={session.id}
+                      session={session}
+                      folders={tags}
+                      live={capture.recording && capture.session_id === session.id}
+                      active={session.id === activeId && view === "session"}
+                      onOpen={() => openSession(session.id)}
+                      onMove={moveSessionToFolder}
+                    />
+                  ))}
+                </div>
               ))
             )}
           </div>
         </div>
         <div className="sidebar-footer">
-          <AppVersion />
-          <SiteCredit className="sidebar-credit" />
+          <EngineSwitch
+            value={asrProvider}
+            disabled={providerBusy || capture.recording || pending !== null}
+            onChange={(next) => void switchProvider(next)}
+          />
+          <div className="sidebar-credit-row">
+            <SiteCredit className="sidebar-credit" />
+            <AppVersion />
+          </div>
         </div>
       </aside>
-      <main className={view === "live" || view === "session" || view === "chat" ? "main main-workspace" : "main"}>
-        {view !== "live" && (capture.recording || asrBusy || speakersBusy) ? (
-          <p className="banner processing-banner">{t("nav.activeTranscript")}</p>
-        ) : null}
-        {view === "live" ? (
-          <LivePage
-            capture={capture}
-            sessionId={activeId}
-            liveSegments={liveSegments}
-            busy={busy}
-            error={captureError}
-            pending={pending}
-            micOnly={micOnly}
-            monitor={monitor}
-            asrBusy={asrBusy}
-            asrQueued={asrQueued}
-            speakersBusy={speakersBusy}
-            socketLive={socketLive}
-            monitorStale={monitorStale}
-            loopbackId={loopbackId}
-            devices={devices}
-            onMicOnlyChange={setMicOnly}
-            onLoopbackChange={setLoopbackId}
-            onToggle={() => void toggle()}
-            onTitleChange={async (title) => {
-              if (!activeId) return;
-              const updated = await api.renameSession(activeId, title);
-              setSessions((current) =>
-                current.map((item) => (item.id === updated.id ? updated : item)),
-              );
-            }}
-            participantIds={participantIds}
-            onParticipantIdsChange={setParticipantIds}
-            languageLocked={language !== "auto"}
-            captureLanguage={language}
-            captureMode={captureMode}
-            engineProvider={asrProvider}
-            onCaptureModeChange={(mode) => {
-              setCaptureMode(mode);
-              if (mode === "dictation") setMicOnly(true);
-              if (mode === "lecture" || mode === "meeting") setMicOnly(false);
-            }}
-            onCaptureLanguageChange={(id) => {
-              setLanguage(id);
-              void api.saveSettings({ language: id }).catch(() => {
-                toast.push({
-                  tone: "error",
-                  title: t("settings.saveFail"),
+      <main className="main">
+        <StatusStrip
+          recording={capture.recording}
+          socketLive={socketLive}
+          provider={asrProvider}
+          asrLabel={engineInfo.asr}
+          noteLabel={engineInfo.note}
+          voiceReady={voiceReady}
+          onOpenPalette={() => setPaletteOpen(true)}
+        />
+        <div className="main-scroll">
+          {view !== "live" && (capture.recording || asrBusy || speakersBusy) ? (
+            <button type="button" className="live-banner" onClick={() => setView("live")}>
+              <span className="state-led" aria-hidden />
+              {t("nav.activeTranscript")}
+              <Icon name="arrow" size={14} />
+            </button>
+          ) : null}
+          {view === "live" ? (
+            <LivePage
+              capture={capture}
+              sessionId={activeId}
+              liveSegments={liveSegments}
+              busy={busy}
+              error={captureError}
+              pending={pending}
+              micOnly={micOnly}
+              monitor={monitor}
+              asrBusy={asrBusy}
+              asrQueued={asrQueued}
+              speakersBusy={speakersBusy}
+              socketLive={socketLive}
+              monitorStale={monitorStale}
+              loopbackId={loopbackId}
+              devices={devices}
+              voicesRevision={voicesRevision}
+              voiceReady={Boolean(voiceReady)}
+              voiceDownloading={voiceDownloading}
+              onDownloadVoice={() => void downloadVoice()}
+              onMicOnlyChange={setMicOnly}
+              onLoopbackChange={setLoopbackId}
+              onToggle={() => void toggle()}
+              onTitleChange={async (title) => {
+                if (!activeId) return;
+                const updated = await api.renameSession(activeId, title);
+                setSessions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+              }}
+              participantIds={participantIds}
+              onParticipantIdsChange={setParticipantIds}
+              languageLocked={language !== "auto"}
+              captureLanguage={language}
+              captureMode={captureMode}
+              engineProvider={asrProvider}
+              onCaptureModeChange={(mode) => {
+                setCaptureMode(mode);
+                if (mode === "dictation") setMicOnly(true);
+                if (mode === "lecture" || mode === "meeting") setMicOnly(false);
+              }}
+              onCaptureLanguageChange={(id) => {
+                setLanguage(id);
+                void api.saveSettings({ language: id }).catch(() => {
+                  toast.push({ tone: "error", title: t("settings.saveFail") });
                 });
-              });
-            }}
-            onAsk={openChat}
-          />
-        ) : null}
-        {view === "session" && activeId ? (
-          <SessionPage
-            sessionId={activeId}
-            onDeleted={() => {
-              setActiveId(null);
-              setView("live");
-              void loadSessions();
-            }}
-            onRenamed={(title) => {
-              if (!activeId) return;
-              setSessions((current) =>
-                current.map((item) => (item.id === activeId ? { ...item, title } : item)),
-              );
-            }}
-            onTagsChanged={() => void loadSessions()}
-            languageLocked={language !== "auto"}
-            onAsk={openChat}
-          />
-        ) : null}
-        {view === "chat" ? (
-          <ChatPage
-            focus={chatFocus}
-            onFocusConsumed={() => setChatFocus(null)}
-            onOpenSession={(sessionId) => {
-              setActiveId(sessionId);
-              setView("session");
-            }}
-          />
-        ) : null}
-        {view === "settings" ? (
-          <SettingsPage
-            engineProvider={asrProvider}
-            onSaved={(next) => {
-              setMicOnly(next.mic_only_default);
-              setLanguage(isCaptureLanguage(next.language) ? next.language : "pt");
-              applyEngineSettings(next);
-              if (isUiLanguage(next.ui_language)) setLocale(next.ui_language);
-            }}
-          />
-        ) : null}
+              }}
+              onAsk={openChat}
+            />
+          ) : null}
+          {view === "session" && activeId ? (
+            <SessionPage
+              sessionId={activeId}
+              seekTo={sessionSeek}
+              voicesRevision={voicesRevision}
+              voiceReady={Boolean(voiceReady)}
+              voiceDownloading={voiceDownloading}
+              onDownloadVoice={() => void downloadVoice()}
+              onDeleted={() => {
+                setActiveId(null);
+                setView("live");
+                void loadSessions();
+              }}
+              onRenamed={(title) => {
+                if (!activeId) return;
+                setSessions((current) => current.map((item) => (item.id === activeId ? { ...item, title } : item)));
+              }}
+              onTagsChanged={() => void loadSessions()}
+              languageLocked={language !== "auto"}
+              onAsk={openChat}
+            />
+          ) : null}
+          {view === "chat" ? (
+            <ChatPage
+              focus={chatFocus}
+              onFocusConsumed={() => setChatFocus(null)}
+              onOpenSession={(sessionId) => openSession(sessionId)}
+            />
+          ) : null}
+          {view === "settings" ? (
+            <SettingsPage
+              engineProvider={asrProvider}
+              voiceReady={Boolean(voiceReady)}
+              voiceDownloading={voiceDownloading}
+              onDownloadVoice={() => void downloadVoice()}
+              onSaved={(next) => {
+                setMicOnly(next.mic_only_default);
+                setLanguage(isCaptureLanguage(next.language) ? next.language : "pt");
+                applyEngineSettings(next);
+                if (isUiLanguage(next.ui_language)) setLocale(next.ui_language);
+              }}
+            />
+          ) : null}
+        </div>
       </main>
+      <CommandPalette
+        open={paletteOpen}
+        sessions={sessions}
+        recording={capture.recording}
+        onClose={() => setPaletteOpen(false)}
+        onOpenSession={openSession}
+        onToggleCapture={() => void toggle()}
+        onOpenChat={() => openChat()}
+        onOpenSettings={() => setView("settings")}
+        onOpenLive={() => setView("live")}
+      />
     </div>
   );
 }
 
-type NavIconName = "live" | "settings" | "chat";
-
-function NavIcon({ name }: { name: NavIconName }) {
+function NavButton({
+  icon,
+  label,
+  active,
+  onClick,
+  badge,
+}: {
+  icon: IconName;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  badge?: string;
+}) {
   return (
-    <span className="nav-icon" aria-hidden>
-      <svg viewBox="0 0 24 24" fill="none">
-        {name === "live" ? (
-          <>
-            <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-            <path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4" />
-            <path d="M4.6 4.6a10.5 10.5 0 0 0 0 14.8M19.4 4.6a10.5 10.5 0 0 1 0 14.8" />
-          </>
-        ) : null}
-        {name === "chat" ? (
-          <>
-            <path d="M5 7.5h14M5 12h9" />
-            <path d="M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4 3v-3H6A2.5 2.5 0 0 1 3.5 14V7A2.5 2.5 0 0 1 6 4.5Z" />
-          </>
-        ) : null}
-        {name === "settings" ? (
-          <>
-            <path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5" />
-            <circle cx="16" cy="6" r="2" />
-            <circle cx="8" cy="12" r="2" />
-            <circle cx="13" cy="18" r="2" />
-          </>
-        ) : null}
-      </svg>
-    </span>
+    <button className={active ? "nav-item is-active" : "nav-item"} aria-current={active ? "page" : undefined} onClick={onClick} type="button">
+      <Icon name={icon} size={18} />
+      <span>{label}</span>
+      {badge === "rec" ? <span className="nav-rec" aria-hidden /> : badge ? <span className="nav-badge">{badge}</span> : null}
+    </button>
   );
+}
+
+function groupByDay(items: Session[], t: (key: string) => string): { label: string; items: Session[] }[] {
+  const groups: { label: string; items: Session[] }[] = [];
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const day = 86_400_000;
+  for (const session of items) {
+    const started = new Date(session.started_at);
+    const stamp = new Date(started.getFullYear(), started.getMonth(), started.getDate()).getTime();
+    const label =
+      stamp === startOfToday
+        ? t("days.today")
+        : stamp === startOfToday - day
+          ? t("days.yesterday")
+          : started.toLocaleDateString(document.documentElement.lang || undefined, { day: "2-digit", month: "short", year: started.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(session);
+    else groups.push({ label, items: [session] });
+  }
+  return groups;
 }
 
 function isSegment(value: unknown): value is Segment {
@@ -730,6 +844,35 @@ function toMonitor(value: Record<string, unknown>): MonitorFrame {
     buffer_ms: typeof value.buffer_ms === "number" ? value.buffer_ms : 0,
     phase: typeof value.phase === "string" ? value.phase : "listening",
     whisper_loaded: Boolean(value.whisper_loaded),
+    channels: isRecord(value.channels)
+      ? {
+          mic: toChannel(value.channels.mic) ?? { rms: 0, speech: false },
+          system: toChannel(value.channels.system),
+        }
+      : null,
+    voice:
+      isRecord(value.voice) && typeof value.voice.cluster === "string"
+        ? {
+            cluster: value.voice.cluster,
+            person_id: typeof value.voice.person_id === "string" ? value.voice.person_id : null,
+            name: typeof value.voice.name === "string" ? value.voice.name : null,
+            source: typeof value.voice.source === "string" ? value.voice.source : null,
+            at_ms: typeof value.voice.at_ms === "number" ? value.voice.at_ms : 0,
+          }
+        : null,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function toChannel(value: unknown): { rms: number; speech: boolean; echo?: number } | null {
+  if (!isRecord(value)) return null;
+  return {
+    rms: typeof value.rms === "number" ? value.rms : 0,
+    speech: Boolean(value.speech),
+    echo: typeof value.echo === "number" ? value.echo : undefined,
   };
 }
 

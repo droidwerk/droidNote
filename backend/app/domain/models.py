@@ -55,6 +55,23 @@ class TranscriptSegment:
     language: str | None = None
     speaker_id: str | None = None
     source: str | None = None
+    # Voz detectada pelo motor de voz ("v1", "v2"…), independente de ter nome.
+    speaker_cluster: str | None = None
+    speaker_confidence: float | None = None
+    # Rótulo escolhido à mão neste trecho: o reagrupamento automático não mexe.
+    speaker_locked: bool = False
+
+
+@dataclass(frozen=True)
+class SessionVoice:
+    cluster: str
+    index: int
+    person_id: str | None
+    talk_ms: int
+    segments: int
+    first_ms: int
+    sources: tuple[str, ...] = ()
+    confidence: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -121,6 +138,7 @@ class SetupComponentStatus:
 class SetupStatus:
     llm: SetupComponentStatus = field(default_factory=SetupComponentStatus)
     whisper: SetupComponentStatus = field(default_factory=SetupComponentStatus)
+    voice: SetupComponentStatus = field(default_factory=SetupComponentStatus)
     disclaimer_accepted: bool = False
     audio_ok: bool = False
     capture_ready: bool = False

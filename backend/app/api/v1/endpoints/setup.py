@@ -34,6 +34,11 @@ def _to_out(status) -> SetupStatusOut:
             progress=status.whisper.progress,
             message=status.whisper.message,
         ),
+        voice=SetupComponentOut(
+            status=status.voice.status,
+            progress=status.voice.progress,
+            message=status.voice.message,
+        ),
         disclaimer_accepted=status.disclaimer_accepted,
         audio_ok=status.audio_ok,
         capture_ready=status.capture_ready,
@@ -54,6 +59,16 @@ def _to_out(status) -> SetupStatusOut:
 async def setup_status(request: Request) -> SetupStatusOut:
     status = await get_container(request.app).setup.status()
     return _to_out(status)
+
+
+@router.post("/voice/download", response_model=SetupComponentOut)
+async def download_voice(request: Request) -> SetupComponentOut:
+    import asyncio
+
+    setup = get_container(request.app).setup
+    asyncio.create_task(setup.download_voice())
+    component = setup.voice_component()
+    return SetupComponentOut(status=component.status, progress=component.progress, message=component.message)
 
 
 @router.get("/plan", response_model=SetupPlanOut)

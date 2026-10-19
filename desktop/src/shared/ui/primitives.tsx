@@ -1,5 +1,7 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 
+import { useI18n } from "../i18n";
+
 type ButtonVariant = "primary" | "ghost" | "danger" | "record" | "quiet";
 type ButtonSize = "sm" | "md";
 
@@ -117,13 +119,15 @@ interface ProgressBarProps {
   label?: string;
 }
 
-export function ProgressBar({ value, label = "Progresso" }: ProgressBarProps) {
+export function ProgressBar({ value, label }: ProgressBarProps) {
+  const { t } = useI18n();
+  const caption = label ?? t("common.progress");
   const normalized = Math.max(0, Math.min(100, value));
   return (
     <div
       className="progress"
       role="progressbar"
-      aria-label={label}
+      aria-label={caption}
       aria-valuenow={normalized}
       aria-valuemin={0}
       aria-valuemax={100}

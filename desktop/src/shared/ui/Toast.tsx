@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { useI18n } from "../i18n";
+
 export type ToastTone = "success" | "error" | "info";
 
 export interface ToastAction {
@@ -36,6 +38,7 @@ const MAX_TOASTS = 3;
 const AUTO_DISMISS_MS = 5000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
   const timers = useRef(new Map<number, number>());
@@ -94,7 +97,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 className="toast-close"
-                aria-label="Fechar aviso"
+                aria-label={t("common.closeNotice")}
                 onClick={() => dismiss(toast.id)}
               >
                 <svg viewBox="0 0 16 16" aria-hidden>

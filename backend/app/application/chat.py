@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from app.application.prompts import chat_system
 from app.application.sessions import _fts_query
+from app.application.summarize import voice_label
 from app.core.i18n import ui_message
 from app.domain.models import Chat, ChatCitation, ChatMessage, Session, TranscriptSegment
 from app.domain.ports import LlmPort
@@ -157,6 +158,8 @@ class ChatService:
             title = titles.get(segment.session_id, "Lecture")
             stamp = _fmt_ms(segment.start_ms)
             speaker = people.get(segment.speaker_id or "", "")
+            if not speaker and segment.speaker_cluster:
+                speaker = voice_label(segment.speaker_cluster, segment.language)
             who = f" {speaker}" if speaker else ""
             line = f"[{reason}] {title} · {stamp}{who}\n{excerpt}"
             if used + len(line) > MAX_CONTEXT_CHARS:

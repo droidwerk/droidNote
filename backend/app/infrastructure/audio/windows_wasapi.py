@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 import warnings
+from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
@@ -11,7 +12,7 @@ import numpy as np
 from app.core.logging import get_logger
 from app.domain.models import AudioChunk
 from app.domain.ports import AudioCallback
-from app.infrastructure.audio.resample import block_frames, candidate_rates, resample_mono
+from app.infrastructure.audio.resample import StreamResampler, block_frames, candidate_rates
 
 log = get_logger("audio.windows")
 
@@ -89,14 +90,30 @@ def open_input(device: object, preferred_hz: int, channels: int = 1) -> Iterator
     raise RuntimeError(f"Nenhuma taxa de áudio funcionou neste dispositivo ({last_error})")
 
 
-class _LatestLoopback:
+class _LoopbackFifo:
+    """Leitor do áudio do sistema com fila de verdade.
+
+    A versão anterior guardava só o último bloco de 100 ms e o microfone lia
+    "o mais recente": com relógios diferentes, blocos se repetiam ou sumiam e a
+    voz de quem estava na chamada chegava picotada ao Whisper. Aqui as amostras
+    entram numa fila; a latência fica entre ~60 e 300 ms e a deriva de relógio
+    é corrigida descartando o excesso ou completando com silêncio.
+    """
+
+    TARGET_MS = 120
+    MAX_MS = 300
+
     def __init__(self, device: object, stop: threading.Event, sample_rate: int) -> None:
         self._device = device
         self._stop = stop
         self._sample_rate = sample_rate
         self._lock = threading.Lock()
-        self._buf = np.zeros(block_frames(sample_rate, BLOCK_MS), dtype=np.float32)
+        self._chunks: deque[np.ndarray] = deque()
+        self._size = 0
+        self._primed = False
         self.alive = True
+        self.underruns = 0
+        self.dropped = 0
         self.thread = threading.Thread(target=self._run, name="droidnote-loopback", daemon=True)
         self.thread.start()
 
@@ -106,11 +123,10 @@ class _LatestLoopback:
                 with open_input(self._device, self._sample_rate) as (recorder, native_hz):
                     self.alive = True
                     native_block = block_frames(native_hz, BLOCK_MS)
+                    resampler = StreamResampler(native_hz, self._sample_rate)
                     while not self._stop.is_set():
                         frames = _to_mono(recorder.record(numframes=native_block))
-                        resampled = resample_mono(frames, native_hz, self._sample_rate)
-                        with self._lock:
-                            self._buf = resampled
+                        self._push(resampler.process(frames))
             except Exception as exc:
                 self.alive = False
                 if self._stop.is_set():
@@ -118,13 +134,51 @@ class _LatestLoopback:
                 log.warning("loopback reader retrying after %s", exc)
                 time.sleep(0.4)
 
-    def latest(self, count: int) -> np.ndarray:
+    def _push(self, data: np.ndarray) -> None:
+        if data.size == 0:
+            return
+        limit = int(self._sample_rate * self.MAX_MS / 1000)
+        target = int(self._sample_rate * self.TARGET_MS / 1000)
         with self._lock:
-            data = self._buf
-        if data.size >= count:
-            return data[:count]
+            self._chunks.append(data.astype(np.float32, copy=False))
+            self._size += data.size
+            if self._size > limit:
+                excess = self._size - target
+                self.dropped += excess
+                self._discard(excess)
+
+    def _discard(self, count: int) -> None:
+        while count > 0 and self._chunks:
+            head = self._chunks[0]
+            if head.size <= count:
+                self._chunks.popleft()
+                self._size -= head.size
+                count -= head.size
+            else:
+                self._chunks[0] = head[count:]
+                self._size -= count
+                count = 0
+
+    def read(self, count: int) -> np.ndarray:
         out = np.zeros(count, dtype=np.float32)
-        out[: data.size] = data
+        with self._lock:
+            if not self._primed:
+                if self._size < int(self._sample_rate * self.TARGET_MS / 2000):
+                    return out
+                self._primed = True
+            filled = 0
+            while filled < count and self._chunks:
+                head = self._chunks[0]
+                take = min(count - filled, head.size)
+                out[filled : filled + take] = head[:take]
+                filled += take
+                if take == head.size:
+                    self._chunks.popleft()
+                else:
+                    self._chunks[0] = head[take:]
+                self._size -= take
+            if filled < count:
+                self.underruns += 1
         return out
 
 
@@ -249,7 +303,7 @@ class WindowsWasapiCapture:
         loopbacks = [] if mic_only else select_loopbacks(sc, loopback_id)
         if not loopbacks and not mic_only:
             self._warning = "Nenhuma saída da máquina encontrada — só o microfone."
-        readers = [_LatestLoopback(item, self._stop, self.sample_rate) for item in loopbacks]
+        readers = [_LoopbackFifo(item, self._stop, self.sample_rate) for item in loopbacks]
         if readers:
             self._loopback_label = " + ".join(str(item.name) for item in loopbacks)
             log.info("loopback devices: %s", self._loopback_label)
@@ -276,17 +330,16 @@ class WindowsWasapiCapture:
         self,
         mic_rec: object,
         mic_hz: int,
-        readers: list[_LatestLoopback],
+        readers: list[_LoopbackFifo],
         callback: Callable[[AudioChunk], None],
         timestamp_ms: int,
     ) -> int:
         mic_block = block_frames(mic_hz, BLOCK_MS)
+        resampler = StreamResampler(mic_hz, self.sample_rate)
         while not self._stop.is_set():
             try:
-                mic_frames = resample_mono(
+                mic_frames = resampler.process(
                     _to_mono(mic_rec.record(numframes=mic_block)),  # type: ignore[attr-defined]
-                    mic_hz,
-                    self.sample_rate,
                 )
             except Exception as exc:
                 log.warning("microphone read failed: %s", exc)
@@ -300,8 +353,7 @@ class WindowsWasapiCapture:
             for reader in readers:
                 if not reader.alive:
                     continue
-                extra = reader.latest(n)
-                loop_sum = loop_sum + extra[:n]
+                loop_sum = loop_sum + reader.read(n)
                 has_loop = True
             mixed = np.clip(mixed + loop_sum, -1.0, 1.0)
             callback(

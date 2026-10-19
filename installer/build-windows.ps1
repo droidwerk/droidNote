@@ -90,6 +90,22 @@ if (Test-Path $LooseApp) {
 
 python "$PSScriptRoot\generate_icons.py"
 
+# Motor de voz (WeSpeaker ResNet34-LM, 26 MB) vai dentro do sidecar: quem instala
+# já identifica falantes sem esperar download. O hash é o mesmo que o app confere.
+$VoiceDir = Join-Path $Backend "voice"
+$VoiceModel = Join-Path $VoiceDir "wespeaker_resnet34_lm.onnx"
+$VoiceSha = "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068"
+$VoiceUrl = "https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM/resolve/main/voxceleb_resnet34_LM.onnx"
+New-Item -ItemType Directory -Force -Path $VoiceDir | Out-Null
+if (-not (Test-Path $VoiceModel) -or ((Get-FileHash -Algorithm SHA256 $VoiceModel).Hash.ToLower() -ne $VoiceSha)) {
+    Write-Host "Baixando motor de voz..."
+    Invoke-WebRequest -Uri $VoiceUrl -OutFile $VoiceModel -UseBasicParsing
+    if ((Get-FileHash -Algorithm SHA256 $VoiceModel).Hash.ToLower() -ne $VoiceSha) {
+        Remove-Item -Force $VoiceModel
+        throw "Motor de voz chegou com hash diferente do esperado. Build interrompido."
+    }
+}
+
 Push-Location $Backend
 python -m pip install -e ".[dev]"
 python -m PyInstaller --noconfirm --clean sidecar.spec

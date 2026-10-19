@@ -4,6 +4,8 @@ import json
 import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
@@ -20,7 +22,8 @@ from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
 from app.application.summarize import SummarizeService
-from app.core.config import Settings, get_settings
+from app.application.voices import VoiceService
+from app.core.config import Settings, get_settings, session_recording_path
 from app.core.hardware import available_ram_gb, suggest_note_model, suggest_whisper_model, total_ram_gb
 from app.core.i18n import normalize_ui_language, read_install_language
 from app.core.logging import configure_logging, get_logger
@@ -33,6 +36,7 @@ from app.infrastructure.llm.ollama_manager import OllamaManager
 from app.infrastructure.llm.openai_chat import OpenAIChatEngine
 from app.infrastructure.llm.router import LlmRouter
 from app.infrastructure.persistence.sqlite import SqliteStore
+from app.infrastructure.voice.embedder import OnnxVoiceEmbedder
 
 log = get_logger("main")
 
@@ -47,6 +51,17 @@ ALLOWED_ORIGINS = [
 ]
 
 
+async def stop_abandoned_recordings(store: SqliteStore) -> None:
+    """Sessão que ficou 'recording' porque o processo caiu não tem captura viva."""
+    now = datetime.now(tz=UTC)
+    for session in await store.list_sessions():
+        if session.status != "recording":
+            continue
+        await store.update_session(
+            replace(session, status="stopped", ended_at=session.ended_at or now)
+        )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging()
     resolved = settings or get_settings()
@@ -58,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         store = SqliteStore(resolved.db_path)
         await store.initialize()
+        await stop_abandoned_recordings(store)
         saved_whisper = await store.get_setting("whisper_model")
         saved_ollama = await store.get_setting("ollama_model")
         saved_device = await store.get_setting("whisper_device")
@@ -118,7 +134,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             provider=resolved.provider,
         )
         bus = EventBus()
-        capture = CaptureService(resolved, audio, asr, store, bus)
+        embedder = OnnxVoiceEmbedder(resolved.models_dir)
+        voices = VoiceService(
+            embedder,
+            store,
+            bus,
+            recordings_path=lambda session_id: session_recording_path(resolved, session_id),
+        )
+        capture = CaptureService(resolved, audio, asr, store, bus, voices=voices, neural_vad=True)
         import asyncio
 
         capture.bind_loop(asyncio.get_running_loop())
@@ -129,10 +152,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             capture=capture,
             sessions=SessionService(store),
             summarize=SummarizeService(llm, store),
-            setup=SetupService(resolved, store, audio, asr, llm),
+            setup=SetupService(resolved, store, audio, asr, llm, voice=embedder),
             llm=llm,
             speakers=SpeakersService(llm, store),
             chat=ChatService(llm, store),
+            voices=voices,
         )
         app.state.container = container
         log.info("backend ready")
@@ -151,9 +175,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             preload_task = asyncio.create_task(_preload_whisper())
 
+        # Motor de voz: 26 MB, baixa sozinho na primeira execução e carrega
+        # antes da primeira gravação.
+        async def _prepare_voice() -> None:
+            try:
+                if not embedder.is_ready():
+                    await container.setup.download_voice()
+                if embedder.is_ready():
+                    await asyncio.to_thread(embedder.load)
+            except Exception:
+                log.exception("voice engine prepare failed")
+
+        voice_task = asyncio.create_task(_prepare_voice())
+
         yield
         if preload_task and not preload_task.done():
             preload_task.cancel()
+        if not voice_task.done():
+            voice_task.cancel()
         if capture.is_recording():
             await capture.stop()
 

@@ -11,6 +11,7 @@ from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
 from app.application.summarize import SummarizeService
+from app.application.voices import VoiceService
 from app.core.config import Settings
 from app.infrastructure.llm.router import LlmRouter
 from app.infrastructure.persistence.sqlite import SqliteStore
@@ -28,6 +29,7 @@ class AppContainer:
     llm: LlmRouter
     speakers: SpeakersService
     chat: ChatService
+    voices: VoiceService | None = None
 
 
 def get_container(app: FastAPI) -> AppContainer:

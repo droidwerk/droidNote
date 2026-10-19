@@ -5,7 +5,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.domain.models import Chat, ChatCitation, ChatMessage, Person, Session, Summary, Tag, TranscriptSegment
+from app.domain.models import (
+    Chat,
+    ChatCitation,
+    ChatMessage,
+    Person,
+    Session,
+    SessionVoice,
+    Summary,
+    Tag,
+    TranscriptSegment,
+)
 
 
 class HealthOut(BaseModel):
@@ -116,6 +126,9 @@ class SegmentOut(BaseModel):
     speaker_id: str | None = None
     speaker_name: str | None = None
     source: str | None = None
+    speaker_cluster: str | None = None
+    speaker_confidence: float | None = None
+    speaker_locked: bool = False
 
     @classmethod
     def from_domain(
@@ -136,6 +149,9 @@ class SegmentOut(BaseModel):
             speaker_id=segment.speaker_id,
             speaker_name=speaker_name,
             source=segment.source,
+            speaker_cluster=segment.speaker_cluster,
+            speaker_confidence=segment.speaker_confidence,
+            speaker_locked=segment.speaker_locked,
         )
 
 
@@ -180,10 +196,61 @@ class SummaryOut(BaseModel):
 class PersonOut(BaseModel):
     id: str
     name: str
+    has_voiceprint: bool = False
 
     @classmethod
-    def from_domain(cls, person: Person) -> PersonOut:
-        return cls(id=person.id, name=person.name)
+    def from_domain(cls, person: Person, *, has_voiceprint: bool = False) -> PersonOut:
+        return cls(id=person.id, name=person.name, has_voiceprint=has_voiceprint)
+
+
+class VoiceOut(BaseModel):
+    cluster: str
+    index: int
+    person_id: str | None = None
+    person_name: str | None = None
+    talk_ms: int = 0
+    share: float = 0.0
+    segments: int = 0
+    first_ms: int = 0
+    sources: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    has_voiceprint: bool = False
+
+    @classmethod
+    def from_domain(
+        cls,
+        voice: SessionVoice,
+        *,
+        names: dict[str, str],
+        total_ms: int,
+        printed: set[str],
+    ) -> VoiceOut:
+        return cls(
+            cluster=voice.cluster,
+            index=voice.index,
+            person_id=voice.person_id,
+            person_name=names.get(voice.person_id or ""),
+            talk_ms=voice.talk_ms,
+            share=round(voice.talk_ms / total_ms, 4) if total_ms else 0.0,
+            segments=voice.segments,
+            first_ms=voice.first_ms,
+            sources=list(voice.sources),
+            confidence=voice.confidence,
+            has_voiceprint=bool(voice.person_id and voice.person_id in printed),
+        )
+
+
+class VoicesOut(BaseModel):
+    engine_ready: bool
+    model: str = ""
+    live: bool = False
+    voices: list[VoiceOut] = Field(default_factory=list)
+    segments: list[SegmentOut] = Field(default_factory=list)
+
+
+class VoiceAssignIn(BaseModel):
+    person_id: str | None = None
+    name: str | None = Field(default=None, max_length=80)
 
 
 class SessionDetailOut(BaseModel):
@@ -215,6 +282,7 @@ class SetupComponentOut(BaseModel):
 class SetupStatusOut(BaseModel):
     llm: SetupComponentOut
     whisper: SetupComponentOut
+    voice: SetupComponentOut | None = None
     disclaimer_accepted: bool
     audio_ok: bool
     capture_ready: bool
