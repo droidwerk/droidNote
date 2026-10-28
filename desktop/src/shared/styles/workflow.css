@@ -1,0 +1,450 @@
+/* Fluxo de trabalho: reunião detectada, minhas notas, templates, mini console. */
+
+/* ------------------------------------------------------- reunião detectada */
+
+.meeting-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 64px);
+  max-width: 1336px;
+  margin: 18px auto 0;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--accent-line);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 70%), var(--surface);
+  box-shadow: var(--accent-glow);
+  animation: pop-in var(--t-med) var(--ease);
+}
+
+.meeting-banner.is-ended {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.meeting-banner-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.meeting-banner.is-ended .meeting-banner-icon {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.meeting-banner-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.meeting-banner-copy strong {
+  font-size: 13.5px;
+}
+
+.meeting-banner-copy small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.meeting-banner-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ------------------------------------------------------------ minhas notas */
+
+.user-notes {
+  display: grid;
+  gap: 12px;
+}
+
+.user-notes-hint,
+.user-notes-empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.user-notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.user-notes-list li {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 24px;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 6px 8px 8px;
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+}
+
+.user-note-time {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-hi);
+  text-align: left;
+  cursor: default;
+}
+
+.user-note-time.is-seekable {
+  cursor: pointer;
+}
+
+.user-note-time.is-seekable:hover {
+  text-decoration: underline;
+}
+
+.user-note-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  cursor: text;
+}
+
+.user-note-edit {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--accent-line);
+  background: var(--surface);
+  resize: vertical;
+  outline: none;
+}
+
+.user-note-remove {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  opacity: 0;
+}
+
+.user-notes-list li:hover .user-note-remove {
+  opacity: 1;
+}
+
+.user-note-remove:hover {
+  background: var(--hover);
+  color: var(--danger);
+}
+
+.user-notes-composer {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+}
+
+.user-notes-composer:focus-within {
+  border-color: var(--accent-line);
+}
+
+.user-notes-composer textarea {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  line-height: 1.5;
+}
+
+.user-notes-composer .button {
+  justify-self: end;
+}
+
+/* --------------------------------------------------------------- templates */
+
+.template-picker {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-soft);
+  margin-bottom: 12px;
+}
+
+.template-picker.is-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.template-picker.is-compact span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.template-picker.is-compact .select {
+  width: auto;
+  min-width: 150px;
+  background-color: var(--surface);
+  border-color: var(--line);
+}
+
+.template-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.template-head .muted {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+
+.template-form {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--accent-line);
+  background: var(--surface-2);
+}
+
+.template-body {
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.template-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.template-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.template-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.template-copy strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.template-copy p {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ mini console */
+
+html.is-mini,
+html.is-mini body,
+html.is-mini #root {
+  height: 100%;
+  background: var(--bg-deep);
+  overflow: hidden;
+}
+
+.mini {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border: 1px solid var(--line-strong);
+  background: radial-gradient(420px 120px at 0% 0%, rgba(255, 68, 0, 0.08), transparent 70%), var(--bg-deep);
+  user-select: none;
+}
+
+.mini.is-live {
+  border-color: var(--accent-line);
+}
+
+.mini-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+}
+
+.mini-state {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mini.is-live .mini-state {
+  color: var(--accent-hi);
+}
+
+.mini.is-live .state-led {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 10px var(--accent);
+  animation: led-pulse 1.6s ease-in-out infinite;
+}
+
+.mini-clock {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.mini-icon:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.mini-body {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  min-height: 0;
+}
+
+.mini-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mini-voice strong {
+  font-size: 13px;
+  color: var(--voice);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-voice.is-idle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mini-line {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  user-select: text;
+}
+
+.mini-line b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mini-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 10px 12px;
+}
+
+.mini-note {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  outline: none;
+  font-size: 12.5px;
+  transition: border-color var(--t-med), box-shadow var(--t-med);
+}
+
+.mini-note:focus {
+  border-color: var(--accent-line);
+}
+
+.mini-note.is-saved {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.mini-rec {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
+.mini-rec .reactor-dot,
+.mini-rec .reactor-stop {
+  width: 10px;
+  height: 10px;
+}
+
+@media (max-width: 860px) {
+  .meeting-banner {
+    width: calc(100% - 36px);
+    flex-wrap: wrap;
+  }
+}

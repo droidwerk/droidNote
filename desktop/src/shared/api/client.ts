@@ -17,8 +17,16 @@ import type {
   SetupPlan,
   SetupStatus,
   Summary,
+  MeetingStatus,
+  NoteTemplate,
   Tag,
+  UserNote,
   VoicesResult,
+  Brief,
+  RetentionReport,
+  TaskItem,
+  TaskStatus,
+  Upcoming,
 } from "./types";
 import { tr } from "../i18n/runtime";
 
@@ -123,7 +131,7 @@ export const api = {
   getSettings: () => request<Settings>("/setup/settings"),
   listModels: () => request<ModelsCatalog>("/setup/models"),
   exportDiagnostics: () => download("/setup/diagnostics"),
-  saveSettings: (payload: Partial<Settings> & { asr_api_key?: string }) =>
+  saveSettings: (payload: Partial<Settings> & { asr_api_key?: string; calendar_ics_url?: string }) =>
     request<Settings>("/setup/settings", {
       method: "PUT",
       body: JSON.stringify(payload),
@@ -188,6 +196,7 @@ export const api = {
     microphone_id?: string;
     participant_ids?: string[];
     capture_mode?: CaptureMode;
+    template_id?: string | null;
   }) =>
     request<CaptureState>("/capture/start", {
       method: "POST",
@@ -212,8 +221,55 @@ export const api = {
       : `/sessions/search?q=${encodeURIComponent(q)}`;
     return request<{ query: string; segments: SearchResult["segments"] }>(path);
   },
-  summarize: (id: string) =>
-    request<Summary>(`/sessions/${id}/summarize`, { method: "POST" }),
+  summarize: (id: string, templateId?: string | null) =>
+    request<Summary>(
+      `/sessions/${id}/summarize${templateId !== undefined ? `?template_id=${encodeURIComponent(templateId ?? "")}` : ""}`,
+      { method: "POST" },
+    ),
+  notes: (sessionId: string) => request<UserNote[]>(`/sessions/${sessionId}/notes`),
+  addNote: (sessionId: string, text: string, atMs?: number | null) =>
+    request<UserNote>(`/sessions/${sessionId}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ text, at_ms: atMs ?? null }),
+    }),
+  updateNote: (sessionId: string, noteId: string, text: string) =>
+    request<UserNote[]>(`/sessions/${sessionId}/notes/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ text }),
+    }),
+  deleteNote: (sessionId: string, noteId: string) =>
+    request<void>(`/sessions/${sessionId}/notes/${noteId}`, { method: "DELETE" }),
+  templates: (kind?: "note" | "recipe") =>
+    request<NoteTemplate[]>(`/templates${kind ? `?kind=${kind}` : ""}`),
+  createTemplate: (payload: { kind: "note" | "recipe"; name: string; body: string; capture_mode?: CaptureMode | null }) =>
+    request<NoteTemplate>("/templates", { method: "POST", body: JSON.stringify(payload) }),
+  updateTemplate: (id: string, payload: { name?: string; body?: string }) =>
+    request<NoteTemplate>(`/templates/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),
+  tasks: (status: TaskStatus = "all") => request<TaskItem[]>(`/tasks?status=${status}`),
+  createTask: (payload: { text: string; owner?: string | null; due?: string | null; session_id?: string | null }) =>
+    request<TaskItem>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
+  updateTask: (id: string, payload: Partial<Pick<TaskItem, "text" | "owner" | "due" | "done">>) =>
+    request<TaskItem>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteTask: (id: string) => request<void>(`/tasks/${id}`, { method: "DELETE" }),
+  brief: (query: { sessionId?: string; title?: string; people?: string[] }) => {
+    const params = new URLSearchParams();
+    if (query.sessionId) params.set("session_id", query.sessionId);
+    if (query.title) params.set("title", query.title);
+    if (query.people?.length) params.set("people", query.people.join(","));
+    return request<Brief>(`/brief?${params.toString()}`);
+  },
+  upcoming: (hours = 36) => request<Upcoming>(`/calendar/upcoming?hours=${hours}`),
+  testCalendar: (url: string) =>
+    request<{ ok: boolean; events: number; error: string | null }>("/calendar/test", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+  retentionPreview: (audioDays: number, transcriptDays: number) =>
+    request<RetentionReport>(`/setup/retention/preview?audio_days=${audioDays}&transcript_days=${transcriptDays}`),
+  runRetention: () => request<RetentionReport>("/setup/retention/run", { method: "POST" }),
+  meeting: () => request<MeetingStatus>("/capture/meeting"),
+  dismissMeeting: () => request<MeetingStatus>("/capture/meeting/dismiss", { method: "POST" }),
   saveNote: (id: string, notes_markdown: string) =>
     request<Summary>(`/sessions/${id}/note`, {
       method: "PUT",

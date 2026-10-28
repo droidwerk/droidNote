@@ -43,6 +43,24 @@ class Session:
     status: SessionStatus
     language: str | None = None
     capture_mode: CaptureMode = "meeting"
+    template_id: str | None = None
+    # A retenção apagou a fala desta sessão; ata, notas e tarefas continuam.
+    transcript_purged_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskItem:
+    """Tarefa da central: nasce de uma ata (origin "ai") ou digitada (origin "manual")."""
+
+    id: str
+    text: str
+    created_at: datetime
+    session_id: str | None = None
+    owner: str | None = None
+    due: str | None = None
+    done: bool = False
+    done_at: datetime | None = None
+    origin: Literal["ai", "manual"] = "ai"
 
 
 @dataclass(frozen=True)
@@ -60,6 +78,30 @@ class TranscriptSegment:
     speaker_confidence: float | None = None
     # Rótulo escolhido à mão neste trecho: o reagrupamento automático não mexe.
     speaker_locked: bool = False
+
+
+@dataclass(frozen=True)
+class UserNote:
+    """Anotação que a pessoa digitou durante a gravação, presa ao momento da fala."""
+
+    id: str
+    session_id: str
+    at_ms: int
+    text: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class NoteTemplate:
+    """Template de nota (kind "note") ou receita do chat (kind "recipe")."""
+
+    id: str
+    kind: Literal["note", "recipe"]
+    name: str
+    body: str
+    capture_mode: str | None = None
+    builtin: bool = False
+    position: int = 0
 
 
 @dataclass(frozen=True)

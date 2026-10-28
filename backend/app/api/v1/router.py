@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import capture, chat, health, people, sessions, setup, tags, ws
+from app.api.v1.endpoints import brief, capture, chat, health, people, sessions, setup, tags, tasks, templates, ws
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -12,4 +12,7 @@ api_router.include_router(setup.router)
 api_router.include_router(people.router)
 api_router.include_router(tags.router)
 api_router.include_router(chat.router)
+api_router.include_router(templates.router)
+api_router.include_router(tasks.router)
+api_router.include_router(brief.router)
 api_router.include_router(ws.router)

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-import type { CaptureMode, Summary } from "../../shared/api/types";
+import type { CaptureMode, NoteTemplate, Summary } from "../../shared/api/types";
+import { TemplatePicker } from "../templates/TemplatePicker";
 import { tr, useT } from "../../shared/i18n";
 import { copyToClipboard } from "../../shared/lib/format";
 import { Button } from "../../shared/ui/primitives";
@@ -13,7 +14,9 @@ interface SummaryPanelProps {
   title?: string;
   engineLabel?: string;
   captureMode?: CaptureMode;
-  onGenerate: () => void;
+  templates?: NoteTemplate[];
+  templateId?: string | null;
+  onGenerate: (templateId?: string | null) => void;
   onSaveNote?: (markdown: string) => Promise<void>;
 }
 
@@ -24,6 +27,8 @@ export function SummaryPanel({
   title,
   engineLabel,
   captureMode = "meeting",
+  templates = [],
+  templateId = null,
   onGenerate,
   onSaveNote,
 }: SummaryPanelProps) {
@@ -34,6 +39,8 @@ export function SummaryPanel({
   const seed = summary ? (summary.notes_markdown?.trim() ? summary.notes_markdown : summaryToMarkdown(sessionTitle, summary)) : "";
   const [draft, setDraft] = useState(seed);
   const [saving, setSaving] = useState(false);
+  const [chosen, setChosen] = useState<string | null>(templateId);
+  useEffect(() => setChosen(templateId), [templateId]);
   const labels = {
     heading: t(`summary.${captureMode}Heading`),
     emptyTitle: t(`summary.${captureMode}EmptyTitle`),
@@ -77,11 +84,14 @@ export function SummaryPanel({
               {saving ? t("common.saving") : t("common.save")}
             </Button>
           ) : null}
-          <Button size="sm" variant="primary" disabled={disabled || loading} onClick={onGenerate}>
+          <Button size="sm" variant="primary" disabled={disabled || loading} onClick={() => onGenerate(templates.length ? chosen : undefined)}>
             {loading ? t("summary.generating") : summary ? t("summary.regenerating") : t("summary.generate")}
           </Button>
         </div>
       </div>
+      {templates.length ? (
+        <TemplatePicker templates={templates} value={chosen} disabled={loading} onChange={setChosen} />
+      ) : null}
       {!summary && loading ? (
         <div className="note-empty">
           <div>

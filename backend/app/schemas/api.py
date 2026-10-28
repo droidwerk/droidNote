@@ -9,12 +9,15 @@ from app.domain.models import (
     Chat,
     ChatCitation,
     ChatMessage,
+    NoteTemplate,
     Person,
     Session,
     SessionVoice,
     Summary,
     Tag,
+    TaskItem,
     TranscriptSegment,
+    UserNote,
 )
 
 
@@ -40,6 +43,7 @@ class CaptureStartIn(BaseModel):
     title: str | None = None
     participant_ids: list[str] = Field(default_factory=list)
     capture_mode: Literal["dictation", "lecture", "meeting"] = "meeting"
+    template_id: str | None = None
 
 
 class CaptureStateOut(BaseModel):
@@ -91,6 +95,8 @@ class SessionOut(BaseModel):
     capture_mode: Literal["dictation", "lecture", "meeting"] = "meeting"
     tags: list[TagOut] = Field(default_factory=list)
     has_audio: bool = False
+    template_id: str | None = None
+    transcript_purged_at: datetime | None = None
 
     @classmethod
     def from_domain(
@@ -113,6 +119,8 @@ class SessionOut(BaseModel):
             capture_mode=session.capture_mode,
             tags=[TagOut.from_domain(item) for item in tags or []],
             has_audio=has_audio,
+            template_id=session.template_id,
+            transcript_purged_at=session.transcript_purged_at,
         )
 
 
@@ -248,6 +256,155 @@ class VoicesOut(BaseModel):
     segments: list[SegmentOut] = Field(default_factory=list)
 
 
+class UserNoteIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4_000)
+    at_ms: int | None = Field(default=None, ge=0)
+
+
+class UserNoteUpdateIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4_000)
+
+
+class UserNoteOut(BaseModel):
+    id: str
+    session_id: str
+    at_ms: int
+    text: str
+    created_at: datetime
+
+    @classmethod
+    def from_domain(cls, note: UserNote) -> UserNoteOut:
+        return cls(id=note.id, session_id=note.session_id, at_ms=note.at_ms, text=note.text, created_at=note.created_at)
+
+
+class TemplateIn(BaseModel):
+    kind: Literal["note", "recipe"] = "note"
+    name: str = Field(min_length=1, max_length=80)
+    body: str = Field(min_length=1, max_length=6_000)
+    capture_mode: Literal["dictation", "lecture", "meeting"] | None = None
+
+
+class TemplateUpdateIn(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    body: str | None = Field(default=None, max_length=6_000)
+    capture_mode: Literal["dictation", "lecture", "meeting"] | None = None
+
+
+class TemplateOut(BaseModel):
+    id: str
+    kind: Literal["note", "recipe"]
+    name: str
+    body: str
+    capture_mode: str | None = None
+    builtin: bool = False
+
+    @classmethod
+    def from_domain(cls, template: NoteTemplate) -> TemplateOut:
+        return cls(
+            id=template.id,
+            kind=template.kind,
+            name=template.name,
+            body=template.body,
+            capture_mode=template.capture_mode,
+            builtin=template.builtin,
+        )
+
+
+class TaskOut(BaseModel):
+    id: str
+    text: str
+    owner: str | None = None
+    due: str | None = None
+    done: bool = False
+    done_at: datetime | None = None
+    origin: Literal["ai", "manual"] = "ai"
+    created_at: datetime
+    session_id: str | None = None
+    session_title: str | None = None
+    session_started_at: datetime | None = None
+
+    @classmethod
+    def from_domain(cls, task: TaskItem, session: Session | None = None) -> TaskOut:
+        return cls(
+            id=task.id,
+            text=task.text,
+            owner=task.owner,
+            due=task.due,
+            done=task.done,
+            done_at=task.done_at,
+            origin=task.origin,
+            created_at=task.created_at,
+            session_id=task.session_id,
+            session_title=session.title if session else None,
+            session_started_at=session.started_at if session else None,
+        )
+
+
+class TaskIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    owner: str | None = Field(default=None, max_length=80)
+    due: str | None = Field(default=None, max_length=40)
+    session_id: str | None = None
+
+
+class TaskUpdateIn(BaseModel):
+    text: str | None = Field(default=None, max_length=500)
+    owner: str | None = Field(default=None, max_length=80)
+    due: str | None = Field(default=None, max_length=40)
+    done: bool | None = None
+
+
+class BriefSessionOut(BaseModel):
+    session_id: str
+    title: str
+    started_at: datetime
+    reason: Literal["title", "people", "both"]
+    overview: str = ""
+    decisions: list[str] = Field(default_factory=list)
+    open_items: list[str] = Field(default_factory=list)
+    tasks: list[TaskOut] = Field(default_factory=list)
+
+
+class BriefOut(BaseModel):
+    title: str
+    people: list[str] = Field(default_factory=list)
+    related: list[BriefSessionOut] = Field(default_factory=list)
+    pending: list[TaskOut] = Field(default_factory=list)
+
+
+class CalendarEventOut(BaseModel):
+    uid: str
+    title: str
+    start: datetime
+    end: datetime
+    location: str | None = None
+    attendees: list[str] = Field(default_factory=list)
+    brief: BriefOut
+
+
+class UpcomingOut(BaseModel):
+    configured: bool
+    error: str | None = None
+    events: list[CalendarEventOut] = Field(default_factory=list)
+
+
+class CalendarTestIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+
+
+class CalendarTestOut(BaseModel):
+    ok: bool
+    events: int = 0
+    error: str | None = None
+
+
+class RetentionOut(BaseModel):
+    audio_files: int
+    transcripts: int
+    audio_days: int
+    transcript_days: int
+
+
 class VoiceAssignIn(BaseModel):
     person_id: str | None = None
     name: str | None = Field(default=None, max_length=80)
@@ -353,6 +510,13 @@ class SettingsOut(BaseModel):
     save_recordings: bool = True
     openai_disclaimer_accepted: bool = False
     disclaimer_kind: str = "local"
+    meeting_detection: str = "ask"
+    has_calendar: bool = False
+    calendar_hint: str = ""
+    consent_message: str = ""
+    retention_audio_days: int = 0
+    retention_transcript_days: int = 0
+    auto_gain: bool = True
 
 
 class SettingsIn(BaseModel):
@@ -370,6 +534,13 @@ class SettingsIn(BaseModel):
     self_person_id: str | None = None
     save_recordings: bool | None = None
     openai_disclaimer_accepted: bool | None = None
+    meeting_detection: str | None = None
+    # "" desliga o calendário.
+    calendar_ics_url: str | None = Field(default=None, max_length=2048)
+    consent_message: str | None = Field(default=None, max_length=2000)
+    retention_audio_days: int | None = Field(default=None, ge=0, le=3650)
+    retention_transcript_days: int | None = Field(default=None, ge=0, le=3650)
+    auto_gain: bool | None = None
 
 
 class TestKeyIn(BaseModel):

@@ -1,7 +1,10 @@
 {
   "identifier": "default",
   "description": "DroidNote desktop capabilities",
-  "windows": ["main"],
+  "windows": [
+    "main",
+    "mini"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-show",
@@ -9,6 +12,11 @@
     "core:window:allow-set-focus",
     "core:tray:default",
     "shell:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-unminimize",
+    "core:window:allow-request-user-attention"
   ]
 }

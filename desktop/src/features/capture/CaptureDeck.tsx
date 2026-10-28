@@ -94,6 +94,7 @@ export function CaptureDeck({
           level={mic?.rms ?? null}
           speech={Boolean(mic?.speech)}
           echo={recording && !micOnly ? Number(mic?.echo ?? 0) : 0}
+          gainDb={recording ? Number(mic?.gain_db ?? 0) : 0}
           active={recording}
           enabled
           tick={tick}
@@ -135,6 +136,7 @@ function ChannelStrip({
   level,
   speech,
   echo = 0,
+  gainDb = 0,
   active,
   enabled,
   tick,
@@ -146,6 +148,7 @@ function ChannelStrip({
   level: number | null;
   speech: boolean;
   echo?: number;
+  gainDb?: number;
   active: boolean;
   enabled: boolean;
   tick: number;
@@ -168,6 +171,11 @@ function ChannelStrip({
         <span className="channel-meter" aria-hidden>
           <span style={{ width: `${meter * 100}%` }} />
         </span>
+        {gainDb >= 1 ? (
+          <em className="channel-gain" title={t("gain.badgeHint")}>
+            {t("gain.badge", { db: Math.round(gainDb) })}
+          </em>
+        ) : null}
         {echo > 0.05 ? <em className="channel-echo">{t("console.echo", { pct: Math.round(echo * 100) })}</em> : null}
       </div>
     </div>

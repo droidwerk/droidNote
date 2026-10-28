@@ -77,6 +77,19 @@ A versão do produto está nestes sítios, e devem avançar juntos num release:
 
 Tag git: `vMAJOR.MINOR.PATCH`. Assets da release: `DroidNote-Setup.exe` e `DroidNote_<versão>_x64-setup.exe`.
 
+`python installer/bump_version.py patch|minor|major` sobe a versão em todos esses arquivos de uma vez.
+
+### Release automática
+
+`.github/workflows/release.yml` roda a cada push na `main`: pytest, sobe a versão, `build-windows.ps1`, commit `release: DroidNote X.Y.Z`, tag e release com os dois instaladores. O app dos usuários vê a versão nova pelo `releases/latest`.
+
+- Sem marcação, sobe o patch.
+- `[release minor]` ou `[release major]` na mensagem do commit sobe minor ou major.
+- `[skip release]` na mensagem não publica nada.
+- Em Actions, "Run workflow" deixa escolher patch, minor ou major à mão.
+
+Não suba a versão à mão antes do push: o workflow parte do número que está em `tauri.conf.json`.
+
 ## Layout do repo
 
 | Pasta | Conteúdo |

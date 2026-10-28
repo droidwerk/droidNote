@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../shared/api/client";
-import type { ChatFocus, Person, SessionDetail, Tag } from "../shared/api/types";
+import type { ChatFocus, NoteTemplate, Person, SessionDetail, Tag } from "../shared/api/types";
+import { UserNotes } from "../features/notes/UserNotes";
+import { templateName } from "../shared/lib/templates";
 import { pluralForm, useI18n } from "../shared/i18n";
 import { AudioPlayer } from "../features/audio/AudioPlayer";
 import { SessionTags } from "../features/session/SessionTags";
@@ -21,6 +23,8 @@ import { useToast } from "../shared/ui/Toast";
 interface SessionPageProps {
   sessionId: string;
   seekTo?: number | null;
+  templates?: NoteTemplate[];
+  notesRevision?: number;
   voicesRevision?: number;
   voiceReady: boolean;
   voiceDownloading: boolean;
@@ -33,7 +37,7 @@ interface SessionPageProps {
 }
 
 type ExportFormat = "markdown" | "pdf" | "docx" | "json";
-type SideTab = "note" | "voices";
+type SideTab = "note" | "mine" | "voices";
 
 const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter: string }[] = [
   { format: "markdown", label: "Markdown", ext: "md", filter: "Markdown" },
@@ -45,6 +49,8 @@ const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter
 export function SessionPage({
   sessionId,
   seekTo = null,
+  templates = [],
+  notesRevision = 0,
   voicesRevision = 0,
   voiceReady,
   voiceDownloading,
@@ -69,6 +75,7 @@ export function SessionPage({
   const [exportOpen, setExportOpen] = useState(false);
   const [side, setSide] = useState<SideTab>("note");
   const [refining, setRefining] = useState(false);
+  const [recipesOpen, setRecipesOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
   const confirm = useConfirm();
   const toast = useToast();
@@ -138,12 +145,20 @@ export function SessionPage({
     onRenamed?.(updated.title);
   };
 
-  const generate = async () => {
+  const generate = async (chosen?: string | null) => {
     setLoadingSummary(true);
     setSummaryError(null);
     try {
-      const summary = await api.summarize(sessionId);
-      setDetail((current) => (current ? { ...current, summary } : current));
+      const summary = await api.summarize(sessionId, chosen);
+      setDetail((current) =>
+        current
+          ? {
+              ...current,
+              summary,
+              session: chosen === undefined ? current.session : { ...current.session, template_id: chosen },
+            }
+          : current,
+      );
       setSide("note");
     } catch (err) {
       setSummaryError(err instanceof Error ? err.message : t("session.noteFail"));
@@ -255,6 +270,33 @@ export function SessionPage({
               {t("transcript.ask")}
             </Button>
           ) : null}
+          {onAsk && templates.some((item) => item.kind === "recipe") ? (
+            <div className="export-menu">
+              <Button variant="quiet" aria-expanded={recipesOpen} onClick={() => setRecipesOpen((open) => !open)}>
+                <Icon name="spark" size={15} />
+                {t("recipes.title")}
+              </Button>
+              {recipesOpen ? (
+                <div className="export-menu-list" role="menu">
+                  {templates
+                    .filter((item) => item.kind === "recipe")
+                    .map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setRecipesOpen(false);
+                          onAsk({ sessionId, sessionTitle: detail.session.title, prompt: item.body });
+                        }}
+                      >
+                        {templateName(item)}
+                      </button>
+                    ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="export-menu" ref={exportRef}>
             <Button disabled={exportBusy} aria-expanded={exportOpen} aria-haspopup="menu" onClick={() => setExportOpen((open) => !open)}>
               <Icon name="export" size={15} />
@@ -325,6 +367,12 @@ export function SessionPage({
               />
             </label>
           </div>
+          {detail.session.transcript_purged_at ? (
+            <p className="purged-note">
+              <Icon name="shield" size={14} />
+              {t("retention.purgedNote")}
+            </p>
+          ) : null}
           <TranscriptList
             segments={filtered}
             query={query}
@@ -375,6 +423,10 @@ export function SessionPage({
               <Icon name="spark" size={15} />
               {t("console.notes")}
             </button>
+            <button type="button" role="tab" aria-selected={side === "mine"} className={side === "mine" ? "is-on" : ""} onClick={() => setSide("mine")}>
+              <Icon name="dictation" size={15} />
+              {t("notes.tab")}
+            </button>
             <button type="button" role="tab" aria-selected={side === "voices"} className={side === "voices" ? "is-on" : ""} onClick={() => setSide("voices")}>
               <Icon name="voice" size={15} />
               {t("voices.title")}
@@ -388,12 +440,24 @@ export function SessionPage({
               disabled={false}
               title={detail.session.title}
               captureMode={mode}
-              onGenerate={() => void generate()}
+              templates={templates}
+              templateId={detail.session.template_id ?? null}
+              onGenerate={(chosen) => void generate(chosen)}
               onSaveNote={async (markdown) => {
                 const summary = await api.saveNote(sessionId, markdown);
                 setDetail({ ...detail, summary });
               }}
             />
+          ) : side === "mine" ? (
+            <div className="side-body">
+              <UserNotes
+                sessionId={sessionId}
+                recording={false}
+                momentMs={activeMs}
+                revision={notesRevision}
+                onSeek={detail.session.has_audio ? (ms) => setSeekMs(ms) : undefined}
+              />
+            </div>
           ) : (
             <div className="side-body">
               <VoiceRoster

@@ -14,12 +14,15 @@ from app.domain.models import (
     Chat,
     ChatCitation,
     ChatMessage,
+    NoteTemplate,
     Person,
     Session,
     Summary,
     SummaryTopic,
     Tag,
+    TaskItem,
     TranscriptSegment,
+    UserNote,
 )
 
 SCHEMA = """
@@ -141,6 +144,37 @@ CREATE TABLE IF NOT EXISTS session_voices (
     PRIMARY KEY (session_id, cluster)
 );
 
+CREATE TABLE IF NOT EXISTS session_notes (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    at_ms INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    capture_mode TEXT,
+    builtin INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    text TEXT NOT NULL,
+    owner TEXT,
+    due TEXT,
+    done INTEGER NOT NULL DEFAULT 0,
+    done_at TEXT,
+    origin TEXT NOT NULL DEFAULT 'ai',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS voiceprints (
     person_id TEXT PRIMARY KEY,
     model TEXT NOT NULL,
@@ -154,6 +188,8 @@ CREATE TABLE IF NOT EXISTS voiceprints (
 INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_segments_session ON segments(session_id, start_ms);
 CREATE INDEX IF NOT EXISTS idx_segment_voices_session ON segment_voices(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_notes_session ON session_notes(session_id, at_ms);
+CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
 """
 
 
@@ -187,6 +223,8 @@ class SqliteStore:
             await _ensure_column(db, "summaries", "language", "TEXT")
             await _ensure_column(db, "summaries", "notes_markdown", "TEXT")
             await _ensure_column(db, "sessions", "capture_mode", "TEXT")
+            await _ensure_column(db, "sessions", "template_id", "TEXT")
+            await _ensure_column(db, "sessions", "transcript_purged_at", "TEXT")
             await _ensure_column(db, "segments", "speaker_cluster", "TEXT")
             await _ensure_column(db, "segments", "speaker_confidence", "REAL")
             await _ensure_column(db, "segments", "speaker_locked", "INTEGER NOT NULL DEFAULT 0")
@@ -200,8 +238,8 @@ class SqliteStore:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
-                INSERT INTO sessions (id, title, started_at, ended_at, status, language, capture_mode, deleted_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                INSERT INTO sessions (id, title, started_at, ended_at, status, language, capture_mode, template_id, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 """,
                 (
                     session.id,
@@ -211,6 +249,7 @@ class SqliteStore:
                     session.status,
                     session.language,
                     session.capture_mode,
+                    session.template_id,
                 ),
             )
             await db.commit()
@@ -239,7 +278,7 @@ class SqliteStore:
             await db.execute(
                 """
                 UPDATE sessions
-                SET title = ?, ended_at = ?, status = ?, language = ?, capture_mode = ?
+                SET title = ?, ended_at = ?, status = ?, language = ?, capture_mode = ?, template_id = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 (
@@ -248,6 +287,7 @@ class SqliteStore:
                     session.status,
                     session.language,
                     session.capture_mode,
+                    session.template_id,
                     session.id,
                 ),
             )
@@ -261,6 +301,8 @@ class SqliteStore:
             await db.execute("DELETE FROM summaries WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM segment_voices WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM session_voices WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM session_notes WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM tasks WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             await db.commit()
 
@@ -725,6 +767,181 @@ class SqliteStore:
             by_id = {item.id: item for item in mapped}
             return [by_id[item] for item in wanted if item in by_id]
 
+    # --- Notas do usuário ----------------------------------------------------
+
+    async def add_user_note(self, note: UserNote) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                "INSERT INTO session_notes (id, session_id, at_ms, text, created_at) VALUES (?, ?, ?, ?, ?)",
+                (note.id, note.session_id, note.at_ms, note.text, _dump_dt(note.created_at)),
+            )
+            await db.commit()
+
+    async def list_user_notes(self, session_id: str) -> list[UserNote]:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT * FROM session_notes WHERE session_id = ? ORDER BY at_ms ASC, created_at ASC",
+                (session_id,),
+            )
+            rows = await cur.fetchall()
+        return [
+            UserNote(
+                id=row["id"],
+                session_id=row["session_id"],
+                at_ms=int(row["at_ms"]),
+                text=row["text"],
+                created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
+            )
+            for row in rows
+        ]
+
+    async def update_user_note(self, session_id: str, note_id: str, text: str) -> bool:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "UPDATE session_notes SET text = ? WHERE id = ? AND session_id = ?",
+                (text, note_id, session_id),
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def delete_user_note(self, session_id: str, note_id: str) -> bool:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "DELETE FROM session_notes WHERE id = ? AND session_id = ?", (note_id, session_id)
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    # --- Templates e receitas -------------------------------------------------
+
+    async def list_templates(self, kind: str | None = None) -> list[NoteTemplate]:
+        sql = "SELECT * FROM templates"
+        params: list[str] = []
+        if kind:
+            sql += " WHERE kind = ?"
+            params.append(kind)
+        sql += " ORDER BY builtin DESC, position ASC, name COLLATE NOCASE ASC"
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(sql, params)
+            rows = await cur.fetchall()
+        return [_row_to_template(row) for row in rows]
+
+    async def get_template(self, template_id: str) -> NoteTemplate | None:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM templates WHERE id = ?", (template_id,))
+            row = await cur.fetchone()
+        return _row_to_template(row) if row else None
+
+    async def save_template(self, template: NoteTemplate) -> NoteTemplate:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO templates (id, kind, name, body, capture_mode, builtin, position, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    kind = excluded.kind, name = excluded.name, body = excluded.body,
+                    capture_mode = excluded.capture_mode, builtin = excluded.builtin,
+                    position = excluded.position
+                """,
+                (
+                    template.id,
+                    template.kind,
+                    template.name,
+                    template.body,
+                    template.capture_mode,
+                    1 if template.builtin else 0,
+                    template.position,
+                    _dump_dt(datetime.now(tz=UTC)),
+                ),
+            )
+            await db.commit()
+        return template
+
+    async def delete_template(self, template_id: str) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM templates WHERE id = ? AND builtin = 0", (template_id,))
+            await db.execute("UPDATE sessions SET template_id = NULL WHERE template_id = ?", (template_id,))
+            await db.commit()
+
+    # --- Central de tarefas -------------------------------------------------
+
+    async def list_tasks(self, *, session_id: str | None = None) -> list[TaskItem]:
+        sql = "SELECT * FROM tasks"
+        params: list[str] = []
+        if session_id:
+            sql += " WHERE session_id = ?"
+            params.append(session_id)
+        sql += " ORDER BY done ASC, created_at DESC"
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(sql, params)
+            rows = await cur.fetchall()
+        return [_row_to_task(row) for row in rows]
+
+    async def get_task(self, task_id: str) -> TaskItem | None:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = await cur.fetchone()
+        return _row_to_task(row) if row else None
+
+    async def save_task(self, task: TaskItem) -> TaskItem:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO tasks (id, session_id, text, owner, due, done, done_at, origin, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    text = excluded.text, owner = excluded.owner, due = excluded.due,
+                    done = excluded.done, done_at = excluded.done_at
+                """,
+                (
+                    task.id,
+                    task.session_id,
+                    task.text,
+                    task.owner,
+                    task.due,
+                    1 if task.done else 0,
+                    _dump_dt(task.done_at),
+                    task.origin,
+                    _dump_dt(task.created_at),
+                ),
+            )
+            await db.commit()
+        return task
+
+    async def delete_task(self, task_id: str) -> bool:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def delete_session_tasks(self, session_id: str, *, origin: str) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM tasks WHERE session_id = ? AND origin = ?", (session_id, origin))
+            await db.commit()
+
+    async def sessions_with_summary(self) -> list[str]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute("SELECT DISTINCT session_id FROM summaries")
+            return [str(row[0]) for row in await cur.fetchall()]
+
+    # --- Retenção -------------------------------------------------------------
+
+    async def purge_transcript(self, session_id: str) -> None:
+        """Apaga a fala e as vozes da sessão; ata, notas e tarefas ficam."""
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM segments WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM segment_voices WHERE session_id = ?", (session_id,))
+            await db.execute(
+                "UPDATE sessions SET transcript_purged_at = ? WHERE id = ?",
+                (_dump_dt(datetime.now(tz=UTC)), session_id),
+            )
+            await db.commit()
+
     # --- Motor de voz -----------------------------------------------------
 
     async def save_segment_voice(
@@ -873,6 +1090,8 @@ def _row_to_session(row: aiosqlite.Row) -> Session:
         status=row["status"],
         language=row["language"],
         capture_mode=mode,
+        template_id=row["template_id"] if "template_id" in keys else None,
+        transcript_purged_at=_parse_dt(row["transcript_purged_at"]) if "transcript_purged_at" in keys else None,
     )
 
 
@@ -894,6 +1113,34 @@ def _row_to_segment(row: aiosqlite.Row) -> TranscriptSegment:
             else None
         ),
         speaker_locked=bool(row["speaker_locked"]) if "speaker_locked" in keys else False,
+    )
+
+
+def _row_to_template(row: aiosqlite.Row) -> NoteTemplate:
+    kind = row["kind"] if row["kind"] in {"note", "recipe"} else "note"
+    return NoteTemplate(
+        id=row["id"],
+        kind=kind,
+        name=row["name"],
+        body=row["body"],
+        capture_mode=row["capture_mode"],
+        builtin=bool(row["builtin"]),
+        position=int(row["position"] or 0),
+    )
+
+
+def _row_to_task(row: aiosqlite.Row) -> TaskItem:
+    origin = row["origin"] if row["origin"] in {"ai", "manual"} else "ai"
+    return TaskItem(
+        id=row["id"],
+        session_id=row["session_id"],
+        text=row["text"],
+        owner=row["owner"],
+        due=row["due"],
+        done=bool(row["done"]),
+        done_at=_parse_dt(row["done_at"]),
+        origin=origin,
+        created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
     )
 
 

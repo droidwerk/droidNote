@@ -18,6 +18,11 @@ from app.api.v1.router import api_router
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
+from app.application.brief import BriefService
+from app.application.meetings import MeetingWatcher, normalize_mode
+from app.application.retention import RetentionService
+from app.application.tasks import TaskService
+from app.application.templates import TemplateService
 from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
@@ -37,6 +42,7 @@ from app.infrastructure.llm.openai_chat import OpenAIChatEngine
 from app.infrastructure.llm.router import LlmRouter
 from app.infrastructure.persistence.sqlite import SqliteStore
 from app.infrastructure.voice.embedder import OnnxVoiceEmbedder
+from app.infrastructure.system.mic_usage import WindowsMicUsage
 
 log = get_logger("main")
 
@@ -145,13 +151,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         import asyncio
 
         capture.bind_loop(asyncio.get_running_loop())
+        tasks = TaskService(store)
         container = AppContainer(
             settings=resolved,
             store=store,
             bus=bus,
             capture=capture,
             sessions=SessionService(store),
-            summarize=SummarizeService(llm, store),
+            summarize=SummarizeService(llm, store, tasks),
             setup=SetupService(resolved, store, audio, asr, llm, voice=embedder),
             llm=llm,
             speakers=SpeakersService(llm, store),
@@ -159,6 +166,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             voices=voices,
         )
         app.state.container = container
+        container.templates = TemplateService(store)
+        await container.templates.ensure_builtins()
+        container.tasks = tasks
+        await tasks.backfill()
+        container.brief = BriefService(store)
+        retention = RetentionService(store, lambda session_id: session_recording_path(resolved, session_id))
+        container.retention = retention
+
+        async def _retention_loop() -> None:
+            # Primeira passada logo depois de abrir; depois a cada 6 horas.
+            await asyncio.sleep(30)
+            while True:
+                try:
+                    await retention.run()
+                except Exception:
+                    log.exception("retention failed")
+                await asyncio.sleep(6 * 3600)
+
+        retention_task = asyncio.create_task(_retention_loop())
+
+        async def _meeting_mode() -> str:
+            return normalize_mode(await store.get_setting("meeting_detection"))
+
+        async def _auto_start(app_name: str) -> str | None:
+            if capture.is_recording() or not asr.is_ready():
+                return None
+            from datetime import datetime as _dt
+
+            mic_only = (await store.get_setting("mic_only_default")) == "1"
+            state = await capture.start(
+                mic_only=mic_only,
+                title=f"{app_name} · {_dt.now():%d/%m/%Y %H:%M}",
+                capture_mode="meeting",
+            )
+            return state.session_id
+
+        async def _auto_stop() -> None:
+            from app.api.v1.endpoints.capture import finish_session
+
+            session_id = capture.state.session_id
+            await capture.stop()
+            if session_id:
+                asyncio.create_task(finish_session(container, session_id))
+
+        meetings = MeetingWatcher(
+            WindowsMicUsage(),
+            bus,
+            get_mode=_meeting_mode,
+            is_recording=capture.is_recording,
+            current_session=lambda: capture.state.session_id,
+            start_capture=_auto_start,
+            stop_capture=_auto_stop,
+        )
+        container.meetings = meetings
+        meetings.start()
         log.info("backend ready")
 
         # Pré-carrega o Whisper local em segundo plano: quando o usuário
@@ -193,6 +255,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             preload_task.cancel()
         if not voice_task.done():
             voice_task.cancel()
+        retention_task.cancel()
+        await meetings.close()
         if capture.is_recording():
             await capture.stop()
 

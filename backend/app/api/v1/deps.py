@@ -4,9 +4,14 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI
 
+from app.application.brief import BriefService
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
+from app.application.meetings import MeetingWatcher
+from app.application.retention import RetentionService
+from app.application.tasks import TaskService
+from app.application.templates import TemplateService
 from app.application.sessions import SessionService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
@@ -30,6 +35,11 @@ class AppContainer:
     speakers: SpeakersService
     chat: ChatService
     voices: VoiceService | None = None
+    meetings: MeetingWatcher | None = None
+    templates: TemplateService | None = None
+    tasks: TaskService | None = None
+    brief: BriefService | None = None
+    retention: RetentionService | None = None
 
 
 def get_container(app: FastAPI) -> AppContainer:
