@@ -119,6 +119,82 @@ $SidecarExe = Join-Path $SidecarSrc "droidnote-backend.exe"
 if (-not (Test-Path $SidecarExe)) {
     throw "PyInstaller não gerou $SidecarExe"
 }
+
+# O sidecar empacotado precisa funcionar de verdade antes de virar instalador:
+# 1) --selfcheck importa o que só carrega sob demanda (documentos, fusos, upload);
+# 2) sobe o motor numa pasta temporária e chama a API logo após o DROIDNOTE_READY,
+#    exatamente como a janela do app faz. Falhou, o build para e nada é publicado.
+function Test-Sidecar([string]$Exe) {
+    $smokeDir = Join-Path $env:TEMP ("droidnote-smoke-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+    $saved = @{}
+    foreach ($name in "DROIDNOTE_DATA_DIR", "DROIDNOTE_PORT", "DROIDNOTE_TOKEN") {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    try {
+        $env:DROIDNOTE_DATA_DIR = $smokeDir
+        $env:DROIDNOTE_PORT = "0"
+        $env:DROIDNOTE_TOKEN = "smoke-" + [guid]::NewGuid().ToString("N")
+
+        # O motor escreve o log de inicialização no stderr; com "Stop" o PowerShell
+        # 5.1 transforma isso em erro fatal. Aqui só o código de saída e o texto contam.
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $check = & $Exe --selfcheck 2>&1 | Out-String
+        $checkCode = $LASTEXITCODE
+        $ErrorActionPreference = $previous
+        if ($checkCode -ne 0 -or $check -notmatch "SELFCHECK_OK") {
+            throw "Sidecar empacotado sem módulos necessários:`n$check"
+        }
+        Write-Host "Sidecar: módulos sob demanda OK."
+
+        $info = New-Object System.Diagnostics.ProcessStartInfo
+        $info.FileName = $Exe
+        $info.WorkingDirectory = Split-Path -Parent $Exe
+        $info.UseShellExecute = $false
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $info.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($info)
+        try {
+            $readTask = $proc.StandardOutput.ReadLineAsync()
+            $deadline = (Get-Date).AddSeconds(120)
+            $ready = $null
+            while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
+                if ($readTask.Wait(500)) {
+                    $line = $readTask.Result
+                    if ($null -eq $line) { break }
+                    if ($line.StartsWith("DROIDNOTE_READY ")) {
+                        $ready = $line.Substring("DROIDNOTE_READY ".Length) | ConvertFrom-Json
+                        break
+                    }
+                    $readTask = $proc.StandardOutput.ReadLineAsync()
+                }
+            }
+            if (-not $ready) {
+                $err = if ($proc.HasExited) { $proc.StandardError.ReadToEnd() } else { "" }
+                throw "Sidecar empacotado não publicou DROIDNOTE_READY.`n$err"
+            }
+            $url = "http://$($ready.host):$($ready.port)/setup/settings"
+            $response = Invoke-WebRequest -Uri $url -Headers @{ "X-DroidNote-Token" = $ready.token } -UseBasicParsing -TimeoutSec 15
+            if ($response.StatusCode -ne 200) {
+                throw "Sidecar respondeu $($response.StatusCode) logo após o DROIDNOTE_READY."
+            }
+            Write-Host "Sidecar: sobe e responde logo após o DROIDNOTE_READY."
+        } finally {
+            if (-not $proc.HasExited) {
+                & taskkill /F /T /PID $proc.Id | Out-Null
+            }
+        }
+    } finally {
+        foreach ($name in $saved.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $saved[$name], "Process")
+        }
+        Remove-Item -Recurse -Force -LiteralPath $smokeDir -ErrorAction SilentlyContinue
+    }
+}
+
+Test-Sidecar $SidecarExe
 Sign-IfConfigured $SidecarExe
 
 if (Test-Path $SidecarDestDir) { Remove-Item -Recurse -Force $SidecarDestDir }

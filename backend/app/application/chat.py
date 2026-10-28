@@ -13,6 +13,9 @@ from app.domain.ports import LlmPort
 from app.infrastructure.persistence.sqlite import SqliteStore, new_id
 
 MAX_CONTEXT_CHARS = 12_000
+MAX_DOCUMENT_CHARS = 7_000
+MAX_DOCUMENT_EXCERPT = 900
+LIVE_TAIL_SEGMENTS = 60
 MAX_EXCERPT = 420
 HISTORY_TURNS = 12
 
@@ -41,6 +44,7 @@ class ChatService:
         chat_id: str | None = None,
         session_id: str | None = None,
         segment_ids: Sequence[str] | None = None,
+        document_ids: Sequence[str] | None = None,
         on_token: Callable[[str], None] | None = None,
         ui_language: str | None = None,
     ) -> tuple[Chat, ChatMessage, list[ChatCitation]]:
@@ -49,6 +53,35 @@ class ChatService:
             raise ValueError(ui_message(ui_language, "chat_empty_question"))
         now = datetime.now(tz=UTC)
         chat = await self._ensure_chat(chat_id, session_id, cleaned, now, ui_language)
+        try:
+            return await self._answer(
+                chat, cleaned, now, session_id, segment_ids, document_ids, on_token, ui_language
+            )
+        except BaseException:
+            if not chat_id:
+                # Conversa nova que falhou (ex.: motor desligado): a tela não recebe o id dela,
+                # então os anexos voltam a ficar livres para a próxima tentativa e ela some.
+                detach = getattr(self._store, "detach_documents", None)
+                if callable(detach):
+                    await detach(chat.id)
+                await self._store.delete_chat(chat.id)
+            raise
+
+    async def _answer(
+        self,
+        chat: Chat,
+        cleaned: str,
+        now: datetime,
+        session_id: str | None,
+        segment_ids: Sequence[str] | None,
+        document_ids: Sequence[str] | None,
+        on_token: Callable[[str], None] | None,
+        ui_language: str | None,
+    ) -> tuple[Chat, ChatMessage, list[ChatCitation]]:
+        attach = getattr(self._store, "attach_documents", None)
+        if document_ids and callable(attach):
+            await attach(chat.id, list(document_ids))
+        doc_citations, doc_context = await self._retrieve_documents(cleaned, chat.id)
         citations, context = await self._retrieve(
             cleaned,
             session_id=session_id or chat.focus_session_id,
@@ -63,6 +96,9 @@ class ChatService:
             created_at=now,
         )
         await self._store.add_chat_message(user)
+        if doc_context:
+            context = f"{doc_context}\n\n{context}" if context else doc_context
+            citations = (doc_citations + citations)[:16]
         prompt = _build_prompt(cleaned, context, history[-HISTORY_TURNS:])
         system = chat_system(ui_language)
         if on_token:
@@ -106,6 +142,50 @@ class ChatService:
         await self._store.save_chat(chat)
         return chat
 
+    async def _retrieve_documents(self, query: str, chat_id: str) -> tuple[list[ChatCitation], str]:
+        """Trechos dos documentos anexados: os que casam com a pergunta e, se faltar, o começo de cada um."""
+        lister = getattr(self._store, "list_documents", None)
+        if not callable(lister):
+            return [], ""
+        documents = await lister(chat_id=chat_id)
+        if not documents:
+            return [], ""
+        names = {item.id: item.name for item in documents}
+        ids = list(names)
+        chunks = await self._store.search_document_chunks(ids, _fts_query(query), limit=10)
+        seen = {(chunk.document_id, chunk.ord) for chunk in chunks}
+        per_doc = max(2, 8 // len(ids))
+        for document_id in ids:
+            for chunk in await self._store.first_document_chunks(document_id, per_doc):
+                if (chunk.document_id, chunk.ord) not in seen:
+                    seen.add((chunk.document_id, chunk.ord))
+                    chunks.append(chunk)
+        listing = "Attached documents: " + ", ".join(names[item] for item in ids)
+        blocks = [listing]
+        used = len(listing)
+        citations: list[ChatCitation] = []
+        for chunk in chunks:
+            excerpt = chunk.text.strip()
+            if len(excerpt) > MAX_DOCUMENT_EXCERPT:
+                excerpt = excerpt[: MAX_DOCUMENT_EXCERPT - 1] + "…"
+            where = f" · p. {chunk.page}" if chunk.page else ""
+            line = f"[document] {names[chunk.document_id]}{where}\n{excerpt}"
+            if used + len(line) > MAX_DOCUMENT_CHARS:
+                break
+            blocks.append(line)
+            used += len(line)
+            citations.append(
+                ChatCitation(
+                    session_id="",
+                    session_title="",
+                    excerpt=excerpt[:MAX_EXCERPT],
+                    document_id=chunk.document_id,
+                    document_name=names[chunk.document_id],
+                    page=chunk.page,
+                )
+            )
+        return citations[:6], "\n\n".join(blocks)
+
     async def _retrieve(
         self,
         query: str,
@@ -127,11 +207,22 @@ class ChatService:
 
         for segment in await self._store.get_segments_by_ids(list(segment_ids)):
             add(segment, "selected excerpt")
+        focused: list[TranscriptSegment] = []
+        live = False
+        if session_id:
+            focused = await self._store.list_segments(session_id)
+            live = any(item.id == session_id and item.status == "recording" for item in sessions)
+            if live:
+                # Reunião em andamento: "o que eu perdi?" pede o fim da conversa, não o começo,
+                # e ela vem antes das outras sessões para não ficar sem espaço no contexto.
+                focused = focused[-LIVE_TAIL_SEGMENTS:]
+                for segment in focused:
+                    add(segment, "live meeting")
         hits = await self._store.search(_fts_query(query))
         for segment in hits[:24]:
             add(segment, "search")
-        if session_id:
-            for segment in await self._store.list_segments(session_id):
+        if not live:
+            for segment in focused:
                 add(segment, "focused lecture")
 
         catalog = _session_catalog(sessions)
@@ -192,7 +283,7 @@ def _session_catalog(sessions: list[Session]) -> str:
 
 
 def _build_prompt(message: str, context: str, history: list[ChatMessage]) -> str:
-    parts = ["Context from lectures and transcripts:", context or "(no excerpt retrieved)", ""]
+    parts = ["Context from attached documents, lectures and transcripts:", context or "(no excerpt retrieved)", ""]
     if history:
         parts.append("Conversation so far:")
         for item in history:

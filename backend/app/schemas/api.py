@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.domain.models import (
     Chat,
     ChatCitation,
+    ChatDocument,
     ChatMessage,
     NoteTemplate,
     Person,
@@ -256,13 +257,18 @@ class VoicesOut(BaseModel):
     segments: list[SegmentOut] = Field(default_factory=list)
 
 
+NoteKind = Literal["decision", "task", "important", "question"]
+
+
 class UserNoteIn(BaseModel):
     text: str = Field(min_length=1, max_length=4_000)
     at_ms: int | None = Field(default=None, ge=0)
+    kind: NoteKind | None = None
 
 
 class UserNoteUpdateIn(BaseModel):
-    text: str = Field(min_length=1, max_length=4_000)
+    text: str | None = Field(default=None, min_length=1, max_length=4_000)
+    kind: NoteKind | None = None
 
 
 class UserNoteOut(BaseModel):
@@ -271,10 +277,25 @@ class UserNoteOut(BaseModel):
     at_ms: int
     text: str
     created_at: datetime
+    kind: NoteKind | None = None
+    ai_context: str | None = None
 
     @classmethod
     def from_domain(cls, note: UserNote) -> UserNoteOut:
-        return cls(id=note.id, session_id=note.session_id, at_ms=note.at_ms, text=note.text, created_at=note.created_at)
+        kind = note.kind if note.kind in {"decision", "task", "important", "question"} else None
+        return cls(
+            id=note.id,
+            session_id=note.session_id,
+            at_ms=note.at_ms,
+            text=note.text,
+            created_at=note.created_at,
+            kind=kind,  # type: ignore[arg-type]
+            ai_context=note.ai_context,
+        )
+
+
+class NoteExpandOut(BaseModel):
+    text: str
 
 
 class TemplateIn(BaseModel):
@@ -425,9 +446,32 @@ class NoteUpdateIn(BaseModel):
     notes_markdown: str = Field(default="", max_length=200_000)
 
 
+class NoteHitOut(BaseModel):
+    id: str
+    session_id: str
+    at_ms: int
+    text: str
+    kind: str | None = None
+
+
+class SummaryHitOut(BaseModel):
+    session_id: str
+    excerpt: str
+
+
+class TaskHitOut(BaseModel):
+    id: str
+    session_id: str | None = None
+    text: str
+    done: bool
+
+
 class SearchOut(BaseModel):
     query: str
     segments: list[SegmentOut]
+    notes: list[NoteHitOut] = []
+    summaries: list[SummaryHitOut] = []
+    tasks: list[TaskHitOut] = []
 
 
 class SetupComponentOut(BaseModel):
@@ -517,6 +561,7 @@ class SettingsOut(BaseModel):
     retention_audio_days: int = 0
     retention_transcript_days: int = 0
     auto_gain: bool = True
+    auto_summary: bool = True
 
 
 class SettingsIn(BaseModel):
@@ -541,6 +586,7 @@ class SettingsIn(BaseModel):
     retention_audio_days: int | None = Field(default=None, ge=0, le=3650)
     retention_transcript_days: int | None = Field(default=None, ge=0, le=3650)
     auto_gain: bool | None = None
+    auto_summary: bool | None = None
 
 
 class TestKeyIn(BaseModel):
@@ -590,6 +636,7 @@ class ChatAskIn(BaseModel):
     chat_id: str | None = None
     session_id: str | None = None
     segment_ids: list[str] = Field(default_factory=list)
+    document_ids: list[str] = Field(default_factory=list, max_length=10)
     # Idioma da interface: manda no idioma da resposta, independente do idioma
     # da transcrição. Vem do cliente para não depender de settings desatualizado.
     ui_language: str | None = None
@@ -601,6 +648,9 @@ class ChatCitationOut(BaseModel):
     segment_id: str | None = None
     start_ms: int = 0
     excerpt: str = ""
+    document_id: str | None = None
+    document_name: str = ""
+    page: int | None = None
 
     @classmethod
     def from_domain(cls, item: ChatCitation) -> ChatCitationOut:
@@ -610,6 +660,35 @@ class ChatCitationOut(BaseModel):
             segment_id=item.segment_id,
             start_ms=item.start_ms,
             excerpt=item.excerpt,
+            document_id=item.document_id,
+            document_name=item.document_name,
+            page=item.page,
+        )
+
+
+class DocumentOut(BaseModel):
+    id: str
+    name: str
+    kind: str
+    size: int
+    pages: int
+    chunks: int
+    chars: int
+    created_at: datetime
+    chat_id: str | None = None
+
+    @classmethod
+    def from_domain(cls, item: ChatDocument) -> DocumentOut:
+        return cls(
+            id=item.id,
+            name=item.name,
+            kind=item.kind,
+            size=item.size,
+            pages=item.pages,
+            chunks=item.chunks,
+            chars=item.chars,
+            created_at=item.created_at,
+            chat_id=item.chat_id,
         )
 
 

@@ -384,8 +384,8 @@
   grid-column: 1 / -1;
 }
 
-.settings-card > label,
-.form-grid > label {
+.settings-card > label:not(.check-control),
+.form-grid > label:not(.check-control) {
   display: grid;
   gap: 6px;
   font-size: 12.5px;

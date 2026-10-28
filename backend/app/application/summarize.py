@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -66,13 +67,37 @@ class SummarizeService:
             notes_markdown=summary_to_markdown(session.title, parsed),
         )
         await self._store.save_summary(summary)
+        await self._attach_note_context(session.id, parsed.get("user_notes") or [])
         if self._tasks is not None:
             await self._tasks.sync_from_summary(session.id, summary.action_items)
         return summary
 
+    async def _attach_note_context(self, session_id: str, items: list[dict]) -> None:
+        """O contexto que a IA escreveu para cada anotação vai para a própria anotação."""
+        lister = getattr(self._store, "list_user_notes", None)
+        setter = getattr(self._store, "set_note_context", None)
+        if not callable(lister) or not callable(setter) or not items:
+            return
+        notes = await lister(session_id)
+        used: set[str] = set()
+        for item in items:
+            context = str(item.get("context") or "").strip()
+            wanted = _norm(str(item.get("note") or ""))
+            if not context or not wanted:
+                continue
+            match = next((note for note in notes if note.id not in used and _norm(note.text) == wanted), None)
+            if match is None:
+                match = next(
+                    (note for note in notes if note.id not in used and (wanted in _norm(note.text) or _norm(note.text) in wanted)),
+                    None,
+                )
+            if match is not None:
+                used.add(match.id)
+                await setter(session_id, match.id, context)
+
     async def _extras(self, session: Session) -> str:
-        """Template escolhido e anotações da pessoa entram no pedido da ata."""
-        parts: list[str] = []
+        """Template escolhido, citações e anotações da pessoa entram no pedido da ata."""
+        parts: list[str] = [CITE_INSTRUCTIONS]
         if session.template_id:
             getter = getattr(self._store, "get_template", None)
             template = await getter(session.template_id) if callable(getter) else None
@@ -81,7 +106,7 @@ class SummarizeService:
         lister = getattr(self._store, "list_user_notes", None)
         notes = await lister(session.id) if callable(lister) else []
         if notes:
-            parts.append(user_notes_instructions([(note.at_ms, note.text) for note in notes]))
+            parts.append(user_notes_instructions([(note.at_ms, note.text, note.kind) for note in notes]))
         return "".join(parts)
 
     def _empty_summary(self, session: Session) -> Summary:
@@ -160,18 +185,23 @@ def _duration(session: Session, segments: list[TranscriptSegment]) -> str:
 
 def parse_summary_json(raw: str) -> dict:
     payload = _extract_json(raw)
-    topics = _topics(payload.get("topics"))
-    highlights = _string_list(payload.get("highlights"))
+    overview = str(payload.get("overview") or "").strip()
+    # Modelos pequenos repetem a mesma frase em vários pontos (e o resumo dentro dos assuntos).
+    topics = [
+        SummaryTopic(title=topic.title, points=_unique(topic.points, skip=[overview]))
+        for topic in _topics(payload.get("topics"))
+    ]
+    highlights = _unique(_string_list(payload.get("highlights")))
     if not highlights:
-        highlights = [point for topic in topics for point in topic.points]
+        highlights = _unique([point for topic in topics for point in topic.points])
     language = payload.get("language")
     return {
-        "overview": str(payload.get("overview") or "").strip(),
+        "overview": overview,
         "topics": topics,
         "highlights": highlights,
-        "decisions": _string_list(payload.get("decisions")),
+        "decisions": _unique(_string_list(payload.get("decisions"))),
         "action_items": _action_items(payload.get("action_items")),
-        "open_items": _string_list(payload.get("open_items")),
+        "open_items": _unique(_string_list(payload.get("open_items"))),
         "language": str(language).strip().lower()[:5] if language else None,
         "user_notes": _user_notes(payload.get("user_notes")),
     }
@@ -200,11 +230,55 @@ def template_instructions(body: str) -> str:
     )
 
 
-def user_notes_instructions(notes: list[tuple[int, str]]) -> str:
-    lines = "\n".join(f"[{_clock(at_ms)}] {text}" for at_ms, text in notes)
+CITE_INSTRUCTIONS = (
+    "Citações: termine cada ponto dos assuntos, cada decisão, cada tarefa e cada pendência com o momento da "
+    "transcrição que a sustenta, entre parênteses, no formato (mm:ss) — por exemplo \"Fechar o piloto (12:40)\". "
+    "Use só horários que aparecem na transcrição.\n\n"
+)
+_STAMP = re.compile(r"\s*\((\d{1,2}:\d{2}(?::\d{2})?)\)")
+
+
+def cite_markdown(text: str) -> str:
+    """(12:40) vira `12:40`: a interface mostra como marca clicável que leva à fala."""
+    return _STAMP.sub(lambda m: f" `{m.group(1)}`", text)
+
+
+def strip_stamps(text: str) -> str:
+    return _STAMP.sub("", text).strip()
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\W+", " ", text.casefold()).strip()
+
+
+def _unique(items: list[str], skip: list[str] | None = None) -> list[str]:
+    """Tira repetições (ignorando caixa, pontuação e o horário citado) e frases iguais às de `skip`."""
+    seen = {_norm(strip_stamps(item)) for item in skip or [] if item}
+    out: list[str] = []
+    for item in items:
+        key = _norm(strip_stamps(item))
+        if key and key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
+NOTE_KIND_LABELS = {"decision": "DECISÃO", "task": "TAREFA", "important": "IMPORTANTE", "question": "DÚVIDA"}
+
+
+def user_notes_instructions(notes: list[tuple]) -> str:
+    rows = []
+    for item in notes:
+        at_ms, text = item[0], item[1]
+        kind = item[2] if len(item) > 2 else None
+        tag = f" [{NOTE_KIND_LABELS[kind]}]" if kind in NOTE_KIND_LABELS else ""
+        rows.append(f"[{_clock(at_ms)}]{tag} {text}")
+    lines = "\n".join(rows)
     return (
         "Anotações que a pessoa digitou durante a conversa, com o momento. Elas mostram o que importa para ela: "
-        "garanta que cada uma esteja coberta na ata. Responda também a chave \"user_notes\": array de "
+        "garanta que cada uma esteja coberta na ata. As marcadas [DECISÃO] entram em \"decisions\", as [TAREFA] "
+        "em \"action_items\" (com dono e prazo se foram ditos), as [DÚVIDA] em \"open_items\", e as "
+        "[IMPORTANTE] ganham destaque. Responda também a chave \"user_notes\": array de "
         "{\"note\": a anotação como foi escrita, \"context\": 1 a 3 frases com o que foi dito em torno daquele "
         "momento, só com base na transcrição}.\n"
         f"{lines}\n\n"
@@ -288,17 +362,12 @@ def _string_list(value: object) -> list[str]:
 
 
 def summary_to_markdown(title: str, parsed: dict) -> str:
+    """Ata em Markdown. As anotações da pessoa não entram aqui: elas aparecem no
+    documento da sessão, cada uma com o contexto que a IA encontrou."""
     lines = [f"# {title}", ""]
     overview = str(parsed.get("overview") or "").strip()
     if overview:
         lines.extend(["## Resumo", "", overview, ""])
-    user_notes = parsed.get("user_notes") or []
-    if user_notes:
-        lines.extend(["## Suas anotações", ""])
-        for item in user_notes:
-            context = str(item.get("context") or "").strip()
-            lines.append(f"- **{item['note']}**" + (f" — {context}" if context else ""))
-        lines.append("")
     topics = parsed.get("topics") or []
     if topics:
         lines.extend(["## Assuntos", ""])
@@ -326,4 +395,4 @@ def summary_to_markdown(title: str, parsed: dict) -> str:
     open_items = parsed.get("open_items") or []
     if open_items:
         lines.extend(["## Pendências", ""] + [f"- {item}" for item in open_items] + [""])
-    return "\n".join(lines).strip() + "\n"
+    return cite_markdown("\n".join(lines).strip()) + "\n"

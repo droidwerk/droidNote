@@ -18,11 +18,13 @@ import type {
   SetupStatus,
   Summary,
   MeetingStatus,
+  NoteKind,
   NoteTemplate,
   Tag,
   UserNote,
   VoicesResult,
   Brief,
+  ChatDocument,
   RetentionReport,
   TaskItem,
   TaskStatus,
@@ -68,7 +70,7 @@ function readErrorDetail(payload: unknown): string {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set(TOKEN_HEADER, backend.token);
-  if (init.body && !headers.has("Content-Type")) {
+  if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
   const response = await fetch(`${backend.url}${path}`, { ...init, headers });
@@ -129,6 +131,7 @@ export const api = {
       body: JSON.stringify(payload ?? {}),
     }),
   getSettings: () => request<Settings>("/setup/settings"),
+  startLlm: () => request<SetupStatus>("/setup/llm/start", { method: "POST" }),
   listModels: () => request<ModelsCatalog>("/setup/models"),
   exportDiagnostics: () => download("/setup/diagnostics"),
   saveSettings: (payload: Partial<Settings> & { asr_api_key?: string; calendar_ics_url?: string }) =>
@@ -155,6 +158,8 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   deleteTag: (id: string) => request<void>(`/tags/${id}`, { method: "DELETE" }),
+  renameTag: (id: string, name: string) =>
+    request<Tag>(`/tags/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   setSessionTags: (sessionId: string, tagIds: string[]) =>
     request<Tag[]>(`/sessions/${sessionId}/tags`, {
       method: "PUT",
@@ -219,7 +224,7 @@ export const api = {
     const path = sessionId
       ? `/sessions/${sessionId}/search?q=${encodeURIComponent(q)}`
       : `/sessions/search?q=${encodeURIComponent(q)}`;
-    return request<{ query: string; segments: SearchResult["segments"] }>(path);
+    return request<SearchResult>(path);
   },
   summarize: (id: string, templateId?: string | null) =>
     request<Summary>(
@@ -227,16 +232,21 @@ export const api = {
       { method: "POST" },
     ),
   notes: (sessionId: string) => request<UserNote[]>(`/sessions/${sessionId}/notes`),
-  addNote: (sessionId: string, text: string, atMs?: number | null) =>
+  addNote: (sessionId: string, text: string, atMs?: number | null, kind?: NoteKind | null) =>
     request<UserNote>(`/sessions/${sessionId}/notes`, {
       method: "POST",
-      body: JSON.stringify({ text, at_ms: atMs ?? null }),
+      body: JSON.stringify({ text, at_ms: atMs ?? null, kind: kind ?? null }),
     }),
-  updateNote: (sessionId: string, noteId: string, text: string) =>
+  updateNote: (sessionId: string, noteId: string, payload: { text?: string; kind?: NoteKind | null }) =>
     request<UserNote[]>(`/sessions/${sessionId}/notes/${noteId}`, {
       method: "PATCH",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(payload),
     }),
+  expandNote: (sessionId: string, noteId: string, uiLanguage?: string) =>
+    request<{ text: string }>(
+      `/sessions/${sessionId}/notes/${noteId}/expand${uiLanguage ? `?ui_language=${uiLanguage}` : ""}`,
+      { method: "POST" },
+    ),
   deleteNote: (sessionId: string, noteId: string) =>
     request<void>(`/sessions/${sessionId}/notes/${noteId}`, { method: "DELETE" }),
   templates: (kind?: "note" | "recipe") =>
@@ -246,6 +256,14 @@ export const api = {
   updateTemplate: (id: string, payload: { name?: string; body?: string }) =>
     request<NoteTemplate>(`/templates/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),
+  uploadDocument: (file: File, chatId?: string | null) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (chatId) form.append("chat_id", chatId);
+    return request<ChatDocument>("/documents", { method: "POST", body: form });
+  },
+  documents: (chatId: string) => request<ChatDocument[]>(`/documents?chat_id=${encodeURIComponent(chatId)}`),
+  deleteDocument: (id: string) => request<void>(`/documents/${id}`, { method: "DELETE" }),
   tasks: (status: TaskStatus = "all") => request<TaskItem[]>(`/tasks?status=${status}`),
   createTask: (payload: { text: string; owner?: string | null; due?: string | null; session_id?: string | null }) =>
     request<TaskItem>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
@@ -293,6 +311,7 @@ export async function askChat(
     chat_id?: string | null;
     session_id?: string | null;
     segment_ids?: string[];
+    document_ids?: string[];
     ui_language?: string;
   },
   onToken: (token: string) => void,

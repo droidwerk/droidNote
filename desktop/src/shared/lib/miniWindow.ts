@@ -1,6 +1,18 @@
 const MINI_LABEL = "mini";
 const WIDTH = 380;
-const HEIGHT = 200;
+const HEIGHT = 236;
+export const MINI_EXPANDED_HEIGHT = 560;
+
+/** Alterna o mini console entre compacto e expandido. */
+export async function resizeMiniWindow(expanded: boolean): Promise<void> {
+  const height = expanded ? MINI_EXPANDED_HEIGHT : HEIGHT;
+  if (!inTauri()) {
+    window.resizeTo(WIDTH, height);
+    return;
+  }
+  const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().setSize(new LogicalSize(WIDTH, height));
+}
 
 function inTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;

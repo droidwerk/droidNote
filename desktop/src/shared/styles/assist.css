@@ -1,0 +1,354 @@
+/* Assistente: documentos no chat e o mini console com IA. */
+
+/* ------------------------------------------------------------ chat: documentos */
+
+.chat-main {
+  position: relative;
+}
+
+.chat-main.is-dropping::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border: 1.5px dashed var(--accent-line);
+  border-radius: var(--r-lg);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.chat-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  color: var(--accent-hi);
+  pointer-events: none;
+}
+
+.chat-drop strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.chat-drop small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chat-composer .chat-attach {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.chat-composer .chat-attach:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.doc-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: calc(100% - 64px);
+  max-width: 760px;
+  margin: 0 auto 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 280px;
+  height: 32px;
+  padding: 0 4px 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: 12.5px;
+}
+
+.doc-chip.is-loading {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.doc-kind {
+  flex: none;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+
+.doc-pdf .doc-kind {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+}
+
+.doc-word .doc-kind {
+  background: rgba(59, 130, 246, 0.16);
+  color: #60a5fa;
+}
+
+.doc-excel .doc-kind,
+.doc-csv .doc-kind {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+.doc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-chip small {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.doc-chip button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--faint);
+}
+
+.doc-chip button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.chat-source-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+/* ------------------------------------------------------------ mini console */
+
+.mini {
+  grid-template-rows: auto 1fr auto auto;
+}
+
+.mini.is-expanded {
+  grid-template-rows: auto auto 1fr auto auto;
+}
+
+.mini-icon.is-done {
+  color: var(--ok);
+}
+
+.mini-markers {
+  display: flex;
+  gap: 4px;
+  padding: 0 10px 0 12px;
+}
+
+.mini-marker {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+
+.mini-marker:hover:not(:disabled) {
+  border-color: var(--accent-line);
+  color: var(--text);
+}
+
+.mini-marker.is-done {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.mini-marker:disabled {
+  opacity: 0.45;
+}
+
+.mini-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 8px 10px 0;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.mini-tabs button {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mini-tabs button.is-on {
+  background: var(--surface-hi);
+  color: var(--text);
+}
+
+.mini-pane {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+  user-select: text;
+}
+
+.mini-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.mini-tail {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mini-tail li {
+  display: grid;
+  gap: 1px;
+  padding-left: 9px;
+  border-left: 2px solid var(--voice);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.mini-tail b {
+  color: var(--voice);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.mini-tail span {
+  color: var(--text-soft);
+}
+
+.mini-ask {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mini-answer {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.mini-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-hi);
+  font-size: 12px;
+}
+
+.mini-ask-form {
+  display: flex;
+  gap: 6px;
+}
+
+.mini-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.mini-send:disabled {
+  opacity: 0.4;
+}
+
+.mini-context h4 {
+  margin: 0 0 6px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mini-context ul {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding-left: 16px;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.mini-context small {
+  color: var(--faint);
+}

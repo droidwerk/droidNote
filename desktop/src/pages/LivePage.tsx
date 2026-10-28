@@ -19,17 +19,21 @@ import type {
 import { BriefCard } from "../features/brief/BriefCard";
 import { UpcomingPanel } from "../features/brief/UpcomingPanel";
 import { CaptureDeck } from "../features/capture/CaptureDeck";
+import { NoteDocument } from "../features/document/NoteDocument";
 import { CaptureLanguageMenu } from "../features/capture/CaptureLanguageMenu";
 import { UserNotes } from "../features/notes/UserNotes";
 import { TemplatePicker } from "../features/templates/TemplatePicker";
 import { SummaryPanel } from "../features/summary/SummaryPanel";
+import { DockToggle, TranscriptTicker, useTranscriptDock } from "../features/transcript/TranscriptDock";
 import { TranscriptList } from "../features/transcript/TranscriptList";
 import { VoiceRoster } from "../features/voices/VoiceRoster";
 import { VoiceTimeline } from "../features/voices/VoiceTimeline";
 import { isCaptureLanguage, pluralForm, useI18n, type CaptureLanguage } from "../shared/i18n";
 import type { TranslateFn } from "../shared/i18n/I18nProvider";
 import { mergeSegmentLists } from "../shared/lib/segments";
-import { buildRoster, countWords } from "../shared/lib/voices";
+import { buildRoster, countWords, mergeVoicesByPerson } from "../shared/lib/voices";
+import { AiThinking } from "../shared/ui/AiThinking";
+import { InfoTip } from "../shared/ui/InfoTip";
 import { Icon, type IconName } from "../shared/ui/Icon";
 import { SessionTitle } from "../shared/ui/SessionTitle";
 import { useToast } from "../shared/ui/Toast";
@@ -74,13 +78,17 @@ interface LivePageProps {
   onOpenSession: (sessionId: string) => void;
   onConnectCalendar: () => void;
   onRecordEvent: (event: CalendarEvent) => void;
+  /** Ata gerada sozinha ao parar: em andamento ("start") ou pronta (muda a revisão). */
+  summaryBusySessionId?: string | null;
+  summaryRevision?: number;
+  onOpenSettings?: () => void;
   engineProvider?: Provider;
   onCaptureModeChange: (mode: CaptureMode) => void;
   onCaptureLanguageChange: (id: CaptureLanguage) => void;
   onAsk?: (focus: ChatFocus) => void;
 }
 
-type SideTab = "mine" | "brief" | "voices" | "note";
+type SideTab = "doc" | "brief" | "voices";
 
 export function LivePage({
   capture,
@@ -122,6 +130,9 @@ export function LivePage({
   onOpenSession,
   onConnectCalendar,
   onRecordEvent,
+  summaryBusySessionId = null,
+  summaryRevision = 0,
+  onOpenSettings,
   engineProvider,
   onCaptureModeChange,
   onCaptureLanguageChange,
@@ -138,13 +149,15 @@ export function LivePage({
   const [segmentPatches, setSegmentPatches] = useState<Record<string, Segment>>({});
   const [selfPersonId, setSelfPersonId] = useState("");
   const [engineLabel, setEngineLabel] = useState(() => t("engine.defaultEngine"));
-  const [side, setSide] = useState<SideTab>(capture.recording ? "mine" : "voices");
+  const [side, setSide] = useState<SideTab>("doc");
+  const [citeMs, setCiteMs] = useState<number | null>(null);
+  const [dockMin, toggleDock] = useTranscriptDock();
   const [refining, setRefining] = useState(false);
   const [brief, setBrief] = useState<Brief | null>(null);
   const elapsedMs = useElapsed(capture.started_at ?? null, capture.recording);
 
   useEffect(() => {
-    if (capture.recording) setSide("mine");
+    if (capture.recording) setSide("doc");
   }, [capture.recording]);
 
   // Briefing da sessão: reuniões parecidas (título ou pessoas) e o que ficou pendente.
@@ -203,6 +216,18 @@ export function LivePage({
     });
   }, [sessionId, reload, onParticipantIdsChange]);
 
+  const lastSummaryRevision = useRef(summaryRevision);
+  useEffect(() => {
+    if (summaryRevision === lastSummaryRevision.current) return;
+    lastSummaryRevision.current = summaryRevision;
+    void reload();
+  }, [summaryRevision, reload]);
+
+  const cite = (ms: number) => {
+    if (dockMin) toggleDock();
+    setCiteMs(ms + Math.random() * 0.5);
+  };
+
   // O motor de voz reagrupou as vozes: rótulos novos na tela.
   const lastRevision = useRef(voicesRevision);
   useEffect(() => {
@@ -213,7 +238,10 @@ export function LivePage({
   }, [voicesRevision, reload, loadPeople]);
 
   const scopedLive = sessionId ? liveSegments.filter((item) => item.session_id === sessionId) : liveSegments;
-  const segments = mergeSegmentLists(scopedLive, detail?.segments ?? []).map((item) => segmentPatches[item.id] ?? item);
+  const merged = mergeVoicesByPerson(
+    mergeSegmentLists(scopedLive, detail?.segments ?? []).map((item) => segmentPatches[item.id] ?? item),
+  );
+  const segments = merged.segments;
   const filtered = query.trim()
     ? segments.filter((item) => item.text.toLowerCase().includes(query.trim().toLowerCase()))
     : segments;
@@ -246,7 +274,11 @@ export function LivePage({
   const assignVoice = async (cluster: string, payload: { person_id?: string | null; name?: string }) => {
     if (!sessionId) return;
     try {
-      const result = await api.assignVoice(sessionId, cluster, payload);
+      // Voz exibida pode juntar várias vozes reais da mesma pessoa: o nome vale para todas.
+      let result = await api.assignVoice(sessionId, cluster, payload);
+      for (const other of (merged.members.get(cluster) ?? [cluster]).filter((item) => item !== cluster)) {
+        result = await api.assignVoice(sessionId, other, payload);
+      }
       setDetail((current) => (current ? { ...current, segments: result.segments } : current));
       setSegmentPatches({});
       await loadPeople();
@@ -301,14 +333,6 @@ export function LivePage({
         disabled={capture.recording || busy}
         onChange={onTemplateChange}
       />
-      <button type="button" className="tool-btn" onClick={onOpenMini} title={t("mini.openHint")}>
-        <Icon name="chip" size={15} />
-        <span>{t("mini.open")}</span>
-      </button>
-      <button type="button" className="tool-btn" onClick={onCopyConsent} title={t("consent.copyHint")}>
-        <Icon name="shield" size={15} />
-        <span>{t("consent.short")}</span>
-      </button>
       <SourcesMenu
         capture={capture}
         busy={busy}
@@ -332,6 +356,13 @@ export function LivePage({
           await persistParticipants([...participantIds, person.id]);
         }}
       />
+      <span className="deck-toolbar-spacer" />
+      <button type="button" className="tool-btn is-icon" onClick={onCopyConsent} title={t("consent.copyHint")} aria-label={t("consent.copyHint")}>
+        <Icon name="shield" size={15} />
+      </button>
+      <button type="button" className="tool-btn is-icon" onClick={onOpenMini} title={t("mini.openHint")} aria-label={t("mini.openHint")}>
+        <Icon name="chip" size={15} />
+      </button>
     </>
   );
 
@@ -339,10 +370,11 @@ export function LivePage({
     <div className="page console">
       <header className="page-head">
         <div className="page-head-copy">
-          <span className="eyebrow">
-            {capture.recording ? t("status.live") : t("console.newCapture")}
-            {sessionId && detail ? ` · ${t(`live.${mode}`)}` : ""}
-          </span>
+          {capture.recording || (sessionId && detail) ? (
+            <span className="eyebrow">
+              {capture.recording ? t("status.live") : t(`live.${mode}`)}
+            </span>
+          ) : null}
           {sessionId && detail ? (
             <SessionTitle
               value={detail.session.title}
@@ -388,11 +420,11 @@ export function LivePage({
         />
       ) : null}
 
-      <div className={sessionId ? "workspace" : "workspace is-solo"}>
+      {sessionId || capture.recording ? (
+      <div className={sessionId ? `workspace is-ai-first${dockMin ? " is-dock-min" : ""}` : "workspace is-solo"}>
         <section className="panel transcript-panel">
           <div className="panel-head">
             <div className="panel-title">
-              <span className="eyebrow">01</span>
               <h2>{t("live.transcript")}</h2>
               {segments.length ? (
                 <span className="panel-meta">
@@ -401,17 +433,24 @@ export function LivePage({
                 </span>
               ) : null}
             </div>
-            <label className="search-field">
-              <Icon name="search" size={15} />
-              <input
-                aria-label={t("live.searchAria")}
-                placeholder={t("live.search")}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+            {sessionId ? <DockToggle min={dockMin} onToggle={toggleDock} /> : null}
+            {!dockMin || !sessionId ? (
+              <label className="search-field">
+                <Icon name="search" size={15} />
+                <input
+                  aria-label={t("live.searchAria")}
+                  placeholder={t("live.search")}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+            ) : null}
           </div>
+          {dockMin && sessionId ? (
+            <TranscriptTicker segments={segments} people={people} live={capture.recording} onExpand={toggleDock} />
+          ) : (
           <TranscriptList
+            focusMs={citeMs}
             segments={filtered}
             query={query}
             emptyHint={emptyHint(capture.recording, asrBusy, t)}
@@ -441,15 +480,16 @@ export function LivePage({
               }
             }}
           />
+          )}
           {speakersBusy ? <p className="panel-foot">{t("live.identifying")}</p> : null}
         </section>
 
         {sessionId ? (
           <aside className="panel side-panel">
             <div className="tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={side === "mine"} className={side === "mine" ? "is-on" : ""} onClick={() => setSide("mine")}>
-                <Icon name="dictation" size={15} />
-                {t("notes.tab")}
+              <button type="button" role="tab" aria-selected={side === "doc"} className={side === "doc" ? "is-on" : ""} onClick={() => setSide("doc")}>
+                <Icon name="spark" size={15} />
+                {t("doc.tab")}
               </button>
               <button type="button" role="tab" aria-selected={side === "brief"} className={side === "brief" ? "is-on" : ""} onClick={() => setSide("brief")}>
                 <Icon name="calendar" size={15} />
@@ -461,24 +501,52 @@ export function LivePage({
                 {t("voices.title")}
                 {roster.length ? <span className="tab-count">{roster.length}</span> : null}
               </button>
-              <button type="button" role="tab" aria-selected={side === "note"} className={side === "note" ? "is-on" : ""} onClick={() => setSide("note")}>
-                <Icon name="spark" size={15} />
-                {t("console.notes")}
-              </button>
             </div>
-            {side === "mine" ? (
+            {side === "doc" ? (
               <div className="side-body">
-                <UserNotes sessionId={sessionId} recording={capture.recording} revision={notesRevision} />
+                <NoteDocument
+                  aiFirst={!capture.recording && Boolean(summary)}
+                  engineRevision={summaryRevision}
+                  onOpenSettings={onOpenSettings}
+                  notes={
+                    <UserNotes
+                      sessionId={sessionId}
+                      recording={capture.recording}
+                      revision={notesRevision + summaryRevision}
+                      onSeek={cite}
+                      onTasksChanged={onTasksChanged}
+                      onAsk={onAsk ? (text) => onAsk({ sessionId, sessionTitle, prompt: text }) : undefined}
+                    />
+                  }
+                  aiNote={
+                    <SummaryPanel
+                      summary={summary}
+                      loading={loadingSummary || summaryBusySessionId === sessionId}
+                      disabled={false}
+                      title={sessionTitle}
+                      engineLabel={engineLabel}
+                      captureMode={detail?.session.capture_mode ?? captureMode}
+                      templates={templates}
+                      templateId={sessionTemplate}
+                      onGenerate={(chosen) => void generate(chosen)}
+                      onCite={cite}
+                      onSaveNote={async (markdown) => {
+                        const next = await api.saveNote(sessionId, markdown);
+                        setSummary(next);
+                      }}
+                    />
+                  }
+                />
               </div>
             ) : side === "brief" ? (
               <div className="side-body">
                 {brief ? (
                   <BriefCard brief={brief} onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} />
                 ) : (
-                  <p className="brief-empty">{t("brief.loading")}</p>
+                  <AiThinking compact lines={3} steps={[t("brief.loading"), t("ai.crossMeetings")]} />
                 )}
               </div>
-            ) : side === "voices" ? (
+            ) : (
               <div className="side-body">
                 <VoiceRoster
                   roster={roster}
@@ -497,26 +565,11 @@ export function LivePage({
                   durationMs={capture.recording ? elapsedMs : detail?.session.duration_ms ?? 0}
                 />
               </div>
-            ) : (
-              <SummaryPanel
-                summary={summary}
-                loading={loadingSummary}
-                disabled={false}
-                title={sessionTitle}
-                engineLabel={engineLabel}
-                captureMode={detail?.session.capture_mode ?? captureMode}
-                templates={templates}
-                templateId={sessionTemplate}
-                onGenerate={(chosen) => void generate(chosen)}
-                onSaveNote={async (markdown) => {
-                  const next = await api.saveNote(sessionId, markdown);
-                  setSummary(next);
-                }}
-              />
             )}
           </aside>
         ) : null}
       </div>
+      ) : null}
     </div>
   );
 }
@@ -608,12 +661,14 @@ function SourcesMenu({
             <input type="checkbox" checked={micOnly} disabled={capture.recording || busy} onChange={(event) => onMicOnlyChange(event.target.checked)} />
             <span className="check-box" aria-hidden />
             <span>
-              <strong>{t("live.micOnlyTitle")}</strong>
-              <small>{t("live.micOnlyHint")}</small>
+              <strong className="with-tip">{t("live.micOnlyTitle")}<InfoTip text={t("live.micOnlyHint")} /></strong>
             </span>
           </label>
           <label className="field">
-            <span>{t("live.youOnMic")}</span>
+            <span className="with-tip">
+              {t("live.youOnMic")}
+              <InfoTip text={t("voices.selfHint")} />
+            </span>
             <select className="select" value={selfPersonId} onChange={(event) => onSelfChange(event.target.value)}>
               <option value="">{t("settings.notSet")}</option>
               {people.map((person) => (
@@ -622,10 +677,12 @@ function SourcesMenu({
                 </option>
               ))}
             </select>
-            <small className="field-help">{t("voices.selfHint")}</small>
           </label>
           <div className="field">
-            <span>{t("live.inRoom")}</span>
+            <span className="with-tip">
+              {t("live.inRoom")}
+              <InfoTip text={t("live.othersUntilNamed")} />
+            </span>
             <div className="chips">
               {people.map((person) => {
                 const selected = participantIds.includes(person.id);
@@ -655,7 +712,6 @@ function SourcesMenu({
                 }}
               />
             </div>
-            <small className="field-help">{t("live.othersUntilNamed")}</small>
           </div>
         </div>
       ) : null}

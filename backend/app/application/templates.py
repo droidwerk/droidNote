@@ -1,8 +1,8 @@
-"""Templates de nota e receitas do chat.
+"""Templates de nota e atalhos do chat.
 
 Template de nota: define as seções de "topics" da ata. A IA segue a ordem e
 deixa de fora o que a conversa não cobriu.
-Receita: um pedido salvo para o chat ("escreva o e-mail de follow-up").
+Atalho: uma pergunta salva para o chat ("escreva o e-mail de retorno").
 
 Os embutidos são regravados a cada arranque (para receberem melhorias); os da
 pessoa nunca são tocados. O nome exibido dos embutidos vem do i18n da UI pelo id.
@@ -42,7 +42,7 @@ BUILTINS: tuple[NoteTemplate, ...] = (
             "Dor e problema principal\n"
             "Solução atual e alternativas avaliadas\n"
             "Decisores, orçamento e prazo\n"
-            "Objeções levantadas\n"
+            "Resistências levantadas\n"
             "Próximos passos combinados"
         ),
     ),
@@ -104,18 +104,18 @@ BUILTINS: tuple[NoteTemplate, ...] = (
     NoteTemplate(
         id="rcp-follow-up",
         kind="recipe",
-        name="E-mail de follow-up",
+        name="E-mail de retorno",
         position=1,
         builtin=True,
         body=(
-            "Escreva um e-mail curto de follow-up desta conversa para os participantes: agradecimento em uma linha, "
+            "Escreva um e-mail curto de retorno desta conversa para os participantes: agradecimento em uma linha, "
             "o que foi decidido, próximos passos com responsável e prazo. Só com o que foi dito."
         ),
     ),
     NoteTemplate(
         id="rcp-objections",
         kind="recipe",
-        name="Objeções e respostas",
+        name="Resistências e respostas",
         position=2,
         builtin=True,
         body=(

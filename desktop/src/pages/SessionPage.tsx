@@ -6,14 +6,17 @@ import { UserNotes } from "../features/notes/UserNotes";
 import { templateName } from "../shared/lib/templates";
 import { pluralForm, useI18n } from "../shared/i18n";
 import { AudioPlayer } from "../features/audio/AudioPlayer";
-import { SessionTags } from "../features/session/SessionTags";
+import { FolderSelect } from "../features/session/FolderSelect";
+import { NoteDocument } from "../features/document/NoteDocument";
+import { modeIcon } from "../features/command/CommandPalette";
 import { SummaryPanel } from "../features/summary/SummaryPanel";
+import { DockToggle, TranscriptTicker, useTranscriptDock } from "../features/transcript/TranscriptDock";
 import { TranscriptList } from "../features/transcript/TranscriptList";
 import { VoiceRoster } from "../features/voices/VoiceRoster";
 import { VoiceTimeline } from "../features/voices/VoiceTimeline";
 import { formatClock, formatDate } from "../shared/lib/format";
 import { openLocalPath, parentDirectory, saveBlob } from "../shared/lib/saveFile";
-import { buildRoster, countWords } from "../shared/lib/voices";
+import { buildRoster, countWords, mergeVoicesByPerson } from "../shared/lib/voices";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Icon } from "../shared/ui/Icon";
 import { Button } from "../shared/ui/primitives";
@@ -34,10 +37,12 @@ interface SessionPageProps {
   onTagsChanged?: () => void;
   languageLocked?: boolean;
   onAsk?: (focus: ChatFocus) => void;
+  summaryBusySessionId?: string | null;
+  summaryRevision?: number;
 }
 
 type ExportFormat = "markdown" | "pdf" | "docx" | "json";
-type SideTab = "note" | "mine" | "voices";
+type SideTab = "doc" | "voices";
 
 const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter: string }[] = [
   { format: "markdown", label: "Markdown", ext: "md", filter: "Markdown" },
@@ -60,6 +65,8 @@ export function SessionPage({
   onTagsChanged,
   languageLocked = false,
   onAsk,
+  summaryBusySessionId = null,
+  summaryRevision = 0,
 }: SessionPageProps) {
   const { t, locale } = useI18n();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -73,7 +80,9 @@ export function SessionPage({
   const [activeMs, setActiveMs] = useState<number | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [side, setSide] = useState<SideTab>("note");
+  const [side, setSide] = useState<SideTab>("doc");
+  const [citeMs, setCiteMs] = useState<number | null>(null);
+  const [dockMin, toggleDock] = useTranscriptDock();
   const [refining, setRefining] = useState(false);
   const [recipesOpen, setRecipesOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -87,6 +96,20 @@ export function SessionPage({
   const loadPeople = useCallback(async () => {
     setPeople(await api.people());
   }, []);
+
+  const lastSummaryRevision = useRef(summaryRevision);
+  useEffect(() => {
+    if (summaryRevision === lastSummaryRevision.current) return;
+    lastSummaryRevision.current = summaryRevision;
+    void reload();
+  }, [summaryRevision, reload]);
+
+  const cite = (ms: number) => {
+    if (dockMin) toggleDock();
+    setCiteMs(ms + Math.random() * 0.5);
+    setActiveMs(ms);
+    if (detail?.session.has_audio) setSeekMs(ms);
+  };
 
   useEffect(() => {
     void reload();
@@ -123,21 +146,20 @@ export function SessionPage({
     };
   }, [exportOpen]);
 
-  const segments = detail?.segments ?? [];
+  const merged = useMemo(() => mergeVoicesByPerson(detail?.segments ?? []), [detail?.segments]);
+  const segments = merged.segments;
   const roster = useMemo(() => buildRoster(segments, people), [segments, people]);
   const words = useMemo(() => countWords(segments), [segments]);
 
-  useEffect(() => {
-    if (roster.length > 0 && !detail?.summary) setSide("voices");
-  }, [roster.length, detail?.summary]);
+
 
   if (!detail) {
     return <div className="page-loading">{t("session.loading")}</div>;
   }
 
   const filtered = query.trim()
-    ? detail.segments.filter((item) => item.text.toLowerCase().includes(query.trim().toLowerCase()))
-    : detail.segments;
+    ? segments.filter((item) => item.text.toLowerCase().includes(query.trim().toLowerCase()))
+    : segments;
 
   const rename = async (title: string) => {
     const updated = await api.renameSession(sessionId, title);
@@ -159,7 +181,7 @@ export function SessionPage({
             }
           : current,
       );
-      setSide("note");
+      setSide("doc");
     } catch (err) {
       setSummaryError(err instanceof Error ? err.message : t("session.noteFail"));
     } finally {
@@ -213,7 +235,10 @@ export function SessionPage({
   };
 
   const assignVoice = async (cluster: string, payload: { person_id?: string | null; name?: string }) => {
-    const result = await api.assignVoice(sessionId, cluster, payload);
+    let result = await api.assignVoice(sessionId, cluster, payload);
+    for (const other of (merged.members.get(cluster) ?? [cluster]).filter((item) => item !== cluster)) {
+      result = await api.assignVoice(sessionId, other, payload);
+    }
     setDetail((current) => (current ? { ...current, segments: result.segments } : current));
     await loadPeople();
   };
@@ -234,36 +259,30 @@ export function SessionPage({
     <div className="page session">
       <header className="page-head">
         <div className="page-head-copy">
-          <span className="eyebrow">
-            {t(`live.${mode}`)} · {formatDate(detail.session.started_at)}
-          </span>
           <SessionTitle value={detail.session.title} onCommit={rename} />
-          <dl className="meta-row">
-            <div>
-              <dt>{t("meta.duration")}</dt>
-              <dd>{formatClock(detail.session.duration_ms)}</dd>
-            </div>
-            <div>
-              <dt>{t("meta.voices")}</dt>
-              <dd>{roster.length || "—"}</dd>
-            </div>
-            <div>
-              <dt>{t("meta.excerpts")}</dt>
-              <dd>{detail.segments.length}</dd>
-            </div>
-            <div>
-              <dt>{t("meta.words")}</dt>
-              <dd>{words}</dd>
-            </div>
-            {detail.session.language ? (
-              <div>
-                <dt>{t("meta.language")}</dt>
-                <dd>{detail.session.language.toUpperCase()}</dd>
-              </div>
-            ) : null}
-          </dl>
+          <p className="session-meta">
+            <span>
+              <Icon name={modeIcon(mode)} size={13} />
+              {t(`live.${mode}`)}
+            </span>
+            <span>{formatDate(detail.session.started_at)}</span>
+            <span>{formatClock(detail.session.duration_ms)}</span>
+            {roster.length ? <span>{t("voices.count", { count: roster.length })}</span> : null}
+            {words ? <span>{t("console.words", { count: words })}</span> : null}
+            {detail.session.language ? <span>{detail.session.language.toUpperCase()}</span> : null}
+          </p>
         </div>
         <div className="page-actions">
+          <FolderSelect
+            sessionId={sessionId}
+            tags={detail.session.tags ?? []}
+            catalog={catalog}
+            onChange={(tags) => {
+              setDetail({ ...detail, session: { ...detail.session, tags } });
+              void api.tags().then(setCatalog);
+              onTagsChanged?.();
+            }}
+          />
           {onAsk ? (
             <Button variant="quiet" onClick={() => onAsk({ sessionId, sessionTitle: detail.session.title })}>
               <Icon name="chat" size={15} />
@@ -321,51 +340,43 @@ export function SessionPage({
 
       {summaryError ? <p className="banner">{summaryError}</p> : null}
 
-      <SessionTags
-        sessionId={sessionId}
-        tags={detail.session.tags ?? []}
-        catalog={catalog}
-        onChange={(tags) => {
-          setDetail({ ...detail, session: { ...detail.session, tags } });
-          void api.tags().then(setCatalog);
-          onTagsChanged?.();
-        }}
-      />
 
+      {detail.session.has_audio || detail.segments.length ? (
       <section className="panel playback">
         {detail.session.has_audio ? (
           <AudioPlayer sessionId={sessionId} seekMs={seekMs} onSeeked={() => setSeekMs(null)} onTimeMs={setActiveMs} />
-        ) : (
-          <p className="muted playback-empty">{t("session.noWav")}</p>
-        )}
+        ) : null}
         <VoiceTimeline
-          segments={detail.segments}
+          segments={segments}
           roster={roster}
           durationMs={detail.session.duration_ms}
           playheadMs={detail.session.has_audio ? activeMs : null}
           onSeek={detail.session.has_audio ? (ms) => setSeekMs(ms) : undefined}
         />
       </section>
+      ) : null}
 
-      <div className="workspace">
+      <div className={`workspace is-ai-first${dockMin ? " is-dock-min" : ""}`}>
         <section className="panel transcript-panel">
           <div className="panel-head">
             <div className="panel-title">
-              <span className="eyebrow">01</span>
               <h2>{t("live.transcript")}</h2>
               <span className="panel-meta">
                 {t(`transcript.${pluralForm(locale, detail.segments.length)}`, { count: detail.segments.length })}
               </span>
             </div>
-            <label className="search-field">
-              <Icon name="search" size={15} />
-              <input
-                placeholder={t("session.search")}
-                aria-label={t("session.searchAria")}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+            <DockToggle min={dockMin} onToggle={toggleDock} />
+            {!dockMin ? (
+              <label className="search-field">
+                <Icon name="search" size={15} />
+                <input
+                  placeholder={t("session.search")}
+                  aria-label={t("session.searchAria")}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+            ) : null}
           </div>
           {detail.session.transcript_purged_at ? (
             <p className="purged-note">
@@ -373,9 +384,15 @@ export function SessionPage({
               {t("retention.purgedNote")}
             </p>
           ) : null}
+          {dockMin ? (
+            <TranscriptTicker segments={segments} people={people} live={false} onExpand={toggleDock} />
+          ) : (
           <TranscriptList
+            focusMs={citeMs}
             segments={filtered}
             query={query}
+            emptyHint={query ? t("palette.empty") : t("transcript.emptyPast")}
+            emptyDetail={null}
             people={people}
             languageLocked={languageLocked}
             sessionId={sessionId}
@@ -416,16 +433,13 @@ export function SessionPage({
               );
             }}
           />
+          )}
         </section>
         <aside className="panel side-panel">
           <div className="tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={side === "note"} className={side === "note" ? "is-on" : ""} onClick={() => setSide("note")}>
+            <button type="button" role="tab" aria-selected={side === "doc"} className={side === "doc" ? "is-on" : ""} onClick={() => setSide("doc")}>
               <Icon name="spark" size={15} />
-              {t("console.notes")}
-            </button>
-            <button type="button" role="tab" aria-selected={side === "mine"} className={side === "mine" ? "is-on" : ""} onClick={() => setSide("mine")}>
-              <Icon name="dictation" size={15} />
-              {t("notes.tab")}
+              {t("doc.tab")}
             </button>
             <button type="button" role="tab" aria-selected={side === "voices"} className={side === "voices" ? "is-on" : ""} onClick={() => setSide("voices")}>
               <Icon name="voice" size={15} />
@@ -433,29 +447,39 @@ export function SessionPage({
               {roster.length ? <span className="tab-count">{roster.length}</span> : null}
             </button>
           </div>
-          {side === "note" ? (
-            <SummaryPanel
-              summary={detail.summary}
-              loading={loadingSummary}
-              disabled={false}
-              title={detail.session.title}
-              captureMode={mode}
-              templates={templates}
-              templateId={detail.session.template_id ?? null}
-              onGenerate={(chosen) => void generate(chosen)}
-              onSaveNote={async (markdown) => {
-                const summary = await api.saveNote(sessionId, markdown);
-                setDetail({ ...detail, summary });
-              }}
-            />
-          ) : side === "mine" ? (
+          {side === "doc" ? (
             <div className="side-body">
-              <UserNotes
-                sessionId={sessionId}
-                recording={false}
-                momentMs={activeMs}
-                revision={notesRevision}
-                onSeek={detail.session.has_audio ? (ms) => setSeekMs(ms) : undefined}
+              <NoteDocument
+                aiFirst={Boolean(detail.summary)}
+                engineRevision={summaryRevision}
+                notes={
+                  <UserNotes
+                    sessionId={sessionId}
+                    recording={false}
+                    momentMs={activeMs}
+                    revision={notesRevision + summaryRevision}
+                    onSeek={cite}
+                    onTasksChanged={onTagsChanged}
+                    onAsk={onAsk ? (text) => onAsk({ sessionId, sessionTitle: detail.session.title, prompt: text }) : undefined}
+                  />
+                }
+                aiNote={
+                  <SummaryPanel
+                    summary={detail.summary}
+                    loading={loadingSummary || summaryBusySessionId === sessionId}
+                    disabled={false}
+                    title={detail.session.title}
+                    captureMode={mode}
+                    templates={templates}
+                    templateId={detail.session.template_id ?? null}
+                    onGenerate={(chosen) => void generate(chosen)}
+                    onCite={cite}
+                    onSaveNote={async (markdown) => {
+                      const summary = await api.saveNote(sessionId, markdown);
+                      setDetail({ ...detail, summary });
+                    }}
+                  />
+                }
               />
             </div>
           ) : (

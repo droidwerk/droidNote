@@ -158,3 +158,53 @@ export function countWords(segments: Segment[]): number {
   }
   return words;
 }
+
+/**
+ * Vozes que a pessoa atribuiu ao mesmo nome viram uma só na tela: mesma cor,
+ * mesmo rótulo, uma linha na linha do tempo. Os dados gravados não mudam;
+ * `members` diz quais vozes reais estão por trás de cada voz exibida.
+ */
+export function mergeVoicesByPerson(segments: Segment[]): { segments: Segment[]; members: Map<string, string[]> } {
+  const votes = new Map<string, Map<string, number>>();
+  for (const segment of segments) {
+    if (!segment.speaker_cluster || !segment.speaker_id) continue;
+    const byPerson = votes.get(segment.speaker_cluster) ?? new Map<string, number>();
+    byPerson.set(segment.speaker_id, (byPerson.get(segment.speaker_id) ?? 0) + Math.max(1, segment.end_ms - segment.start_ms));
+    votes.set(segment.speaker_cluster, byPerson);
+  }
+  const owner = new Map<string, string>();
+  for (const [cluster, byPerson] of votes) {
+    let best: string | null = null;
+    let score = -1;
+    for (const [person, value] of byPerson) {
+      if (value > score) {
+        best = person;
+        score = value;
+      }
+    }
+    if (best) owner.set(cluster, best);
+  }
+  const byPerson = new Map<string, string[]>();
+  for (const [cluster, person] of owner) {
+    const list = byPerson.get(person) ?? [];
+    list.push(cluster);
+    byPerson.set(person, list);
+  }
+  const canonical = new Map<string, string>();
+  const members = new Map<string, string[]>();
+  for (const clusters of byPerson.values()) {
+    clusters.sort((a, b) => (clusterIndex(a) ?? 0) - (clusterIndex(b) ?? 0));
+    const head = clusters[0];
+    if (!head) continue;
+    members.set(head, clusters);
+    for (const cluster of clusters) canonical.set(cluster, head);
+  }
+  if (![...members.values()].some((list) => list.length > 1)) return { segments, members };
+  return {
+    segments: segments.map((segment) => {
+      const head = segment.speaker_cluster ? canonical.get(segment.speaker_cluster) : undefined;
+      return head && head !== segment.speaker_cluster ? { ...segment, speaker_cluster: head } : segment;
+    }),
+    members,
+  };
+}

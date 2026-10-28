@@ -1,0 +1,93 @@
+/* Dicas (ⓘ): a explicação fica a um gesto, não ocupando a tela. */
+
+.with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  vertical-align: middle;
+}
+
+.info-tip-button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--faint);
+  cursor: help;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+
+.info-tip-button:hover,
+.info-tip.is-open .info-tip-button,
+.info-tip-button:focus-visible {
+  background: var(--hover);
+  color: var(--accent-hi);
+}
+
+.info-tip-bubble {
+  position: absolute;
+  z-index: 80;
+  width: max-content;
+  max-width: 300px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  /* Base opaca + a cor de superfície por cima: nada do que está atrás vaza. */
+  background-color: var(--bg-deep);
+  background-image: linear-gradient(var(--surface-hi), var(--surface-hi));
+  box-shadow: var(--shadow-pop);
+  color: var(--text-soft);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.5;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  pointer-events: none;
+  animation: pop-in var(--t-fast) var(--ease);
+}
+
+.info-tip.is-bottom .info-tip-bubble {
+  top: calc(100% + 6px);
+}
+
+.info-tip.is-top .info-tip-bubble {
+  bottom: calc(100% + 6px);
+}
+
+.info-tip.is-start .info-tip-bubble {
+  left: -8px;
+}
+
+.info-tip.is-center .info-tip-bubble {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.info-tip.is-end .info-tip-bubble {
+  right: -8px;
+}
+
+/* Perto da borda direita (colunas estreitas), o balão abre para a esquerda. */
+.transcript-panel .info-tip .info-tip-bubble,
+.settings-card-people .info-tip .info-tip-bubble,
+.sources-pop .info-tip .info-tip-bubble {
+  max-width: 240px;
+}
+
+.note-kinds > .info-tip {
+  align-self: center;
+  margin-right: 2px;
+}

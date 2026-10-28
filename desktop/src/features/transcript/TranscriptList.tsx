@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 import type { Person, Segment } from "../../shared/api/types";
-import { currentUiLanguage, pluralForm, useT } from "../../shared/i18n";
+import { useT } from "../../shared/i18n";
 import type { TranslateFn } from "../../shared/i18n/I18nProvider";
 import { copyToClipboard, formatClock, highlight } from "../../shared/lib/format";
 import { formatPlain, splitScene, groupTurns } from "../../shared/lib/segments";
@@ -45,11 +45,15 @@ interface TranscriptListProps {
   segments: Segment[];
   query: string;
   emptyHint?: string;
+  /** Segunda linha do vazio; null esconde (sessão antiga não vai receber trechos). */
+  emptyDetail?: string | null;
   people?: Person[];
   languageLocked?: boolean;
   sessionId?: string | null;
   assigningAll?: boolean;
   activeMs?: number | null;
+  /** Momento citado (ata, chat): rola até a fala e destaca. */
+  focusMs?: number | null;
   receiving?: boolean;
   liveLabel?: string;
   onSeek?: (ms: number) => void;
@@ -64,11 +68,13 @@ export function TranscriptList({
   segments,
   query,
   emptyHint,
+  emptyDetail,
   people = [],
   languageLocked = false,
   sessionId,
   assigningAll = false,
   activeMs = null,
+  focusMs = null,
   receiving = false,
   liveLabel,
   onSeek,
@@ -87,10 +93,28 @@ export function TranscriptList({
     }
   });
   const t = useT();
-  const locale = currentUiLanguage();
   useTheme();
+  // Etiqueta de idioma só quando a conversa mistura idiomas; com um só, é ruído.
+  const hideLanguage = languageLocked || new Set(segments.map((item) => item.language).filter(Boolean)).size < 2;
 
   const stuckToBottom = useRef(true);
+
+  useEffect(() => {
+    if (focusMs === null) return undefined;
+    const node = scroller.current;
+    if (!node) return undefined;
+    const rows = [...node.querySelectorAll<HTMLElement>("article[data-start]")];
+    const target =
+      rows.find((row) => Number(row.dataset.end) >= focusMs && Number(row.dataset.start) <= focusMs + 1500) ??
+      rows.find((row) => Number(row.dataset.end) >= focusMs) ??
+      rows[rows.length - 1];
+    if (!target) return undefined;
+    stuckToBottom.current = false;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.classList.add("is-cited");
+    const timer = window.setTimeout(() => target.classList.remove("is-cited"), 1800);
+    return () => window.clearTimeout(timer);
+  }, [focusMs]);
 
   useEffect(() => {
     const node = scroller.current;
@@ -169,12 +193,10 @@ export function TranscriptList({
 
   return (
     <div className={receiving ? "transcript-wrap is-receiving" : "transcript-wrap"}>
+      {liveLabel || segments.length > 0 ? (
       <div className="transcript-toolbar">
         <div className="transcript-meta">
           {liveLabel ? <span className="transcript-live">{liveLabel}</span> : null}
-          <span className="transcript-count">
-            {t(`transcript.${pluralForm(locale, segments.length)}`, { count: segments.length })}
-          </span>
         </div>
         <div className="transcript-actions">
           {selectedId && onAskSelected ? (
@@ -216,9 +238,10 @@ export function TranscriptList({
           ) : null}
         </div>
       </div>
-      {canLabel ? (
+      ) : null}
+      {keysActive ? (
         <p className={keysActive ? "transcript-keys is-active" : "transcript-keys"}>
-          {keysActive ? (
+          {(
             <>
               <span>
                 <kbd>1–9</kbd>
@@ -233,8 +256,6 @@ export function TranscriptList({
                 {t("transcript.keysForward")}
               </span>
             </>
-          ) : (
-            <span>{t("transcript.keysIdle")}</span>
           )}
         </p>
       ) : null}
@@ -244,7 +265,7 @@ export function TranscriptList({
             <span className="transcript-empty-pulse" aria-hidden />
             <div>
               <strong>{emptyCopy}</strong>
-              <p>{t("transcript.emptyHint")}</p>
+              {emptyDetail === null ? null : <p>{emptyDetail ?? t("transcript.emptyHint")}</p>}
             </div>
           </div>
         ) : (
@@ -281,7 +302,7 @@ export function TranscriptList({
                 speaker={speaker}
                 continued={false}
                 query={query}
-                languageLocked={languageLocked}
+                languageLocked={hideLanguage}
                 sessionId={sessionId}
                 copied={copied === head.id}
                 selected={selectedId === head.id}
@@ -302,7 +323,7 @@ export function TranscriptList({
               turn={turn}
               speaker={speaker}
               query={query}
-              languageLocked={languageLocked}
+              languageLocked={hideLanguage}
               sessionId={sessionId}
               copied={copied === head.id}
               selected={turn.some((item) => item.id === selectedId)}
@@ -369,6 +390,8 @@ function TurnRow({
 
   return (
     <article
+      data-start={turn[0]?.start_ms}
+      data-end={turn[turn.length - 1]?.end_ms}
       className={classes.join(" ")}
       style={{ "--chip": speaker.color } as CSSProperties}
       onClick={onSelect}
@@ -488,6 +511,8 @@ function SegmentRow({
 
   return (
     <article
+      data-start={segment.start_ms}
+      data-end={segment.end_ms}
       className={classes.join(" ")}
       style={{ "--chip": speaker.color } as CSSProperties}
       onClick={onSelect}

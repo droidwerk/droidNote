@@ -13,7 +13,9 @@ from app.domain.models import (
     ActionItem,
     Chat,
     ChatCitation,
+    ChatDocument,
     ChatMessage,
+    DocumentChunk,
     NoteTemplate,
     Person,
     Session,
@@ -175,6 +177,39 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    pages INTEGER NOT NULL DEFAULT 0,
+    chunks INTEGER NOT NULL DEFAULT 0,
+    chars INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS document_chunks (
+    document_id TEXT NOT NULL,
+    ord INTEGER NOT NULL,
+    page INTEGER,
+    text TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
+    text,
+    content='document_chunks',
+    content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS document_chunks_ai AFTER INSERT ON document_chunks BEGIN
+    INSERT INTO document_chunks_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS document_chunks_ad AFTER DELETE ON document_chunks BEGIN
+    INSERT INTO document_chunks_fts(document_chunks_fts, rowid, text) VALUES('delete', old.rowid, old.text);
+END;
+
 CREATE TABLE IF NOT EXISTS voiceprints (
     person_id TEXT PRIMARY KEY,
     model TEXT NOT NULL,
@@ -190,6 +225,8 @@ CREATE INDEX IF NOT EXISTS idx_segments_session ON segments(session_id, start_ms
 CREATE INDEX IF NOT EXISTS idx_segment_voices_session ON segment_voices(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_notes_session ON session_notes(session_id, at_ms);
 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+CREATE INDEX IF NOT EXISTS idx_documents_chat ON documents(chat_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_doc ON document_chunks(document_id, ord);
 """
 
 
@@ -225,6 +262,8 @@ class SqliteStore:
             await _ensure_column(db, "sessions", "capture_mode", "TEXT")
             await _ensure_column(db, "sessions", "template_id", "TEXT")
             await _ensure_column(db, "sessions", "transcript_purged_at", "TEXT")
+            await _ensure_column(db, "session_notes", "kind", "TEXT")
+            await _ensure_column(db, "session_notes", "ai_context", "TEXT")
             await _ensure_column(db, "segments", "speaker_cluster", "TEXT")
             await _ensure_column(db, "segments", "speaker_confidence", "REAL")
             await _ensure_column(db, "segments", "speaker_locked", "INTEGER NOT NULL DEFAULT 0")
@@ -608,6 +647,22 @@ class SqliteStore:
             await db.commit()
             return tag
 
+    async def rename_tag(self, tag_id: str, name: str) -> Tag | None:
+        cleaned = name.strip()
+        if not cleaned:
+            raise ValueError("Nome vazio")
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT id FROM tags WHERE lower(name) = lower(?) AND id != ?", (cleaned, tag_id)
+            )
+            if await cur.fetchone():
+                raise ValueError("Já existe uma pasta com esse nome")
+            cur = await db.execute("UPDATE tags SET name = ? WHERE id = ?", (cleaned, tag_id))
+            await db.commit()
+            if cur.rowcount == 0:
+                return None
+        return Tag(id=tag_id, name=cleaned)
+
     async def delete_tag(self, tag_id: str) -> None:
         async with aiosqlite.connect(self._path) as db:
             await db.execute("DELETE FROM session_tags WHERE tag_id = ?", (tag_id,))
@@ -708,6 +763,11 @@ class SqliteStore:
     async def delete_chat(self, chat_id: str) -> None:
         async with aiosqlite.connect(self._path) as db:
             await db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+            await db.execute(
+                "DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE chat_id = ?)",
+                (chat_id,),
+            )
+            await db.execute("DELETE FROM documents WHERE chat_id = ?", (chat_id,))
             await db.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
             await db.commit()
 
@@ -741,6 +801,9 @@ class SqliteStore:
                                 "segment_id": item.segment_id,
                                 "start_ms": item.start_ms,
                                 "excerpt": item.excerpt,
+                                "document_id": item.document_id,
+                                "document_name": item.document_name,
+                                "page": item.page,
                             }
                             for item in message.citations
                         ],
@@ -772,8 +835,8 @@ class SqliteStore:
     async def add_user_note(self, note: UserNote) -> None:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
-                "INSERT INTO session_notes (id, session_id, at_ms, text, created_at) VALUES (?, ?, ?, ?, ?)",
-                (note.id, note.session_id, note.at_ms, note.text, _dump_dt(note.created_at)),
+                "INSERT INTO session_notes (id, session_id, at_ms, text, created_at, kind) VALUES (?, ?, ?, ?, ?, ?)",
+                (note.id, note.session_id, note.at_ms, note.text, _dump_dt(note.created_at), note.kind),
             )
             await db.commit()
 
@@ -792,18 +855,56 @@ class SqliteStore:
                 at_ms=int(row["at_ms"]),
                 text=row["text"],
                 created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
+                kind=row["kind"] if "kind" in row.keys() else None,
+                ai_context=row["ai_context"] if "ai_context" in row.keys() else None,
             )
             for row in rows
         ]
 
-    async def update_user_note(self, session_id: str, note_id: str, text: str) -> bool:
+    async def set_note_context(self, session_id: str, note_id: str, context: str | None) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                "UPDATE session_notes SET ai_context = ? WHERE id = ? AND session_id = ?",
+                (context, note_id, session_id),
+            )
+            await db.commit()
+
+    async def update_user_note(
+        self,
+        session_id: str,
+        note_id: str,
+        text: str | None = None,
+        *,
+        kind: str | None = None,
+        set_kind: bool = False,
+    ) -> bool:
+        sets: list[str] = []
+        params: list[object] = []
+        if text is not None:
+            sets.append("text = ?")
+            params.append(text)
+        if set_kind:
+            sets.append("kind = ?")
+            params.append(kind)
+        if not sets:
+            async with aiosqlite.connect(self._path) as db:
+                cur = await db.execute(
+                    "SELECT 1 FROM session_notes WHERE id = ? AND session_id = ?", (note_id, session_id)
+                )
+                return await cur.fetchone() is not None
         async with aiosqlite.connect(self._path) as db:
             cur = await db.execute(
-                "UPDATE session_notes SET text = ? WHERE id = ? AND session_id = ?",
-                (text, note_id, session_id),
+                f"UPDATE session_notes SET {', '.join(sets)} WHERE id = ? AND session_id = ?",
+                (*params, note_id, session_id),
             )
             await db.commit()
             return cur.rowcount > 0
+
+    async def get_user_note(self, session_id: str, note_id: str) -> UserNote | None:
+        for note in await self.list_user_notes(session_id):
+            if note.id == note_id:
+                return note
+        return None
 
     async def delete_user_note(self, session_id: str, note_id: str) -> bool:
         async with aiosqlite.connect(self._path) as db:
@@ -867,6 +968,24 @@ class SqliteStore:
             await db.commit()
 
     # --- Central de tarefas -------------------------------------------------
+
+    async def searchable_texts(self) -> tuple[list[tuple[str, str, int, str, str | None]], list[tuple[str, str]]]:
+        """Anotações (id, sessão, ms, texto, tipo) e a ata mais recente de cada sessão (sessão, markdown)."""
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT id, session_id, at_ms, text, kind FROM session_notes ORDER BY created_at DESC"
+            )
+            notes = [(row[0], row[1], int(row[2]), row[3], row[4]) for row in await cur.fetchall()]
+            cur = await db.execute(
+                """
+                SELECT s.session_id, s.notes_markdown FROM summaries s
+                WHERE s.notes_markdown IS NOT NULL AND s.notes_markdown != ''
+                  AND s.created_at = (SELECT MAX(created_at) FROM summaries WHERE session_id = s.session_id)
+                ORDER BY s.created_at DESC
+                """
+            )
+            summaries = [(row[0], row[1]) for row in await cur.fetchall()]
+        return notes, summaries
 
     async def list_tasks(self, *, session_id: str | None = None) -> list[TaskItem]:
         sql = "SELECT * FROM tasks"
@@ -941,6 +1060,104 @@ class SqliteStore:
                 (_dump_dt(datetime.now(tz=UTC)), session_id),
             )
             await db.commit()
+
+    # --- Documentos do chat ------------------------------------------------
+
+    async def save_document(self, document: ChatDocument, chunks: Sequence[DocumentChunk]) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO documents (id, chat_id, name, kind, size, pages, chunks, chars, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document.id,
+                    document.chat_id,
+                    document.name,
+                    document.kind,
+                    document.size,
+                    document.pages,
+                    document.chunks,
+                    document.chars,
+                    _dump_dt(document.created_at),
+                ),
+            )
+            await db.executemany(
+                "INSERT INTO document_chunks (document_id, ord, page, text) VALUES (?, ?, ?, ?)",
+                [(chunk.document_id, chunk.ord, chunk.page, chunk.text) for chunk in chunks],
+            )
+            await db.commit()
+
+    async def list_documents(self, *, chat_id: str | None = None, ids: Sequence[str] | None = None) -> list[ChatDocument]:
+        sql = "SELECT * FROM documents"
+        params: list[str] = []
+        if ids is not None:
+            if not ids:
+                return []
+            sql += f" WHERE id IN ({','.join('?' for _ in ids)})"
+            params.extend(ids)
+        elif chat_id is not None:
+            sql += " WHERE chat_id = ?"
+            params.append(chat_id)
+        sql += " ORDER BY created_at ASC"
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(sql, params)
+            rows = await cur.fetchall()
+        return [_row_to_document(row) for row in rows]
+
+    async def attach_documents(self, chat_id: str, ids: Sequence[str]) -> None:
+        if not ids:
+            return
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                f"UPDATE documents SET chat_id = ? WHERE chat_id IS NULL AND id IN ({','.join('?' for _ in ids)})",
+                [chat_id, *ids],
+            )
+            await db.commit()
+
+    async def detach_documents(self, chat_id: str) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("UPDATE documents SET chat_id = NULL WHERE chat_id = ?", (chat_id,))
+            await db.commit()
+
+    async def delete_document(self, document_id: str) -> bool:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("DELETE FROM document_chunks WHERE document_id = ?", (document_id,))
+            cur = await db.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def search_document_chunks(
+        self, document_ids: Sequence[str], fts_query: str, limit: int = 8
+    ) -> list[DocumentChunk]:
+        if not document_ids or not fts_query.strip():
+            return []
+        marks = ",".join("?" for _ in document_ids)
+        sql = f"""
+            SELECT c.document_id, c.ord, c.page, c.text
+            FROM document_chunks_fts f
+            JOIN document_chunks c ON c.rowid = f.rowid
+            WHERE document_chunks_fts MATCH ? AND c.document_id IN ({marks})
+            ORDER BY bm25(document_chunks_fts)
+            LIMIT ?
+        """
+        async with aiosqlite.connect(self._path) as db:
+            try:
+                cur = await db.execute(sql, [fts_query, *document_ids, limit])
+            except aiosqlite.OperationalError:
+                return []
+            rows = await cur.fetchall()
+        return [DocumentChunk(document_id=row[0], ord=int(row[1]), page=row[2], text=row[3]) for row in rows]
+
+    async def first_document_chunks(self, document_id: str, limit: int) -> list[DocumentChunk]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT document_id, ord, page, text FROM document_chunks WHERE document_id = ? ORDER BY ord LIMIT ?",
+                (document_id, limit),
+            )
+            rows = await cur.fetchall()
+        return [DocumentChunk(document_id=row[0], ord=int(row[1]), page=row[2], text=row[3]) for row in rows]
 
     # --- Motor de voz -----------------------------------------------------
 
@@ -1129,6 +1346,20 @@ def _row_to_template(row: aiosqlite.Row) -> NoteTemplate:
     )
 
 
+def _row_to_document(row: aiosqlite.Row) -> ChatDocument:
+    return ChatDocument(
+        id=row["id"],
+        chat_id=row["chat_id"],
+        name=row["name"],
+        kind=row["kind"],
+        size=int(row["size"] or 0),
+        pages=int(row["pages"] or 0),
+        chunks=int(row["chunks"] or 0),
+        chars=int(row["chars"] or 0),
+        created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
+    )
+
+
 def _row_to_task(row: aiosqlite.Row) -> TaskItem:
     origin = row["origin"] if row["origin"] in {"ai", "manual"} else "ai"
     return TaskItem(
@@ -1170,7 +1401,8 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
             if not isinstance(item, dict):
                 continue
             session_id = str(item.get("session_id") or "")
-            if not session_id:
+            document_id = str(item.get("document_id") or "") or None
+            if not session_id and not document_id:
                 continue
             citations.append(
                 ChatCitation(
@@ -1179,6 +1411,9 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
                     segment_id=str(item["segment_id"]) if item.get("segment_id") else None,
                     start_ms=int(item.get("start_ms") or 0),
                     excerpt=str(item.get("excerpt") or ""),
+                    document_id=document_id,
+                    document_name=str(item.get("document_name") or ""),
+                    page=int(item["page"]) if isinstance(item.get("page"), int) else None,
                 )
             )
     role = row["role"] if row["role"] in {"user", "assistant"} else "assistant"

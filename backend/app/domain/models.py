@@ -89,6 +89,13 @@ class UserNote:
     at_ms: int
     text: str
     created_at: datetime
+    # decision, task, important, question — ou None para anotação livre.
+    kind: str | None = None
+    # O que a IA encontrou na fala em volta deste momento (preenchido pela ata).
+    ai_context: str | None = None
+
+
+NOTE_KINDS = ("decision", "task", "important", "question")
 
 
 @dataclass(frozen=True)
@@ -139,6 +146,33 @@ class ChatCitation:
     segment_id: str | None = None
     start_ms: int = 0
     excerpt: str = ""
+    # Citação de documento anexado ao chat (session_id fica vazio).
+    document_id: str | None = None
+    document_name: str = ""
+    page: int | None = None
+
+
+@dataclass(frozen=True)
+class ChatDocument:
+    """Documento enviado para o chat (PDF, Word, Excel…), já lido e fatiado em trechos."""
+
+    id: str
+    name: str
+    kind: str
+    size: int
+    pages: int
+    chunks: int
+    chars: int
+    created_at: datetime
+    chat_id: str | None = None
+
+
+@dataclass(frozen=True)
+class DocumentChunk:
+    document_id: str
+    ord: int
+    text: str
+    page: int | None = None
 
 
 @dataclass(frozen=True)

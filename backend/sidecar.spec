@@ -21,6 +21,18 @@ try:
     hidden += collect_submodules("tzdata") + collect_submodules("dateutil")
 except Exception:
     pass
+# Leitores de documento do chat: os loaders importam pypdf/docx2txt/openpyxl por dentro.
+hidden += [
+    "langchain_community.document_loaders.pdf",
+    "langchain_community.document_loaders.word_document",
+    "langchain_community.document_loaders.csv_loader",
+    "langchain_community.document_loaders.text",
+    "langchain_text_splitters",
+    "pypdf",
+    "docx2txt",
+    "openpyxl",
+    "multipart",
+]
 
 # Motor de voz embutido (baixado e conferido por installer/build-windows.ps1).
 import os

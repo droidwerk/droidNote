@@ -14,6 +14,12 @@ import "./shared/styles/console.css";
 import "./shared/styles/pages.css";
 import "./shared/styles/workflow.css";
 import "./shared/styles/planning.css";
+import "./shared/styles/library.css";
+import "./shared/styles/assist.css";
+import "./shared/styles/focus.css";
+import "./shared/styles/ai.css";
+import "./shared/styles/doc.css";
+import "./shared/styles/tips.css";
 
 const root = document.getElementById("root");
 if (!root) {
