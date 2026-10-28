@@ -27,6 +27,9 @@ from app.schemas.api import (
     SessionUpdateIn,
     SummaryOut,
     TagOut,
+    UserNoteIn,
+    UserNoteOut,
+    UserNoteUpdateIn,
     VoiceAssignIn,
     VoiceOut,
     VoicesOut,
@@ -181,7 +184,11 @@ async def search_session(
 
 
 @router.post("/{session_id}/summarize", response_model=SummaryOut)
-async def summarize_session(session_id: str, request: Request) -> SummaryOut:
+async def summarize_session(
+    session_id: str,
+    request: Request,
+    template_id: str | None = Query(default=None),
+) -> SummaryOut:
     container = get_container(request.app)
     setup = await container.setup.status()
     if not setup.summarize_ready:
@@ -190,9 +197,10 @@ async def summarize_session(session_id: str, request: Request) -> SummaryOut:
             detail=setup.llm.message or ui_message(container.settings.ui_language, "llm_not_ready"),
         )
     try:
-        summary = await container.summarize.summarize(session_id)
+        summary = await container.summarize.summarize(session_id, template_id)
     except KeyError:
         raise _missing(request) from None
+    await container.bus.publish({"type": "tasks", "session_id": session_id})
     return SummaryOut.from_domain(summary)
 
 
@@ -258,6 +266,55 @@ async def patch_segment_speaker(
         container.capture.note_speaker(segment.speaker_id, segment.source)
     names = await container.speakers.name_map()
     return SegmentOut.from_domain(segment, names)
+
+
+@router.get("/{session_id}/notes", response_model=list[UserNoteOut])
+async def list_user_notes(session_id: str, request: Request) -> list[UserNoteOut]:
+    container = get_container(request.app)
+    try:
+        await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    return [UserNoteOut.from_domain(item) for item in await container.store.list_user_notes(session_id)]
+
+
+@router.post("/{session_id}/notes", response_model=UserNoteOut, status_code=status.HTTP_201_CREATED)
+async def add_user_note(session_id: str, payload: UserNoteIn, request: Request) -> UserNoteOut:
+    from datetime import UTC, datetime
+
+    from app.domain.models import UserNote
+    from app.infrastructure.persistence.sqlite import new_id
+
+    container = get_container(request.app)
+    try:
+        session = await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    now = datetime.now(tz=UTC)
+    at_ms = payload.at_ms
+    if at_ms is None:
+        # Sem momento informado: o instante atual da gravação.
+        end = session.ended_at or now
+        at_ms = max(0, int((min(now, end) - session.started_at).total_seconds() * 1000))
+    note = UserNote(id=new_id(), session_id=session_id, at_ms=at_ms, text=payload.text.strip(), created_at=now)
+    await container.store.add_user_note(note)
+    await container.bus.publish({"type": "note", "status": "added", "session_id": session_id, "note_id": note.id})
+    return UserNoteOut.from_domain(note)
+
+
+@router.patch("/{session_id}/notes/{note_id}", response_model=list[UserNoteOut])
+async def update_user_note(session_id: str, note_id: str, payload: UserNoteUpdateIn, request: Request) -> list[UserNoteOut]:
+    container = get_container(request.app)
+    if not await container.store.update_user_note(session_id, note_id, payload.text.strip()):
+        raise _missing(request)
+    return [UserNoteOut.from_domain(item) for item in await container.store.list_user_notes(session_id)]
+
+
+@router.delete("/{session_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user_note(session_id: str, note_id: str, request: Request) -> None:
+    container = get_container(request.app)
+    if not await container.store.delete_user_note(session_id, note_id):
+        raise _missing(request)
 
 
 async def _voices_out(container: AppContainer, session_id: str) -> VoicesOut:

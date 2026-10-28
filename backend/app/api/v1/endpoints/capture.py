@@ -61,6 +61,7 @@ async def start_capture(payload: CaptureStartIn, request: Request) -> CaptureSta
             title=payload.title,
             participant_ids=payload.participant_ids,
             capture_mode=payload.capture_mode,
+            template_id=payload.template_id,
         )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
@@ -76,11 +77,29 @@ async def stop_capture(request: Request) -> CaptureStateOut:
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
     if session_id:
-        asyncio.create_task(_assign_after_stop(container, session_id))
+        asyncio.create_task(finish_session(container, session_id))
     return _state_out(state)
 
 
-async def _assign_after_stop(container: AppContainer, session_id: str) -> None:
+@router.get("/meeting")
+async def meeting_status(request: Request) -> dict[str, object]:
+    watcher = get_container(request.app).meetings
+    if watcher is None:
+        return {"available": False, "active": False}
+    return watcher.status()
+
+
+@router.post("/meeting/dismiss")
+async def dismiss_meeting(request: Request) -> dict[str, object]:
+    watcher = get_container(request.app).meetings
+    if watcher is None:
+        return {"available": False, "active": False}
+    await watcher.dismiss()
+    return watcher.status()
+
+
+async def finish_session(container: AppContainer, session_id: str) -> None:
+    """Pós-gravação: esvazia a fila, reagrupa vozes e atribui falantes."""
     await container.capture.wait_drain(session_id)
     try:
         await container.bus.publish(

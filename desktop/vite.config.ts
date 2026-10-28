@@ -7,6 +7,8 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // O Cargo trava os .dll em src-tauri/target durante o build; o Vite não precisa vigiar nada ali.
+    watch: { ignored: ["**/src-tauri/**"] },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {

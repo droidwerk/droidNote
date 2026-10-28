@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -10,6 +10,7 @@ from app.schemas.api import (
     BootstrapIn,
     DisclaimerIn,
     ModelsCatalogOut,
+    RetentionOut,
     SettingsIn,
     SettingsOut,
     SetupComponentOut,
@@ -133,3 +134,31 @@ async def diagnostics(request: Request) -> FileResponse:
         media_type="application/zip",
         background=BackgroundTask(path.unlink, missing_ok=True),
     )
+
+
+def _retention(request: Request):
+    from app.application.retention import RetentionService
+    from app.core.config import session_recording_path
+
+    container = get_container(request.app)
+    if container.retention is None:
+        container.retention = RetentionService(
+            container.store, lambda session_id: session_recording_path(container.settings, session_id)
+        )
+    return container.retention
+
+
+@router.get("/retention/preview", response_model=RetentionOut)
+async def retention_preview(
+    request: Request,
+    audio_days: int | None = Query(default=None, ge=0, le=3650),
+    transcript_days: int | None = Query(default=None, ge=0, le=3650),
+) -> RetentionOut:
+    report = await _retention(request).run(dry_run=True, audio_days=audio_days, transcript_days=transcript_days)
+    return RetentionOut(**report.__dict__)
+
+
+@router.post("/retention/run", response_model=RetentionOut)
+async def retention_run(request: Request) -> RetentionOut:
+    report = await _retention(request).run()
+    return RetentionOut(**report.__dict__)

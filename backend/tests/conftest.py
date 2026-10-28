@@ -12,6 +12,7 @@ from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
 from app.application.sessions import SessionService
+from app.application.tasks import TaskService
 from app.application.setup import SetupService
 from app.application.speakers import SpeakersService
 from app.application.summarize import SummarizeService
@@ -62,7 +63,7 @@ async def app(settings: Settings):
         bus=bus,
         capture=capture,
         sessions=SessionService(store),
-        summarize=SummarizeService(llm, store),
+        summarize=SummarizeService(llm, store, TaskService(store)),
         setup=SetupService(settings, store, audio, asr, router),
         llm=router,
         speakers=SpeakersService(llm, store),

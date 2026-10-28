@@ -23,6 +23,7 @@ from app.infrastructure.asr.whisper_engine import join_words
 from app.infrastructure.audio.wav_writer import SessionWavWriter
 from app.infrastructure.audio.windows_wasapi import WindowsWasapiCapture
 from app.infrastructure.persistence.sqlite import new_id
+from app.infrastructure.audio.agc import AutoGain
 from app.infrastructure.voice.echo import EchoGate
 from app.infrastructure.voice.vad import SileroModel, StreamingVad
 
@@ -66,6 +67,7 @@ class CaptureService:
         self._voices = voices
         self._neural_vad = neural_vad
         self._echo = EchoGate()
+        self._agc = AutoGain()
         self._mic_vad = StreamingVad()
         self._loop_vad = StreamingVad()
         self._channel_level: dict[str, float] = {"mic": 0.0, "system": 0.0}
@@ -131,6 +133,7 @@ class CaptureService:
         title: str | None = None,
         participant_ids: list[str] | None = None,
         capture_mode: str = "meeting",
+        template_id: str | None = None,
     ) -> CaptureState:
         if self.state.recording:
             return self.state
@@ -146,6 +149,7 @@ class CaptureService:
             status="recording",
             language=_locked_language(self._settings.language),
             capture_mode=mode,
+            template_id=template_id or None,
         )
         await self._store.create_session(session)
         self._people = []
@@ -157,6 +161,7 @@ class CaptureService:
         self._mic_buf = self._new_buffer()
         self._loop_buf = self._new_buffer()
         self._echo = EchoGate()
+        self._agc = AutoGain(enabled=(await self._store.get_setting("auto_gain")) != "0")
         self._mic_vad = StreamingVad()
         self._loop_vad = StreamingVad()
         self._now_voice = None
@@ -395,6 +400,8 @@ class CaptureService:
             # Sem fone, o microfone escuta o alto-falante: o eco sai do canal do
             # microfone antes da transcrição (o WAV continua com tudo).
             mic = self._echo.process(np.asarray(mic, dtype=np.float32), np.asarray(loopback, dtype=np.float32)).tolist()
+        if self._agc.enabled:
+            mic = self._agc.process(np.asarray(mic, dtype=np.float32)).tolist()
         mic_mask = self._mic_vad.mask(mic) if self._neural_vad else None
         self._channel_level["mic"] = rms_level(mic)
         self._channel_speech["mic"] = bool(mic_mask.any()) if mic_mask is not None else has_speech(mic)
@@ -500,6 +507,7 @@ class CaptureService:
                         "rms": round(self._channel_level["mic"], 4),
                         "speech": self._channel_speech["mic"],
                         "echo": round(self._echo.gated_ratio, 3),
+                        "gain_db": round(self._agc.gain_db, 1),
                     },
                     "system": None
                     if self.state.mic_only

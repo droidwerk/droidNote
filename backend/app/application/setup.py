@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from app.application.retention import parse_days
 from app.core.config import Settings, parse_recordings_dir
 from app.core.i18n import (
     CAPTURE_LANGUAGES,
@@ -431,6 +432,28 @@ class SetupService:
             )
         if payload.openai_disclaimer_accepted:
             await self._store.set_setting("openai_disclaimer_accepted", "1")
+        if payload.meeting_detection is not None:
+            from app.application.meetings import normalize_mode
+
+            await self._store.set_setting("meeting_detection", normalize_mode(payload.meeting_detection))
+        if payload.calendar_ics_url is not None:
+            from app.infrastructure.calendar.ics import CalendarError, normalize_url
+
+            raw = payload.calendar_ics_url.strip()
+            if raw:
+                try:
+                    raw = normalize_url(raw)
+                except CalendarError as exc:
+                    raise ValueError(str(exc)) from exc
+            await self._store.set_setting("calendar_ics_url", raw)
+        if payload.consent_message is not None:
+            await self._store.set_setting("consent_message", payload.consent_message.strip())
+        if payload.retention_audio_days is not None:
+            await self._store.set_setting("retention_audio_days", str(payload.retention_audio_days))
+        if payload.retention_transcript_days is not None:
+            await self._store.set_setting("retention_transcript_days", str(payload.retention_transcript_days))
+        if payload.auto_gain is not None:
+            await self._store.set_setting("auto_gain", "1" if payload.auto_gain else "0")
         if asr_changed:
             self._preload_asr()
 
@@ -448,6 +471,7 @@ class SetupService:
         ui_language = stored_ui or read_install_language(self._settings.data_dir)
         ui_language = normalize_ui_language(ui_language or self._settings.ui_language)
         self._settings.ui_language = ui_language
+        calendar = (await self._store.get_setting("calendar_ics_url")) or ""
         return SettingsOut(
             whisper_model=self._settings.whisper_model,
             ollama_model=self._llm.local.model,
@@ -466,7 +490,19 @@ class SetupService:
             save_recordings=await self._save_recordings_flag(),
             openai_disclaimer_accepted=openai_ok,
             disclaimer_kind=kind,
+            meeting_detection=await self._meeting_mode(),
+            has_calendar=bool(calendar),
+            calendar_hint=_url_host(calendar),
+            consent_message=(await self._store.get_setting("consent_message")) or "",
+            retention_audio_days=parse_days(await self._store.get_setting("retention_audio_days")),
+            retention_transcript_days=parse_days(await self._store.get_setting("retention_transcript_days")),
+            auto_gain=(await self._store.get_setting("auto_gain")) != "0",
         )
+
+    async def _meeting_mode(self) -> str:
+        from app.application.meetings import normalize_mode
+
+        return normalize_mode(await self._store.get_setting("meeting_detection"))
 
     async def test_api_key(self, key: str | None) -> tuple[bool, str]:
         tester = getattr(self._asr, "test_api_key", None)
@@ -649,3 +685,10 @@ def _whisper_learn_more(model_id: str) -> str:
 
 def _is_masked_key(value: str) -> bool:
     return bool(value) and set(value) <= {"•", "*"}
+
+
+def _url_host(url: str) -> str:
+    """Só o domínio: a URL do calendário é um segredo e não volta inteira para a tela."""
+    from urllib.parse import urlparse
+
+    return urlparse(url).hostname or "" if url else ""

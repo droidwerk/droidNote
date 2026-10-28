@@ -15,6 +15,12 @@ try:
     datas += collect_data_files("faster_whisper")
 except Exception:
     pass
+try:
+    # Fusos do calendário (zoneinfo no Windows não tem base própria).
+    datas += collect_data_files("tzdata")
+    hidden += collect_submodules("tzdata") + collect_submodules("dateutil")
+except Exception:
+    pass
 
 # Motor de voz embutido (baixado e conferido por installer/build-windows.ps1).
 import os

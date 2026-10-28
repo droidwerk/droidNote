@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, askChat } from "../shared/api/client";
-import type { ChatCitation, ChatFocus, ChatMessage, ChatThread, Session } from "../shared/api/types";
+import type { ChatCitation, ChatFocus, ChatMessage, ChatThread, NoteTemplate, Session } from "../shared/api/types";
+import { templateName } from "../shared/lib/templates";
 import { useI18n, useT } from "../shared/i18n";
 import { copyToClipboard, formatClock, formatDate } from "../shared/lib/format";
 import { Button } from "../shared/ui/primitives";
@@ -9,6 +10,7 @@ import { Button } from "../shared/ui/primitives";
 const CONTEXT_LIMIT = 6;
 
 interface ChatPageProps {
+  recipes?: NoteTemplate[];
   focus: ChatFocus | null;
   onOpenSession: (sessionId: string) => void;
   onFocusConsumed: () => void;
@@ -22,7 +24,7 @@ interface SourceRow {
   count: number;
 }
 
-export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProps) {
+export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed }: ChatPageProps) {
   const { locale, t } = useI18n();
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [recent, setRecent] = useState<Session[]>([]);
@@ -56,6 +58,7 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
     setPendingFocus(focus);
     setActiveId(null);
     setMessages([]);
+    if (focus.prompt) setDraft(focus.prompt);
     onFocusConsumed();
     window.setTimeout(() => input.current?.focus(), 40);
   }, [focus, onFocusConsumed]);
@@ -235,6 +238,28 @@ export function ChatPage({ focus, onOpenSession, onFocusConsumed }: ChatPageProp
                 <p className="chat-context-hint">
                   {focusedSession ? t("chat.contextHintFocused") : t("chat.contextHint")}
                 </p>
+              </div>
+            ) : null}
+            {recipes.length ? (
+              <div className="chat-context">
+                <p className="chat-context-label">{t("recipes.title")}</p>
+                <div className="chips">
+                  {recipes.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="chip"
+                      title={item.body}
+                      onClick={() => {
+                        setDraft(item.body);
+                        input.current?.focus();
+                      }}
+                    >
+                      {templateName(item)}
+                    </button>
+                  ))}
+                </div>
+                <p className="chat-context-hint">{t("recipes.hint")}</p>
               </div>
             ) : null}
           </div>

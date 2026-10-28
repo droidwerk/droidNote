@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Protocol
 
 from app.application.prompts import prompts_for, summary_context
 from app.domain.models import ActionItem, Session, Summary, SummaryTopic, TranscriptSegment
@@ -9,13 +10,23 @@ from app.domain.ports import LlmPort, SessionRepository
 from app.infrastructure.persistence.sqlite import new_id
 
 
+class TaskSync(Protocol):
+    async def sync_from_summary(self, session_id: str, items: list[ActionItem]) -> object: ...
+
+
 class SummarizeService:
-    def __init__(self, llm: LlmPort, store: SessionRepository) -> None:
+    def __init__(self, llm: LlmPort, store: SessionRepository, tasks: TaskSync | None = None) -> None:
         self._llm = llm
         self._store = store
+        self._tasks = tasks
 
-    async def summarize(self, session_id: str) -> Summary:
+    async def summarize(self, session_id: str, template_id: str | None = None) -> Summary:
         session = await self._require_session(session_id)
+        if template_id is not None:
+            from dataclasses import replace as _replace
+
+            session = _replace(session, template_id=template_id or None)
+            await self._store.update_session(session)
         segments = await self._store.list_segments(session_id)
         people = {item.id: item.name for item in await self._store.list_people()}
         transcript = render_transcript(segments, people, session.language)
@@ -33,6 +44,7 @@ class SummarizeService:
             duration=_duration(session, segments),
             voices=len({item.speaker_cluster for item in segments if item.speaker_cluster}),
         )
+        context += await self._extras(session)
         system, template = prompts_for(session.capture_mode)
         raw = await self._llm.generate_json(
             template.format(context=context, transcript=transcript),
@@ -54,7 +66,23 @@ class SummarizeService:
             notes_markdown=summary_to_markdown(session.title, parsed),
         )
         await self._store.save_summary(summary)
+        if self._tasks is not None:
+            await self._tasks.sync_from_summary(session.id, summary.action_items)
         return summary
+
+    async def _extras(self, session: Session) -> str:
+        """Template escolhido e anotações da pessoa entram no pedido da ata."""
+        parts: list[str] = []
+        if session.template_id:
+            getter = getattr(self._store, "get_template", None)
+            template = await getter(session.template_id) if callable(getter) else None
+            if template is not None and template.kind == "note":
+                parts.append(template_instructions(template.body))
+        lister = getattr(self._store, "list_user_notes", None)
+        notes = await lister(session.id) if callable(lister) else []
+        if notes:
+            parts.append(user_notes_instructions([(note.at_ms, note.text) for note in notes]))
+        return "".join(parts)
 
     def _empty_summary(self, session: Session) -> Summary:
         return Summary(
@@ -145,7 +173,42 @@ def parse_summary_json(raw: str) -> dict:
         "action_items": _action_items(payload.get("action_items")),
         "open_items": _string_list(payload.get("open_items")),
         "language": str(language).strip().lower()[:5] if language else None,
+        "user_notes": _user_notes(payload.get("user_notes")),
     }
+
+
+def _user_notes(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    notes: list[dict[str, str]] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            notes.append({"note": item.strip(), "context": ""})
+        elif isinstance(item, dict):
+            note = str(item.get("note") or "").strip()
+            if note:
+                notes.append({"note": note, "context": str(item.get("context") or "").strip()})
+    return notes
+
+
+def template_instructions(body: str) -> str:
+    sections = "\n".join(f"- {line.strip()}" for line in body.splitlines() if line.strip())
+    return (
+        "Estrutura pedida para \"topics\": use estas seções como títulos, nesta ordem. "
+        "Deixe de fora a seção que a transcrição não cobre; nunca invente conteúdo para preenchê-la.\n"
+        f"{sections}\n\n"
+    )
+
+
+def user_notes_instructions(notes: list[tuple[int, str]]) -> str:
+    lines = "\n".join(f"[{_clock(at_ms)}] {text}" for at_ms, text in notes)
+    return (
+        "Anotações que a pessoa digitou durante a conversa, com o momento. Elas mostram o que importa para ela: "
+        "garanta que cada uma esteja coberta na ata. Responda também a chave \"user_notes\": array de "
+        "{\"note\": a anotação como foi escrita, \"context\": 1 a 3 frases com o que foi dito em torno daquele "
+        "momento, só com base na transcrição}.\n"
+        f"{lines}\n\n"
+    )
 
 
 def _topics(value: object) -> list[SummaryTopic]:
@@ -229,6 +292,13 @@ def summary_to_markdown(title: str, parsed: dict) -> str:
     overview = str(parsed.get("overview") or "").strip()
     if overview:
         lines.extend(["## Resumo", "", overview, ""])
+    user_notes = parsed.get("user_notes") or []
+    if user_notes:
+        lines.extend(["## Suas anotações", ""])
+        for item in user_notes:
+            context = str(item.get("context") or "").strip()
+            lines.append(f"- **{item['note']}**" + (f" — {context}" if context else ""))
+        lines.append("")
     topics = parsed.get("topics") or []
     if topics:
         lines.extend(["## Assuntos", ""])

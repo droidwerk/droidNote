@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CommandPalette } from "../features/command/CommandPalette";
+import { MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
 import { FolderSidebar } from "../features/session/FolderSidebar";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { Wizard } from "../features/setup/Wizard";
 import { ChatPage } from "../pages/ChatPage";
 import { LivePage } from "../pages/LivePage";
 import { SessionPage } from "../pages/SessionPage";
-import { SettingsPage } from "../pages/SettingsPage";
+import { SettingsPage, type SettingsTab } from "../pages/SettingsPage";
+import { TasksPage } from "../pages/TasksPage";
+import { copyConsent } from "../features/consent/consent";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
-import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
+import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, NoteTemplate, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
 import { isCaptureLanguage, isUiLanguage, useI18n, type CaptureLanguage } from "../shared/i18n";
+import { openMiniWindow, requestAttention } from "../shared/lib/miniWindow";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { useUpdateNotice } from "../shared/lib/useUpdateNotice";
 import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
@@ -21,7 +25,7 @@ import { Icon, type IconName } from "../shared/ui/Icon";
 import { StatusStrip } from "../shared/ui/StatusStrip";
 import { useToast } from "../shared/ui/Toast";
 
-type View = "live" | "session" | "settings" | "chat";
+type View = "live" | "session" | "settings" | "chat" | "tasks";
 
 const idleCapture: CaptureState = {
   recording: false,
@@ -75,6 +79,21 @@ export function App() {
   const [voiceDownloading, setVoiceDownloading] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionSeek, setSessionSeek] = useState<number | null>(null);
+  const [templates, setTemplates] = useState<NoteTemplate[]>([]);
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [meetingNotice, setMeetingNotice] = useState<MeetingNotice | null>(null);
+  const [notesRevision, setNotesRevision] = useState(0);
+  const [tasksRevision, setTasksRevision] = useState(0);
+  const [openTasks, setOpenTasks] = useState(0);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("transcription");
+  const recordingRef = useRef(false);
+  const loadTemplates = useCallback(async () => {
+    try {
+      setTemplates(await api.templates());
+    } catch {
+      setTemplates([]);
+    }
+  }, []);
   const [engineInfo, setEngineInfo] = useState({ asr: "—", note: "—" });
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = activeId;
@@ -401,6 +420,23 @@ export function App() {
         if (event.type === "speakers") {
           setSpeakersBusy(event.status === "start");
         }
+        if (event.type === "meeting") {
+          const app = typeof event.app === "string" ? event.app : "";
+          if (event.status === "detected" || event.status === "auto-started") {
+            setMeetingNotice({ status: event.status, app, browser: Boolean(event.browser) });
+            if (event.status === "detected") void requestAttention();
+          } else if (event.status === "ended") {
+            setMeetingNotice(event.recording ? { status: "ended", app, browser: false } : null);
+          } else if (event.status === "dismissed") {
+            setMeetingNotice(null);
+          }
+        }
+        if (event.type === "note") {
+          setNotesRevision((value) => value + 1);
+        }
+        if (event.type === "tasks") {
+          setTasksRevision((value) => value + 1);
+        }
         if (event.type === "voices") {
           setVoicesRevision((value) => value + 1);
           const current = activeIdRef.current;
@@ -461,7 +497,7 @@ export function App() {
     };
   }, [capture.recording, activeId]);
 
-  const toggle = useCallback(async () => {
+  const toggle = useCallback(async (override?: { mode?: CaptureMode; title?: string }) => {
     if (busy) return;
     setBusy(true);
     setCaptureError(null);
@@ -479,11 +515,14 @@ export function App() {
       }
       setPending("start");
       staleReconnectTriggered.current = false;
+      const mode = override?.mode ?? captureMode;
       const state = await api.startCapture({
-        mic_only: captureMode === "dictation" ? true : micOnly,
+        mic_only: mode === "dictation" ? true : micOnly,
         loopback_id: loopbackId || undefined,
         participant_ids: participantIds,
-        capture_mode: captureMode,
+        capture_mode: mode,
+        title: override?.title,
+        template_id: templateId,
       });
       setCapture(state);
       setLastMonitorAt(Date.now());
@@ -503,7 +542,59 @@ export function App() {
       setPending(null);
       setBusy(false);
     }
-  }, [busy, capture, loadSessions, micOnly, loopbackId, participantIds, captureMode, t]);
+  }, [busy, capture, loadSessions, micOnly, loopbackId, participantIds, captureMode, templateId, t]);
+
+  // Mini console abre sozinho quando a gravação começa (preferência deste PC).
+  useEffect(() => {
+    const was = recordingRef.current;
+    recordingRef.current = capture.recording;
+    if (!was && capture.recording && "__TAURI_INTERNALS__" in window) {
+      let auto = true;
+      try {
+        auto = window.localStorage.getItem("droidnote.miniAuto") !== "0";
+      } catch {
+        /* padrão: abre */
+      }
+      if (auto) void openMiniWindow();
+    }
+    if (was && !capture.recording) setNotesRevision((value) => value + 1);
+  }, [capture.recording]);
+
+  useEffect(() => {
+    if (!ready || needsWizard) return;
+    void api
+      .tasks("open")
+      .then((items) => setOpenTasks(items.length))
+      .catch(() => undefined);
+  }, [ready, needsWizard, tasksRevision]);
+
+  const consent = useCallback(() => {
+    void copyConsent(t).then((ok) =>
+      toast.push({
+        tone: ok ? "success" : "error",
+        title: ok ? t("consent.copied") : t("consent.copyFail"),
+        description: ok ? t("consent.copiedHint") : undefined,
+      }),
+    );
+  }, [t, toast]);
+
+  const openSettings = (tab: SettingsTab = "transcription") => {
+    setSettingsTab(tab);
+    setView("settings");
+  };
+
+  useEffect(() => {
+    if (!ready || needsWizard) return;
+    void loadTemplates();
+    void api
+      .meeting()
+      .then((status) => {
+        if (status.active && !status.dismissed && status.app) {
+          setMeetingNotice({ status: "detected", app: status.app, browser: Boolean(status.browser) });
+        }
+      })
+      .catch(() => undefined);
+  }, [ready, needsWizard, loadTemplates]);
 
   useEffect(() => {
     if (!ready || needsWizard) return undefined;
@@ -599,8 +690,9 @@ export function App() {
         </div>
         <nav className="nav" aria-label={t("nav.primary")}>
           <NavButton icon="console" label={t("nav.live")} active={view === "live"} onClick={() => setView("live")} badge={capture.recording ? "rec" : undefined} />
+          <NavButton icon="tasks" label={t("nav.tasks")} active={view === "tasks"} onClick={() => setView("tasks")} badge={openTasks ? String(openTasks) : undefined} />
           <NavButton icon="chat" label={t("nav.chat")} active={view === "chat"} onClick={() => openChat()} badge={t("common.beta")} />
-          <NavButton icon="settings" label={t("nav.settings")} active={view === "settings"} onClick={() => setView("settings")} />
+          <NavButton icon="settings" label={t("nav.settings")} active={view === "settings"} onClick={() => openSettings()} />
         </nav>
         <div className="sidebar-section">
           <FolderSidebar
@@ -659,6 +751,29 @@ export function App() {
           onOpenPalette={() => setPaletteOpen(true)}
         />
         <div className="main-scroll">
+          {meetingNotice ? (
+            <MeetingBanner
+              notice={meetingNotice}
+              recording={capture.recording}
+              busy={busy}
+              onRecord={() => {
+                const app = meetingNotice.app;
+                setMeetingNotice(null);
+                setCaptureMode("meeting");
+                setMicOnly(false);
+                void toggle({ mode: "meeting", title: `${app} · ${new Date().toLocaleString(document.documentElement.lang || undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` });
+              }}
+              onStop={() => {
+                setMeetingNotice(null);
+                void toggle();
+              }}
+              onDismiss={() => {
+                setMeetingNotice(null);
+                void api.dismissMeeting().catch(() => undefined);
+              }}
+              onCopyConsent={consent}
+            />
+          ) : null}
           {view !== "live" && (capture.recording || asrBusy || speakersBusy) ? (
             <button type="button" className="live-banner" onClick={() => setView("live")}>
               <span className="state-led" aria-hidden />
@@ -700,6 +815,21 @@ export function App() {
               languageLocked={language !== "auto"}
               captureLanguage={language}
               captureMode={captureMode}
+              templates={templates}
+              templateId={templateId}
+              onTemplateChange={setTemplateId}
+              notesRevision={notesRevision}
+              onOpenMini={() => void openMiniWindow()}
+              onCopyConsent={consent}
+              tasksRevision={tasksRevision}
+              onTasksChanged={() => setTasksRevision((value) => value + 1)}
+              onOpenSession={(sessionId) => openSession(sessionId)}
+              onConnectCalendar={() => openSettings("meetings")}
+              onRecordEvent={(event) => {
+                setCaptureMode("meeting");
+                setMicOnly(false);
+                void toggle({ mode: "meeting", title: event.title || undefined });
+              }}
               engineProvider={asrProvider}
               onCaptureModeChange={(mode) => {
                 setCaptureMode(mode);
@@ -719,6 +849,8 @@ export function App() {
             <SessionPage
               sessionId={activeId}
               seekTo={sessionSeek}
+              templates={templates}
+              notesRevision={notesRevision}
               voicesRevision={voicesRevision}
               voiceReady={Boolean(voiceReady)}
               voiceDownloading={voiceDownloading}
@@ -737,8 +869,16 @@ export function App() {
               onAsk={openChat}
             />
           ) : null}
+          {view === "tasks" ? (
+            <TasksPage
+              revision={tasksRevision}
+              onOpenSession={(sessionId) => openSession(sessionId)}
+              onChanged={() => setTasksRevision((value) => value + 1)}
+            />
+          ) : null}
           {view === "chat" ? (
             <ChatPage
+              recipes={templates.filter((item) => item.kind === "recipe")}
               focus={chatFocus}
               onFocusConsumed={() => setChatFocus(null)}
               onOpenSession={(sessionId) => openSession(sessionId)}
@@ -746,10 +886,13 @@ export function App() {
           ) : null}
           {view === "settings" ? (
             <SettingsPage
+              key={settingsTab}
+              initialTab={settingsTab}
               engineProvider={asrProvider}
               voiceReady={Boolean(voiceReady)}
               voiceDownloading={voiceDownloading}
               onDownloadVoice={() => void downloadVoice()}
+              onTemplatesChanged={() => void loadTemplates()}
               onSaved={(next) => {
                 setMicOnly(next.mic_only_default);
                 setLanguage(isCaptureLanguage(next.language) ? next.language : "pt");
@@ -768,7 +911,7 @@ export function App() {
         onOpenSession={openSession}
         onToggleCapture={() => void toggle()}
         onOpenChat={() => openChat()}
-        onOpenSettings={() => setView("settings")}
+        onOpenSettings={() => openSettings()}
         onOpenLive={() => setView("live")}
       />
     </div>

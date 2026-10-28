@@ -20,6 +20,94 @@ export interface Session {
   capture_mode?: CaptureMode;
   tags?: Tag[];
   has_audio?: boolean;
+  template_id?: string | null;
+  transcript_purged_at?: string | null;
+}
+
+export interface UserNote {
+  id: string;
+  session_id: string;
+  at_ms: number;
+  text: string;
+  created_at: string;
+}
+
+export interface NoteTemplate {
+  id: string;
+  kind: "note" | "recipe";
+  name: string;
+  body: string;
+  capture_mode?: CaptureMode | null;
+  builtin: boolean;
+}
+
+export interface TaskItem {
+  id: string;
+  text: string;
+  owner: string | null;
+  due: string | null;
+  done: boolean;
+  done_at: string | null;
+  origin: "ai" | "manual";
+  created_at: string;
+  session_id: string | null;
+  session_title: string | null;
+  session_started_at: string | null;
+}
+
+export type TaskStatus = "open" | "done" | "all";
+
+export interface BriefSession {
+  session_id: string;
+  title: string;
+  started_at: string;
+  reason: "title" | "people" | "both";
+  overview: string;
+  decisions: string[];
+  open_items: string[];
+  tasks: TaskItem[];
+}
+
+export interface Brief {
+  title: string;
+  people: string[];
+  related: BriefSession[];
+  pending: TaskItem[];
+}
+
+export interface CalendarEvent {
+  uid: string;
+  title: string;
+  start: string;
+  end: string;
+  location: string | null;
+  attendees: string[];
+  brief: Brief;
+}
+
+export interface Upcoming {
+  configured: boolean;
+  error: string | null;
+  events: CalendarEvent[];
+}
+
+export interface RetentionReport {
+  audio_files: number;
+  transcripts: number;
+  audio_days: number;
+  transcript_days: number;
+}
+
+export type MeetingMode = "off" | "ask" | "auto";
+
+export interface MeetingStatus {
+  available: boolean;
+  active: boolean;
+  app?: string | null;
+  browser?: boolean;
+  since?: string | null;
+  dismissed?: boolean;
+  auto_session_id?: string | null;
 }
 
 export type CaptureMode = "dictation" | "lecture" | "meeting";
@@ -76,6 +164,7 @@ export interface ChannelLevel {
   rms: number;
   speech: boolean;
   echo?: number;
+  gain_db?: number;
 }
 
 export interface LiveVoice {
@@ -175,6 +264,13 @@ export interface Settings {
   save_recordings?: boolean;
   openai_disclaimer_accepted?: boolean;
   disclaimer_kind?: "local" | "openai";
+  meeting_detection?: MeetingMode;
+  has_calendar?: boolean;
+  calendar_hint?: string;
+  consent_message?: string;
+  retention_audio_days?: number;
+  retention_transcript_days?: number;
+  auto_gain?: boolean;
 }
 
 export interface ModelOption {
@@ -233,6 +329,7 @@ export interface TranscriptEvent {
 }
 
 export interface ChatFocus {
+  prompt?: string;
   sessionId?: string;
   sessionTitle?: string;
   segmentId?: string;

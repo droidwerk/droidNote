@@ -2,19 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../shared/api/client";
 import type {
+  Brief,
+  CalendarEvent,
   CaptureMode,
   CaptureState,
   ChatFocus,
   Device,
   MonitorFrame,
+  NoteTemplate,
   Person,
   Provider,
   Segment,
   SessionDetail,
   Summary,
 } from "../shared/api/types";
+import { BriefCard } from "../features/brief/BriefCard";
+import { UpcomingPanel } from "../features/brief/UpcomingPanel";
 import { CaptureDeck } from "../features/capture/CaptureDeck";
 import { CaptureLanguageMenu } from "../features/capture/CaptureLanguageMenu";
+import { UserNotes } from "../features/notes/UserNotes";
+import { TemplatePicker } from "../features/templates/TemplatePicker";
 import { SummaryPanel } from "../features/summary/SummaryPanel";
 import { TranscriptList } from "../features/transcript/TranscriptList";
 import { VoiceRoster } from "../features/voices/VoiceRoster";
@@ -56,13 +63,24 @@ interface LivePageProps {
   languageLocked: boolean;
   captureLanguage: CaptureLanguage;
   captureMode: CaptureMode;
+  templates: NoteTemplate[];
+  templateId: string | null;
+  onTemplateChange: (id: string | null) => void;
+  notesRevision: number;
+  onOpenMini: () => void;
+  onCopyConsent: () => void;
+  tasksRevision: number;
+  onTasksChanged: () => void;
+  onOpenSession: (sessionId: string) => void;
+  onConnectCalendar: () => void;
+  onRecordEvent: (event: CalendarEvent) => void;
   engineProvider?: Provider;
   onCaptureModeChange: (mode: CaptureMode) => void;
   onCaptureLanguageChange: (id: CaptureLanguage) => void;
   onAsk?: (focus: ChatFocus) => void;
 }
 
-type SideTab = "voices" | "note";
+type SideTab = "mine" | "brief" | "voices" | "note";
 
 export function LivePage({
   capture,
@@ -93,6 +111,17 @@ export function LivePage({
   languageLocked,
   captureLanguage,
   captureMode,
+  templates,
+  templateId,
+  onTemplateChange,
+  notesRevision,
+  onOpenMini,
+  onCopyConsent,
+  tasksRevision,
+  onTasksChanged,
+  onOpenSession,
+  onConnectCalendar,
+  onRecordEvent,
   engineProvider,
   onCaptureModeChange,
   onCaptureLanguageChange,
@@ -109,9 +138,30 @@ export function LivePage({
   const [segmentPatches, setSegmentPatches] = useState<Record<string, Segment>>({});
   const [selfPersonId, setSelfPersonId] = useState("");
   const [engineLabel, setEngineLabel] = useState(() => t("engine.defaultEngine"));
-  const [side, setSide] = useState<SideTab>("voices");
+  const [side, setSide] = useState<SideTab>(capture.recording ? "mine" : "voices");
   const [refining, setRefining] = useState(false);
+  const [brief, setBrief] = useState<Brief | null>(null);
   const elapsedMs = useElapsed(capture.started_at ?? null, capture.recording);
+
+  useEffect(() => {
+    if (capture.recording) setSide("mine");
+  }, [capture.recording]);
+
+  // Briefing da sessão: reuniões parecidas (título ou pessoas) e o que ficou pendente.
+  useEffect(() => {
+    if (!sessionId) {
+      setBrief(null);
+      return;
+    }
+    let alive = true;
+    void api
+      .brief({ sessionId })
+      .then((next) => alive && setBrief(next))
+      .catch(() => alive && setBrief(null));
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, tasksRevision, detail?.session.title, participantIds]);
 
   const loadPeople = useCallback(async () => {
     try {
@@ -175,12 +225,17 @@ export function LivePage({
     if (sessionId && capture.recording) await api.setParticipants(sessionId, ids);
   };
 
-  const generate = async () => {
+  const sessionTemplate = detail?.session.template_id ?? (capture.recording ? templateId : null);
+
+  const generate = async (chosen?: string | null) => {
     if (!sessionId) return;
     setLoadingSummary(true);
     setSummaryError(null);
     try {
-      setSummary(await api.summarize(sessionId));
+      setSummary(await api.summarize(sessionId, chosen === undefined ? sessionTemplate : chosen));
+      if (chosen !== undefined && detail) {
+        setDetail({ ...detail, session: { ...detail.session, template_id: chosen } });
+      }
     } catch (err) {
       setSummaryError(err instanceof Error ? err.message : t("live.noteFail"));
     } finally {
@@ -239,6 +294,21 @@ export function LivePage({
         disabled={capture.recording || busy}
         onChange={onCaptureLanguageChange}
       />
+      <TemplatePicker
+        compact
+        templates={templates}
+        value={templateId}
+        disabled={capture.recording || busy}
+        onChange={onTemplateChange}
+      />
+      <button type="button" className="tool-btn" onClick={onOpenMini} title={t("mini.openHint")}>
+        <Icon name="chip" size={15} />
+        <span>{t("mini.open")}</span>
+      </button>
+      <button type="button" className="tool-btn" onClick={onCopyConsent} title={t("consent.copyHint")}>
+        <Icon name="shield" size={15} />
+        <span>{t("consent.short")}</span>
+      </button>
       <SourcesMenu
         capture={capture}
         busy={busy}
@@ -308,6 +378,16 @@ export function LivePage({
         toolbar={toolbar}
       />
 
+      {!capture.recording ? (
+        <UpcomingPanel
+          disabled={busy || pending !== null}
+          onRecord={onRecordEvent}
+          onOpenSession={onOpenSession}
+          onConnect={onConnectCalendar}
+          onTasksChanged={onTasksChanged}
+        />
+      ) : null}
+
       <div className={sessionId ? "workspace" : "workspace is-solo"}>
         <section className="panel transcript-panel">
           <div className="panel-head">
@@ -367,6 +447,15 @@ export function LivePage({
         {sessionId ? (
           <aside className="panel side-panel">
             <div className="tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={side === "mine"} className={side === "mine" ? "is-on" : ""} onClick={() => setSide("mine")}>
+                <Icon name="dictation" size={15} />
+                {t("notes.tab")}
+              </button>
+              <button type="button" role="tab" aria-selected={side === "brief"} className={side === "brief" ? "is-on" : ""} onClick={() => setSide("brief")}>
+                <Icon name="calendar" size={15} />
+                {t("brief.tab")}
+                {brief?.pending.length ? <span className="tab-count">{brief.pending.length}</span> : null}
+              </button>
               <button type="button" role="tab" aria-selected={side === "voices"} className={side === "voices" ? "is-on" : ""} onClick={() => setSide("voices")}>
                 <Icon name="voice" size={15} />
                 {t("voices.title")}
@@ -377,7 +466,19 @@ export function LivePage({
                 {t("console.notes")}
               </button>
             </div>
-            {side === "voices" ? (
+            {side === "mine" ? (
+              <div className="side-body">
+                <UserNotes sessionId={sessionId} recording={capture.recording} revision={notesRevision} />
+              </div>
+            ) : side === "brief" ? (
+              <div className="side-body">
+                {brief ? (
+                  <BriefCard brief={brief} onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} />
+                ) : (
+                  <p className="brief-empty">{t("brief.loading")}</p>
+                )}
+              </div>
+            ) : side === "voices" ? (
               <div className="side-body">
                 <VoiceRoster
                   roster={roster}
@@ -404,7 +505,9 @@ export function LivePage({
                 title={sessionTitle}
                 engineLabel={engineLabel}
                 captureMode={detail?.session.capture_mode ?? captureMode}
-                onGenerate={() => void generate()}
+                templates={templates}
+                templateId={sessionTemplate}
+                onGenerate={(chosen) => void generate(chosen)}
                 onSaveNote={async (markdown) => {
                   const next = await api.saveNote(sessionId, markdown);
                   setSummary(next);

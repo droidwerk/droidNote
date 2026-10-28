@@ -25,7 +25,10 @@ export type IconName =
   | "meeting"
   | "lock"
   | "cloud"
-  | "chip";
+  | "chip"
+  | "tasks"
+  | "calendar"
+  | "shield";
 
 const PATHS: Record<IconName, ReactElement> = {
   console: (
@@ -144,6 +147,24 @@ const PATHS: Record<IconName, ReactElement> = {
     <>
       <rect x="7" y="7" width="10" height="10" rx="1.2" />
       <path d="M10 3.5V7M14 3.5V7M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5" />
+    </>
+  ),
+  tasks: (
+    <>
+      <path d="m4.5 7 1.6 1.6L9 5.7M4.5 13l1.6 1.6L9 11.7" />
+      <path d="M12 7.2h7.5M12 13.2h7.5M5 19h14.5" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="4" y="5.5" width="16" height="14" rx="2" />
+      <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4M8 14h2.5" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="M12 3.8 5.5 6.3v5.2c0 4.1 2.7 7.2 6.5 8.7 3.8-1.5 6.5-4.6 6.5-8.7V6.3z" />
+      <path d="m9.2 12.1 2 2 3.8-3.9" />
     </>
   ),
 };

@@ -1,0 +1,609 @@
+/* Entre reuniões: central de tarefas, próximas reuniões, briefing, aviso e retenção. */
+
+/* ------------------------------------------------------------ central de tarefas */
+
+.tasks-page {
+  max-width: 980px;
+}
+
+.task-composer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.task-composer:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: var(--accent-glow);
+}
+
+.task-composer input {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.task-composer-text {
+  flex: 1;
+}
+
+.task-composer .task-composer-owner {
+  width: 150px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.task-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-filters .segmented {
+  flex: none;
+}
+
+.task-filters .search-field {
+  margin-left: auto;
+}
+
+.task-owners {
+  flex-wrap: wrap;
+}
+
+.task-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 48px 20px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+}
+
+.task-empty strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.task-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.task-group {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.task-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.task-group-head time {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.task-group-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.task-group-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-group-link:not(.is-static):hover {
+  color: var(--accent-hi);
+}
+
+.task-group-link.is-static {
+  color: var(--muted);
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  transition: background var(--t-fast);
+}
+
+.task-row:hover {
+  background: var(--hover);
+}
+
+.task-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1.5px solid var(--line-strong);
+  background: transparent;
+  color: var(--accent-ink);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.task-check:hover {
+  border-color: var(--accent);
+}
+
+.task-check[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.task-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.task-row.is-done .task-text {
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+.task-edit {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--accent-line);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.task-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.task-owner,
+.task-due {
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.task-due {
+  border-color: var(--warn-soft);
+  color: var(--warn);
+}
+
+.task-origin {
+  display: inline-flex;
+  color: var(--accent-hi);
+  opacity: 0.7;
+}
+
+.task-remove {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--t-fast), color var(--t-fast);
+}
+
+.task-row:hover .task-remove,
+.task-remove:focus-visible {
+  opacity: 1;
+}
+
+.task-remove:hover {
+  color: var(--danger);
+}
+
+/* -------------------------------------------------------------- próximas reuniões */
+
+.upcoming-connect {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+
+.upcoming-connect span {
+  flex: 1;
+  display: grid;
+}
+
+.upcoming-connect strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.upcoming-connect small {
+  font-size: 12px;
+}
+
+.upcoming-connect:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-hi);
+}
+
+.upcoming .panel-title .eyebrow {
+  display: inline-flex;
+  color: var(--accent-hi);
+}
+
+.upcoming-note {
+  padding: 12px 18px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.upcoming-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.upcoming-item + .upcoming-item {
+  border-top: 1px solid var(--line);
+}
+
+.upcoming-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 6px;
+}
+
+.upcoming-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.upcoming-main:hover {
+  background: var(--hover);
+}
+
+.upcoming-when {
+  display: grid;
+  flex: none;
+  width: 64px;
+}
+
+.upcoming-when small {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.upcoming-when strong {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.upcoming-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.upcoming-copy strong {
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upcoming-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.upcoming-item.is-open .upcoming-when strong {
+  color: var(--accent-hi);
+}
+
+.upcoming-brief {
+  padding: 2px 18px 16px 94px;
+  animation: pop-in var(--t-med) var(--ease);
+}
+
+/* --------------------------------------------------------------------- briefing */
+
+.brief {
+  display: grid;
+  gap: 16px;
+}
+
+.brief.is-compact {
+  gap: 12px;
+}
+
+.brief-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.brief-block {
+  display: grid;
+  gap: 8px;
+}
+
+.brief-block h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.brief-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.brief-tasks li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.brief-tasks li .task-check {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.brief-tasks li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.brief-tasks li.is-done span {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.brief-meeting {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.brief-meeting header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.brief-meeting time {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.brief-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.brief-link:hover {
+  color: var(--accent-hi);
+}
+
+.brief-reason {
+  margin-left: auto;
+  color: var(--accent-hi);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.brief-overview {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.brief-decisions {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--text-soft);
+  font-size: 12.5px;
+}
+
+.brief-decisions li::marker {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------- calendário, aviso, retenção */
+
+.calendar-linked {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.calendar-linked .state-led {
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+}
+
+.calendar-linked > span:nth-child(2) {
+  flex: 1;
+  min-width: 180px;
+}
+
+.calendar-where {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.calendar-where summary {
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.calendar-where ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.input.consent-text {
+  width: 100%;
+  height: auto;
+  min-height: 84px;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.retention-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.purged-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 18px 0;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.channel-gain {
+  flex: none;
+  color: var(--channel-mic);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .task-composer .task-composer-owner {
+    width: 96px;
+  }
+
+  .task-filters .search-field {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .upcoming-brief {
+    padding-left: 18px;
+  }
+}

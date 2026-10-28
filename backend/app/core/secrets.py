@@ -5,7 +5,7 @@ import ctypes
 import sys
 from ctypes import wintypes
 
-SECRET_SETTING_KEYS = frozenset({"asr_api_key"})
+SECRET_SETTING_KEYS = frozenset({"asr_api_key", "calendar_ics_url"})
 DPAPI_PREFIX = "dpapi:v1:"
 
 

@@ -13,6 +13,8 @@ import { Button, Card, PageHeader, ProgressBar } from "../shared/ui/primitives";
 import { ModelSelect, StatusGlyph } from "../shared/ui/ModelSelect";
 import { PrivacyLink } from "../shared/ui/PrivacyPolicy";
 import { Icon } from "../shared/ui/Icon";
+import { CalendarCard, ConsentCard, RetentionCard } from "../features/meeting/MeetingSettings";
+import { TemplateManager } from "../features/templates/TemplateManager";
 import { useToast } from "../shared/ui/Toast";
 
 export type SettingsTab =
@@ -20,6 +22,8 @@ export type SettingsTab =
   | "language"
   | "appearance"
   | "people"
+  | "meetings"
+  | "templates"
   | "files"
   | "privacy"
   | "about";
@@ -30,6 +34,7 @@ interface SettingsPageProps {
   voiceReady?: boolean;
   voiceDownloading?: boolean;
   onDownloadVoice?: () => void;
+  onTemplatesChanged?: () => void;
   engineProvider?: Settings["provider"];
 }
 
@@ -40,6 +45,7 @@ export function SettingsPage({
   voiceReady = false,
   voiceDownloading = false,
   onDownloadVoice,
+  onTemplatesChanged,
 }: SettingsPageProps) {
   const { t } = useI18n();
   const tabs: { id: SettingsTab; label: string }[] = [
@@ -47,6 +53,8 @@ export function SettingsPage({
     { id: "language", label: t("settings.tabLanguage") },
     { id: "appearance", label: t("settings.tabAppearance") },
     { id: "people", label: t("settings.tabPeople") },
+    { id: "meetings", label: t("settings.tabMeetings") },
+    { id: "templates", label: t("templates.tab") },
     { id: "files", label: t("settings.tabFiles") },
     { id: "privacy", label: t("settings.tabPrivacy") },
     { id: "about", label: t("settings.tabAbout") },
@@ -96,6 +104,13 @@ export function SettingsPage({
   const [keyTest, setKeyTest] = useState<string | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const [miniAuto, setMiniAuto] = useState(() => {
+    try {
+      return window.localStorage.getItem("droidnote.miniAuto") !== "0";
+    } catch {
+      return true;
+    }
+  });
   const confirm = useConfirm();
   const toast = useToast();
   const { theme, setTheme } = useTheme();
@@ -198,7 +213,7 @@ export function SettingsPage({
   const cloud = settings.provider === "openai";
   const showActions = tab === "transcription" || tab === "people" || tab === "files";
 
-  const persist = async (payload: Partial<Settings> & { asr_api_key?: string }) => {
+  const persist = async (payload: Partial<Settings> & { asr_api_key?: string; calendar_ics_url?: string }) => {
     const next = await api.saveSettings(payload);
     setSettings(next);
     setBaseline(next);
@@ -825,10 +840,75 @@ export function SettingsPage({
                   <small>{t("settings.micOnlyHint")}</small>
                 </span>
               </label>
+              <label className="check-control">
+                <input
+                  type="checkbox"
+                  checked={settings.auto_gain !== false}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setSettings({ ...settings, auto_gain: checked });
+                    void persist({ auto_gain: checked });
+                  }}
+                />
+                <span className="check-box" aria-hidden />
+                <span>
+                  <strong>{t("gain.title")}</strong>
+                  <small>{t("gain.hint")}</small>
+                </span>
+              </label>
             </Card>
+            <RetentionCard settings={settings} persist={persist} />
           </>
         ) : null}
 
+        {tab === "meetings" ? (
+          <>
+            <Card className="settings-card settings-card-wide">
+              <h2>{t("meeting.settingsTitle")}</h2>
+              <p className="muted">{t("meeting.settingsHelp")}</p>
+              <div className="segmented" role="radiogroup">
+                {(["off", "ask", "auto"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={(settings.meeting_detection ?? "ask") === mode}
+                    className={(settings.meeting_detection ?? "ask") === mode ? "on" : ""}
+                    onClick={() => {
+                      setSettings({ ...settings, meeting_detection: mode });
+                      void persist({ meeting_detection: mode });
+                    }}
+                  >
+                    {t(`meeting.mode_${mode}`)}
+                  </button>
+                ))}
+              </div>
+              <label className="check-control">
+                <input
+                  type="checkbox"
+                  checked={miniAuto}
+                  onChange={(event) => {
+                    setMiniAuto(event.target.checked);
+                    try {
+                      window.localStorage.setItem("droidnote.miniAuto", event.target.checked ? "1" : "0");
+                    } catch {
+                      /* só neste PC */
+                    }
+                  }}
+                />
+                <span className="check-box" aria-hidden />
+                <span>
+                  <strong>{t("mini.autoTitle")}</strong>
+                  <small>{t("mini.autoHint")}</small>
+                </span>
+              </label>
+            </Card>
+            <CalendarCard settings={settings} persist={persist} />
+            <ConsentCard settings={settings} persist={persist} />
+          </>
+        ) : null}
+
+        {tab === "templates" ? <TemplateManager onChanged={onTemplatesChanged} /> : null}
         {tab === "privacy" ? <PrivacyPage /> : null}
 
         {tab === "about" ? (

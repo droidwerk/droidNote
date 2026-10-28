@@ -109,6 +109,10 @@ if (-not (Test-Path $VoiceModel) -or ((Get-FileHash -Algorithm SHA256 $VoiceMode
 Push-Location $Backend
 python -m pip install -e ".[dev]"
 python -m PyInstaller --noconfirm --clean sidecar.spec
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    throw "PyInstaller falhou (código $LASTEXITCODE). O sidecar antigo não pode ir para o instalador."
+}
 Pop-Location
 
 $SidecarExe = Join-Path $SidecarSrc "droidnote-backend.exe"
@@ -129,7 +133,11 @@ if (Test-Path $BundledSidecar) {
 # acha que index.html está fora da raiz), então o frontend compila pelo caminho
 # real e o tauri build só empacota o que já está em desktop/dist.
 Push-Location (Join-Path $Root "desktop")
-npm install
+npm ci
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    throw "npm ci falhou"
+}
 npm run build
 if ($LASTEXITCODE -ne 0) {
     Pop-Location
