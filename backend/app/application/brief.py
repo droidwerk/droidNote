@@ -1,4 +1,4 @@
-"""Briefing: antes de uma reunião, o que ficou pendente e o que foi decidido da última vez.
+"""Contexto: antes de uma reunião, o que ficou pendente e o que foi decidido da última vez.
 
 Reunião "parecida" é a que tem o mesmo título (sem datas, horas e nome do app)
 ou as mesmas pessoas. Tudo vem do banco local; o calendário ICS só diz o que vem aí.
@@ -152,13 +152,18 @@ class BriefService:
                 continue
             reason = "both" if by_title and by_people else "title" if by_title else "people"
             candidates.append((similarity + 0.25 * min(overlap, 3), reason, session))
-        # Entre as parecidas, a mais recente conta mais que a mais parecida.
+        # Entre as parecidas, a mais recente conta mais que a mais parecida; mas uma
+        # gravação sem ata nem tarefas não diz nada e vai para o fim da fila.
         candidates.sort(key=lambda item: item[2].started_at, reverse=True)
-        related: list[RelatedSession] = []
-        pending: dict[str, TaskItem] = {}
-        for score, reason, session in candidates[:MAX_RELATED]:
+        loaded = []
+        for score, reason, session in candidates:
             summary = await self._store.get_summary(session.id)
             tasks = await self._store.list_tasks(session_id=session.id)
+            loaded.append((score, reason, session, summary, tasks))
+        loaded.sort(key=lambda item: item[3] is None and not item[4])
+        related: list[RelatedSession] = []
+        pending: dict[str, TaskItem] = {}
+        for score, reason, session, summary, tasks in loaded[:MAX_RELATED]:
             open_tasks = [task for task in tasks if not task.done]
             for task in open_tasks:
                 pending.setdefault(task.id, task)

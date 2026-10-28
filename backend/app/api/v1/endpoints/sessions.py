@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -9,12 +10,14 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 from app.api.v1.deps import AppContainer, get_container
 from app.application.export import export_docx, export_pdf
+from app.application.search import search_extras
 from app.application.speakers import UNSET
 from app.core.config import session_recording_path
 from app.core.i18n import ui_message
 from app.core.security import verify_token
 from app.domain.models import Session
 from app.schemas.api import (
+    NoteHitOut,
     NoteUpdateIn,
     ParticipantsIn,
     PersonOut,
@@ -25,9 +28,12 @@ from app.schemas.api import (
     SessionOut,
     SessionTagsIn,
     SessionUpdateIn,
+    SummaryHitOut,
     SummaryOut,
     TagOut,
+    TaskHitOut,
     UserNoteIn,
+    NoteExpandOut,
     UserNoteOut,
     UserNoteUpdateIn,
     VoiceAssignIn,
@@ -102,8 +108,16 @@ async def search_all(
     request: Request,
     q: str = Query(min_length=1),
 ) -> SearchOut:
-    segments = await get_container(request.app).sessions.search(q)
-    return SearchOut(query=q, segments=await _named_segments(request, segments))
+    container = get_container(request.app)
+    segments = await container.sessions.search(q)
+    extras = await search_extras(container.store, q)
+    return SearchOut(
+        query=q,
+        segments=await _named_segments(request, segments),
+        notes=[NoteHitOut(**asdict(item)) for item in extras.notes],
+        summaries=[SummaryHitOut(**asdict(item)) for item in extras.summaries],
+        tasks=[TaskHitOut(**asdict(item)) for item in extras.tasks],
+    )
 
 
 @router.get("/{session_id}", response_model=SessionDetailOut)
@@ -296,7 +310,9 @@ async def add_user_note(session_id: str, payload: UserNoteIn, request: Request) 
         # Sem momento informado: o instante atual da gravação.
         end = session.ended_at or now
         at_ms = max(0, int((min(now, end) - session.started_at).total_seconds() * 1000))
-    note = UserNote(id=new_id(), session_id=session_id, at_ms=at_ms, text=payload.text.strip(), created_at=now)
+    note = UserNote(
+        id=new_id(), session_id=session_id, at_ms=at_ms, text=payload.text.strip(), created_at=now, kind=payload.kind
+    )
     await container.store.add_user_note(note)
     await container.bus.publish({"type": "note", "status": "added", "session_id": session_id, "note_id": note.id})
     return UserNoteOut.from_domain(note)
@@ -305,9 +321,43 @@ async def add_user_note(session_id: str, payload: UserNoteIn, request: Request) 
 @router.patch("/{session_id}/notes/{note_id}", response_model=list[UserNoteOut])
 async def update_user_note(session_id: str, note_id: str, payload: UserNoteUpdateIn, request: Request) -> list[UserNoteOut]:
     container = get_container(request.app)
-    if not await container.store.update_user_note(session_id, note_id, payload.text.strip()):
+    text = payload.text.strip() if payload.text is not None else None
+    changed = await container.store.update_user_note(
+        session_id, note_id, text, kind=payload.kind, set_kind="kind" in payload.model_fields_set
+    )
+    if not changed:
         raise _missing(request)
+    await container.bus.publish({"type": "note", "status": "updated", "session_id": session_id, "note_id": note_id})
     return [UserNoteOut.from_domain(item) for item in await container.store.list_user_notes(session_id)]
+
+
+@router.post("/{session_id}/notes/{note_id}/expand", response_model=NoteExpandOut)
+async def expand_user_note(
+    session_id: str,
+    note_id: str,
+    request: Request,
+    ui_language: str | None = Query(default=None),
+) -> NoteExpandOut:
+    from app.application.notes import expand_note
+
+    container = get_container(request.app)
+    setup = await container.setup.status()
+    if not setup.summarize_ready:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=setup.llm.message or ui_message(container.settings.ui_language, "llm_not_ready"),
+        )
+    note = await container.store.get_user_note(session_id, note_id)
+    if note is None:
+        raise _missing(request)
+    try:
+        text = await expand_note(container.llm, container.store, note, ui_language or container.settings.ui_language)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=ui_message(ui_language or container.settings.ui_language, "llm_not_ready"),
+        ) from exc
+    return NoteExpandOut(text=text)
 
 
 @router.delete("/{session_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)

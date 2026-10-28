@@ -26,3 +26,18 @@ def test_parse_summary_json_handles_garbage() -> None:
     assert parsed["highlights"] == []
     assert parsed["decisions"] == []
     assert parsed["action_items"] == []
+
+
+def test_parse_summary_json_drops_repeated_lines() -> None:
+    raw = """{
+      "overview": "Reunião sobre o projeto.",
+      "topics": [{"title": "Projeto", "points": ["Reunião sobre o projeto.", "Prazo em março (01:10)", "prazo em março"]}],
+      "highlights": ["X", "x.", "Y"],
+      "decisions": ["Fechar piloto", "Fechar piloto (02:00)"],
+      "open_items": ["Orçamento", "Orçamento"]
+    }"""
+    parsed = parse_summary_json(raw)
+    assert parsed["topics"][0].points == ["Prazo em março (01:10)"]
+    assert parsed["highlights"] == ["X", "Y"]
+    assert parsed["decisions"] == ["Fechar piloto"]
+    assert parsed["open_items"] == ["Orçamento"]

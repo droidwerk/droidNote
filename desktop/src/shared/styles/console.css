@@ -497,11 +497,14 @@
   color: var(--text);
 }
 
+/* O console fica no topo da tela: menus e painéis dele abrem para baixo. */
 .capture-lang-menu .export-menu-list {
   left: 0;
   right: auto;
-  top: auto;
-  bottom: calc(100% + 6px);
+  min-width: 270px;
+  max-height: min(360px, calc(100vh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sources {
@@ -510,8 +513,10 @@
 
 .sources-pop {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   left: 0;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
   z-index: 50;
   width: 360px;
   padding: 16px;

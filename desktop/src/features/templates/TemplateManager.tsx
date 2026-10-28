@@ -4,6 +4,7 @@ import { api } from "../../shared/api/client";
 import type { NoteTemplate } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
 import { templateName } from "../../shared/lib/templates";
+import { InfoTip } from "../../shared/ui/InfoTip";
 import { useConfirm } from "../../shared/ui/ConfirmDialog";
 import { Button, Card } from "../../shared/ui/primitives";
 
@@ -64,8 +65,7 @@ export function TemplateManager({ onChanged }: { onChanged?: () => void }) {
     <Card className="settings-card settings-card-wide">
       <div className="template-head">
         <div>
-          <h2>{kind === "note" ? t("templates.notesTitle") : t("recipes.title")}</h2>
-          <p className="muted">{kind === "note" ? t("templates.notesHelp") : t("recipes.help")}</p>
+          <h2 className="with-tip">{kind === "note" ? t("templates.notesTitle") : t("recipes.title")}<InfoTip text={kind === "note" ? t("templates.notesHelp") : t("recipes.help")} /></h2>
         </div>
         <Button size="sm" variant="primary" onClick={() => setDraft({ ...EMPTY, kind })}>
           {t("templates.new")}

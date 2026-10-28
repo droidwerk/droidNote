@@ -8,6 +8,7 @@ from app.application.brief import BriefService
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
+from app.application.documents import DocumentService
 from app.application.meetings import MeetingWatcher
 from app.application.retention import RetentionService
 from app.application.tasks import TaskService
@@ -40,6 +41,7 @@ class AppContainer:
     tasks: TaskService | None = None
     brief: BriefService | None = None
     retention: RetentionService | None = None
+    documents: DocumentService | None = None
 
 
 def get_container(app: FastAPI) -> AppContainer:

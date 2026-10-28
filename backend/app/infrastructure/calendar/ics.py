@@ -8,10 +8,13 @@ inteiro ficam de fora — não são reuniões.
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta, tzinfo
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -83,7 +86,38 @@ def normalize_url(raw: str) -> str:
         url = "https://" + url[len("webcal://") :]
     if not re.match(r"^https?://", url, re.IGNORECASE):
         raise CalendarError("invalid_url")
+    host = urlparse(url).hostname or ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and not ip.is_global:
+        raise CalendarError("blocked_url")
     return url
+
+
+def _reject_private(host: str) -> None:
+    """Recusa loopback, link-local e rede privada, inclusive depois de redirect.
+
+    # ponytail: resolve no gancho da requisição. Janela entre o DNS e o
+    # connect se o nome mudar de IP; transporte que pina o IP fecha isso.
+    """
+    if not host:
+        raise CalendarError("blocked_url")
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except socket.gaierror as exc:
+            raise CalendarError("unreachable") from exc
+        addresses = [ipaddress.ip_address(item[4][0]) for item in infos]
+    if not addresses or any(not ip.is_global for ip in addresses):
+        raise CalendarError("blocked_url")
+
+
+def _guard_request(request: httpx.Request) -> None:
+    _reject_private(request.url.host)
 
 
 class IcsCalendar:
@@ -99,7 +133,11 @@ class IcsCalendar:
         if cached and not force and time.monotonic() - cached[0] < CACHE_SECONDS:
             return cached[1]
         try:
-            async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout,
+                follow_redirects=True,
+                event_hooks={"request": [_guard_request]},
+            ) as client:
                 response = await client.get(target, headers={"Accept": "text/calendar, */*"})
         except httpx.HTTPError as exc:
             raise CalendarError("unreachable") from exc

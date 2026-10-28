@@ -8,6 +8,7 @@ import { AboutPage } from "./AboutPage";
 import { PrivacyPage } from "./PrivacyPage";
 import { openLocalPath, saveBlob, parentDirectory } from "../shared/lib/saveFile";
 import { useTheme, type Theme } from "../shared/lib/theme";
+import { InfoTip } from "../shared/ui/InfoTip";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Button, Card, PageHeader, ProgressBar } from "../shared/ui/primitives";
 import { ModelSelect, StatusGlyph } from "../shared/ui/ModelSelect";
@@ -416,10 +417,7 @@ export function SettingsPage({
         {tab === "transcription" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2>{t("settings.engineTitle")}</h2>
-              <p className="muted">
-                {t("settings.engineHelp")}
-              </p>
+              <h2 className="with-tip">{t("settings.engineTitle")}<InfoTip text={t("settings.engineHelp")} /></h2>
               <div className="segmented" role="tablist">
                 <button
                   type="button"
@@ -598,15 +596,19 @@ export function SettingsPage({
                 </p>
               ) : (
                 <>
-                  <div className="disclaimer">
-                    <h3>{t("settings.localExpectTitle")}</h3>
-                    <p>
-                      {t("settings.localExpectBody")}
-                    </p>
-                    <p className="muted">
-                      {t("settings.localExpectHint")}
-                    </p>
-                  </div>
+                  <h3 className="with-tip">
+                    {t("settings.localExpectTitle")}
+                    <InfoTip
+                      text={
+                        <>
+                          {t("settings.localExpectBody")}
+                          <br />
+                          <br />
+                          {t("settings.localExpectHint")}
+                        </>
+                      }
+                    />
+                  </h3>
                   <div className="row">
                     <span className={catalog?.ollama_online ? "badge on" : "badge"}>
                       {catalog?.ollama_online ? t("settings.ollamaOnline") : t("settings.ollamaOffline")}
@@ -618,10 +620,7 @@ export function SettingsPage({
                     </span>
                   </div>
                   <div className="tutorial">
-                    <h3>{t("settings.downloadTitle")}</h3>
-                    <p className="muted">
-                      {t("settings.downloadHint")}
-                    </p>
+                    <h3 className="with-tip">{t("settings.downloadTitle")}<InfoTip text={t("settings.downloadHint")} /></h3>
                     <Button onClick={() => void downloadModel()} disabled={downloading}>
                       {downloading ? t("settings.downloading") : t("settings.downloadSelected")}
                     </Button>
@@ -640,10 +639,11 @@ export function SettingsPage({
 
         {tab === "language" ? (
           <>
-            <p className="muted settings-card-wide">{t("languages.independentHelp")}</p>
             <Card className="settings-card settings-card-wide">
-              <h2>{t("languages.uiLabel")}</h2>
-              <p className="muted">{t("languages.uiHelp")}</p>
+              <h2 className="with-tip">
+                {t("languages.uiLabel")}
+                <InfoTip text={`${t("languages.uiHelp")} ${t("languages.independentHelp")}`} />
+              </h2>
               <LanguagePicker
                 onPicked={(id) => {
                   setSettings({ ...settings, ui_language: id });
@@ -652,8 +652,7 @@ export function SettingsPage({
               />
             </Card>
             <Card className="settings-card settings-card-wide">
-              <h2>{t("languages.captureLabel")}</h2>
-              <p className="muted">{t("languages.captureHelp")}</p>
+              <h2 className="with-tip">{t("languages.captureLabel")}<InfoTip text={t("languages.captureHelp")} /></h2>
               <CaptureLanguagePicker
                 value={isCaptureLanguage(settings.language) ? settings.language : "pt"}
                 onPicked={(id) => {
@@ -668,8 +667,7 @@ export function SettingsPage({
         {tab === "appearance" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2>{t("settings.appearanceTitle")}</h2>
-              <p className="muted">{t("settings.appearanceHelp")}</p>
+              <h2 className="with-tip">{t("settings.appearanceTitle")}<InfoTip text={t("settings.appearanceHelp")} /></h2>
               <div className="theme-grid">
                 {themeChoices.map((choice) => (
                 <button
@@ -697,8 +695,7 @@ export function SettingsPage({
                 <Icon name="voice" size={22} />
               </span>
               <div>
-                <h2>{voiceReady ? t("voices.engineReady") : t("voices.engineOff")}</h2>
-                <p className="muted">{voiceReady ? "WeSpeaker ResNet34 · ONNX · CPU" : t("voices.engineOffHint")}</p>
+                <h2 className="with-tip">{voiceReady ? t("voices.engineReady") : t("voices.engineOff")}<InfoTip text={voiceReady ? "WeSpeaker ResNet34 · ONNX · CPU" : t("voices.engineOffHint")} /></h2>
               </div>
               {!voiceReady && onDownloadVoice ? (
                 <Button variant="primary" disabled={voiceDownloading} onClick={onDownloadVoice}>
@@ -708,10 +705,7 @@ export function SettingsPage({
             </div>
           </Card>
           <Card className="settings-card settings-card-people settings-card-wide">
-            <h2>{t("settings.peopleTitle")}</h2>
-            <p className="muted">
-              {t("settings.peopleHelp")}
-            </p>
+            <h2 className="with-tip">{t("settings.peopleTitle")}<InfoTip text={t("settings.peopleHelp")} /></h2>
             <label>
               {t("settings.youMic")}
               <select
@@ -776,10 +770,7 @@ export function SettingsPage({
         {tab === "files" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2>{t("settings.filesTitle")}</h2>
-              <p className="muted">
-                {t("settings.filesHelp")}
-              </p>
+              <h2 className="with-tip">{t("settings.filesTitle")}<InfoTip text={t("settings.filesHelp")} /></h2>
               <label className="check-control">
                 <input
                   type="checkbox"
@@ -796,10 +787,10 @@ export function SettingsPage({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>{t("settings.saveWavTitle")}</strong>
-                  <small>
-                    {t("settings.saveWavHint")}
-                  </small>
+                  <strong className="with-tip">
+                    {t("settings.saveWavTitle")}
+                    <InfoTip text={t("settings.saveWavHint")} />
+                  </strong>
                 </span>
               </label>
               <label>
@@ -836,8 +827,7 @@ export function SettingsPage({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>{t("settings.micOnlyTitle")}</strong>
-                  <small>{t("settings.micOnlyHint")}</small>
+                  <strong className="with-tip">{t("settings.micOnlyTitle")}<InfoTip text={t("settings.micOnlyHint")} /></strong>
                 </span>
               </label>
               <label className="check-control">
@@ -852,8 +842,7 @@ export function SettingsPage({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>{t("gain.title")}</strong>
-                  <small>{t("gain.hint")}</small>
+                  <strong className="with-tip">{t("gain.title")}<InfoTip text={t("gain.hint")} /></strong>
                 </span>
               </label>
             </Card>
@@ -864,8 +853,7 @@ export function SettingsPage({
         {tab === "meetings" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2>{t("meeting.settingsTitle")}</h2>
-              <p className="muted">{t("meeting.settingsHelp")}</p>
+              <h2 className="with-tip">{t("meeting.settingsTitle")}<InfoTip text={t("meeting.settingsHelp")} /></h2>
               <div className="segmented" role="radiogroup">
                 {(["off", "ask", "auto"] as const).map((mode) => (
                   <button
@@ -898,8 +886,22 @@ export function SettingsPage({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong>{t("mini.autoTitle")}</strong>
-                  <small>{t("mini.autoHint")}</small>
+                  <strong className="with-tip">{t("mini.autoTitle")}<InfoTip text={t("mini.autoHint")} /></strong>
+                </span>
+              </label>
+              <label className="check-control">
+                <input
+                  type="checkbox"
+                  checked={settings.auto_summary !== false}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setSettings({ ...settings, auto_summary: checked });
+                    void persist({ auto_summary: checked });
+                  }}
+                />
+                <span className="check-box" aria-hidden />
+                <span>
+                  <strong className="with-tip">{t("doc.autoTitle")}<InfoTip text={t("doc.autoHint")} /></strong>
                 </span>
               </label>
             </Card>
@@ -915,10 +917,7 @@ export function SettingsPage({
           <>
             <AboutPage onOpenPrivacy={openPrivacy} />
             <Card className="settings-card settings-card-wide">
-              <h2>{t("settings.supportTitle")}</h2>
-              <p className="muted">
-                {t("settings.supportHelp")}
-              </p>
+              <h2 className="with-tip">{t("settings.supportTitle")}<InfoTip text={t("settings.supportHelp")} /></h2>
               <Button onClick={() => void exportDiagnostics()} disabled={diagBusy}>
                 {diagBusy ? t("settings.preparingDiag") : t("settings.exportDiag")}
               </Button>

@@ -24,12 +24,16 @@ export interface Session {
   transcript_purged_at?: string | null;
 }
 
+export type NoteKind = "decision" | "task" | "important" | "question";
+
 export interface UserNote {
   id: string;
   session_id: string;
   at_ms: number;
   text: string;
   created_at: string;
+  kind?: NoteKind | null;
+  ai_context?: string | null;
 }
 
 export interface NoteTemplate {
@@ -271,6 +275,7 @@ export interface Settings {
   retention_audio_days?: number;
   retention_transcript_days?: number;
   auto_gain?: boolean;
+  auto_summary?: boolean;
 }
 
 export interface ModelOption {
@@ -342,6 +347,21 @@ export interface ChatCitation {
   segment_id?: string | null;
   start_ms: number;
   excerpt: string;
+  document_id?: string | null;
+  document_name?: string;
+  page?: number | null;
+}
+
+export interface ChatDocument {
+  id: string;
+  name: string;
+  kind: "pdf" | "word" | "excel" | "csv" | "text" | string;
+  size: number;
+  pages: number;
+  chunks: number;
+  chars: number;
+  created_at: string;
+  chat_id: string | null;
 }
 
 export interface ChatMessage {
@@ -376,4 +396,7 @@ export interface Device {
 export interface SearchResult {
   query: string;
   segments: Segment[];
+  notes: { id: string; session_id: string; at_ms: number; text: string; kind: string | null }[];
+  summaries: { session_id: string; excerpt: string }[];
+  tasks: { id: string; session_id: string | null; text: string; done: boolean }[];
 }

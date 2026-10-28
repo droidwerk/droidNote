@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
@@ -59,6 +60,7 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
                 chat_id=payload.chat_id,
                 session_id=payload.session_id,
                 segment_ids=payload.segment_ids,
+                document_ids=payload.document_ids,
                 on_token=on_token,
                 ui_language=payload.ui_language or container.settings.ui_language,
             )
@@ -80,8 +82,13 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
         except ValueError as exc:
             queue.put_nowait(("error", str(exc)))
         except Exception as exc:
-            fallback = ui_message(container.settings.ui_language, "chat_no_reply")
-            queue.put_nowait(("error", str(exc) or fallback))
+            locale = payload.ui_language or container.settings.ui_language
+            # Motor de IA fora do ar (Ollama parado, sem rede): a frase técnica do
+            # httpx não ajuda ninguém; diz o que está acontecendo no idioma da interface.
+            if isinstance(exc, (httpx.HTTPError, ConnectionError, OSError)):
+                queue.put_nowait(("error", ui_message(locale, "llm_not_ready")))
+            else:
+                queue.put_nowait(("error", str(exc) or ui_message(locale, "chat_no_reply")))
 
     async def events():
         task = asyncio.create_task(run())

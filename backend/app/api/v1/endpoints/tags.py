@@ -24,6 +24,17 @@ async def create_tag(payload: TagIn, request: Request) -> TagOut:
     return TagOut.from_domain(tag)
 
 
+@router.patch("/{tag_id}", response_model=TagOut)
+async def rename_tag(tag_id: str, payload: TagIn, request: Request) -> TagOut:
+    try:
+        tag = await get_container(request.app).store.rename_tag(tag_id, payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if tag is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="folder")
+    return TagOut.from_domain(tag)
+
+
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tag(tag_id: str, request: Request) -> None:
     await get_container(request.app).store.delete_tag(tag_id)

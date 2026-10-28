@@ -340,6 +340,23 @@ class SetupService:
             self._preload_task.cancel()
         self._preload_task = asyncio.create_task(_ensure())
 
+    async def start_llm(self) -> None:
+        """Liga só o servidor local já instalado: nada de instalar ou baixar sem pedir."""
+        local = getattr(self._llm, "local", None)
+        if local is None or self._settings.provider == "openai":
+            return
+        if await local.is_server_up():
+            return
+        binary = local.find_binary()
+        if binary is None:
+            raise RuntimeError("not_installed")
+        await asyncio.to_thread(local._serve, binary)
+        for _ in range(30):
+            if await local.is_server_up():
+                return
+            await asyncio.sleep(0.5)
+        raise RuntimeError("no_response")
+
     async def apply_settings(self, payload: SettingsIn) -> None:
         asr = self._asr
         asr_changed = False
@@ -454,6 +471,8 @@ class SetupService:
             await self._store.set_setting("retention_transcript_days", str(payload.retention_transcript_days))
         if payload.auto_gain is not None:
             await self._store.set_setting("auto_gain", "1" if payload.auto_gain else "0")
+        if payload.auto_summary is not None:
+            await self._store.set_setting("auto_summary", "1" if payload.auto_summary else "0")
         if asr_changed:
             self._preload_asr()
 
@@ -497,6 +516,7 @@ class SetupService:
             retention_audio_days=parse_days(await self._store.get_setting("retention_audio_days")),
             retention_transcript_days=parse_days(await self._store.get_setting("retention_transcript_days")),
             auto_gain=(await self._store.get_setting("auto_gain")) != "0",
+            auto_summary=(await self._store.get_setting("auto_summary")) != "0",
         )
 
     async def _meeting_mode(self) -> str:

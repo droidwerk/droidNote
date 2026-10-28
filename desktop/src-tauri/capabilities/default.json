@@ -17,6 +17,7 @@
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "core:window:allow-unminimize",
-    "core:window:allow-request-user-attention"
+    "core:window:allow-request-user-attention",
+    "core:window:allow-set-size"
   ]
 }

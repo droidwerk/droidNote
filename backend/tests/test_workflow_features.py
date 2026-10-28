@@ -179,10 +179,13 @@ async def test_summary_uses_template_and_user_notes(tmp_path) -> None:
     await store.add_user_note(UserNote(id=new_id(), session_id=session.id, at_ms=61_000, text="preço caro", created_at=datetime.now(tz=UTC)))
     llm = _PromptLlm()
     summary = await SummarizeService(llm, store).summarize(session.id, "tpl-sales")
-    assert "Objeções levantadas" in llm.prompt
+    assert "Resistências levantadas" in llm.prompt
     assert "[01:01] preço caro" in llm.prompt
-    assert "## Suas anotações" in summary.notes_markdown
-    assert "**preço caro** — O cliente achou o plano anual caro." in summary.notes_markdown
+    assert "(mm:ss)" in llm.prompt  # pede citação do momento em cada item
+    # As anotações saem da ata e ganham, cada uma, o contexto que a IA achou na fala.
+    assert "## Suas anotações" not in summary.notes_markdown
+    notes = await store.list_user_notes(session.id)
+    assert notes[0].ai_context == "O cliente achou o plano anual caro."
     stored = await store.get_session(session.id)
     assert stored is not None and stored.template_id == "tpl-sales"
 
@@ -190,7 +193,19 @@ async def test_summary_uses_template_and_user_notes(tmp_path) -> None:
 def test_parse_user_notes_accepts_strings_and_objects() -> None:
     parsed = parse_summary_json('{"user_notes": ["a", {"note": "b", "context": "c"}, {"context": "sem nota"}]}')
     assert parsed["user_notes"] == [{"note": "a", "context": ""}, {"note": "b", "context": "c"}]
-    assert "- **a**" in summary_to_markdown("T", parsed)
+    assert "**a**" not in summary_to_markdown("T", parsed)
+
+
+def test_citations_become_clickable_marks() -> None:
+    from app.application.summarize import strip_stamps
+
+    parsed = parse_summary_json(
+        '{"decisions": ["Fechar o piloto (12:40)"], "action_items": [{"text": "Mandar proposta (01:02:03)", "owner": "Ana"}]}'
+    )
+    markdown = summary_to_markdown("T", parsed)
+    assert "- Fechar o piloto `12:40`" in markdown
+    assert "Mandar proposta `01:02:03`" in markdown
+    assert strip_stamps("Mandar proposta (12:40)") == "Mandar proposta"
 
 
 def test_builtins_have_unique_ids_and_kinds() -> None:

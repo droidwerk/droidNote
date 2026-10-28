@@ -115,3 +115,29 @@ async def finish_session(container: AppContainer, session_id: str) -> None:
         await container.bus.publish(
             {"type": "speakers", "status": "done", "session_id": session_id}
         )
+    await auto_summarize(container, session_id)
+
+
+async def auto_summarize(container: AppContainer, session_id: str) -> None:
+    """Gravação terminou: a ata sai sozinha, sem a pessoa precisar pedir."""
+    if (await container.store.get_setting("auto_summary")) == "0":
+        return
+    if not await container.store.list_segments(session_id):
+        return
+    if await container.store.get_summary(session_id) is not None:
+        return
+    status = await container.setup.status()
+    if not status.summarize_ready:
+        await container.bus.publish(
+            {"type": "summary", "status": "skipped", "reason": "engine", "session_id": session_id}
+        )
+        return
+    await container.bus.publish({"type": "summary", "status": "start", "session_id": session_id})
+    try:
+        await container.summarize.summarize(session_id)
+    except Exception:
+        log.exception("auto summary failed session=%s", session_id)
+        await container.bus.publish({"type": "summary", "status": "error", "session_id": session_id})
+        return
+    await container.bus.publish({"type": "summary", "status": "done", "session_id": session_id})
+    await container.bus.publish({"type": "tasks", "session_id": session_id})

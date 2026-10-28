@@ -4,6 +4,8 @@ import type { CaptureMode, NoteTemplate, Summary } from "../../shared/api/types"
 import { TemplatePicker } from "../templates/TemplatePicker";
 import { tr, useT } from "../../shared/i18n";
 import { copyToClipboard } from "../../shared/lib/format";
+import { AiThinking } from "../../shared/ui/AiThinking";
+import { InfoTip } from "../../shared/ui/InfoTip";
 import { Button } from "../../shared/ui/primitives";
 import { NoteEditor } from "./NoteEditor";
 
@@ -18,9 +20,11 @@ interface SummaryPanelProps {
   templateId?: string | null;
   onGenerate: (templateId?: string | null) => void;
   onSaveNote?: (markdown: string) => Promise<void>;
+  onCite?: (ms: number) => void;
 }
 
 export function SummaryPanel({
+  onCite,
   summary,
   loading,
   disabled,
@@ -92,25 +96,22 @@ export function SummaryPanel({
       {templates.length ? (
         <TemplatePicker templates={templates} value={chosen} disabled={loading} onChange={setChosen} />
       ) : null}
-      {!summary && loading ? (
-        <div className="note-empty">
-          <div>
-            <strong>{t("summary.generatingTitle")}</strong>
-            <p>{t("summary.generatingBody")}</p>
-          </div>
-        </div>
+      {loading ? (
+        <AiThinking
+          lines={7}
+          steps={[t("ai.readTranscript"), t("ai.crossNotes"), t("ai.findDecisions"), t("ai.writeNote")]}
+        />
       ) : !summary ? (
         <div className="note-empty">
           <div>
-            <strong>{labels.emptyTitle}</strong>
-            <p>{labels.emptyBody}</p>
+            <strong className="with-tip">
+              {labels.emptyTitle}
+              <InfoTip text={`${labels.emptyBody} ${t("summary.usesEngine", { engine })}`} />
+            </strong>
           </div>
-          <p className="muted">
-            {t("summary.usesEngine", { engine })}
-          </p>
         </div>
       ) : (
-        <NoteEditor key={summary.id} content={seed} onChange={setDraft} />
+        <NoteEditor key={summary.id} content={seed} onChange={setDraft} onCite={onCite} />
       )}
     </section>
   );
@@ -140,16 +141,16 @@ export function summaryToMarkdown(title: string, summary: Summary): string {
       lines.push(...topic.points.map((point) => `- ${point}`), "");
     }
   }
-  lines.push(`## ${tr("summary.decisions")}`, "");
-  lines.push(...(summary.decisions.length ? summary.decisions.map((item) => `- ${item}`) : ["- —"]));
-  lines.push("", `## ${tr("summary.actions")}`, "");
-  lines.push(
-    ...(summary.action_items.length
-      ? summary.action_items.map((item) => `- [ ] ${formatAction(item)}`)
-      : ["- —"]),
-  );
+  // Seção vazia não entra: "—" em todo lugar só polui a ata.
+  if (summary.decisions.length) {
+    lines.push(`## ${tr("summary.decisions")}`, "", ...summary.decisions.map((item) => `- ${item}`), "");
+  }
+  if (summary.action_items.length) {
+    lines.push(`## ${tr("summary.actions")}`, "", ...summary.action_items.map((item) => `- [ ] ${formatAction(item)}`), "");
+  }
   const open = summary.open_items ?? [];
-  lines.push("", `## ${tr("summary.openItems")}`, "");
-  lines.push(...(open.length ? open.map((item) => `- ${item}`) : ["- —"]));
+  if (open.length) {
+    lines.push(`## ${tr("summary.openItems")}`, "", ...open.map((item) => `- ${item}`), "");
+  }
   return lines.join("\n") + "\n";
 }

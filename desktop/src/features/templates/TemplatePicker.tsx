@@ -16,14 +16,14 @@ export function TemplatePicker({ templates, value, disabled = false, compact = f
   const notes = templates.filter((item) => item.kind === "note");
   return (
     <label className={compact ? "template-picker is-compact" : "template-picker"} title={t("templates.pickerHint")}>
-      <span>{t("templates.label")}</span>
+      {compact ? null : <span>{t("templates.label")}</span>}
       <select
         className="select"
         value={value ?? ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}
       >
-        <option value="">{t("templates.auto")}</option>
+        <option value="">{compact ? `${t("templates.label")}: ${t("templates.auto")}` : t("templates.auto")}</option>
         {notes.map((item) => (
           <option key={item.id} value={item.id}>
             {templateName(item)}

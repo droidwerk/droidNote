@@ -28,7 +28,12 @@ export type IconName =
   | "chip"
   | "tasks"
   | "calendar"
-  | "shield";
+  | "shield"
+  | "edit"
+  | "attach"
+  | "expand"
+  | "collapse"
+  | "rail";
 
 const PATHS: Record<IconName, ReactElement> = {
   console: (
@@ -161,6 +166,16 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4M8 14h2.5" />
     </>
   ),
+  rail: (
+    <>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M9.5 5v14" />
+    </>
+  ),
+  expand: <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />,
+  collapse: <path d="m6.5 14.5 5.5-5.5 5.5 5.5" />,
+  attach: <path d="M19 11.5 12 18.5a4.6 4.6 0 0 1-6.5-6.5l7.2-7.2a3 3 0 0 1 4.3 4.3l-7.1 7.1a1.5 1.5 0 0 1-2.1-2.1l6.5-6.5" />,
+  edit: <path d="M14.5 5.5 18.5 9.5M4.5 19.5l1-4.2L15.8 5a1.4 1.4 0 0 1 2 0l1.2 1.2a1.4 1.4 0 0 1 0 2L8.7 18.5z" />,
   shield: (
     <>
       <path d="M12 3.8 5.5 6.3v5.2c0 4.1 2.7 7.2 6.5 8.7 3.8-1.5 6.5-4.6 6.5-8.7V6.3z" />

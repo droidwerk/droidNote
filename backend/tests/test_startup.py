@@ -1,74 +1,107 @@
+"""O app instalado confia no DROIDNOTE_READY: depois dele, a porta tem que responder."""
+
 from __future__ import annotations
 
-import asyncio
-from datetime import UTC, datetime
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.domain.models import Session
-from app.infrastructure.persistence.sqlite import SqliteStore, new_id
-from app.main import create_app
-from tests.fakes import FakeAudioCapture
+BACKEND = Path(__file__).resolve().parents[1]
+VOICE = Path(os.environ.get("APPDATA", "")) / "DroidNote-dev" / "models" / "voice" / "wespeaker_resnet34_lm.onnx"
 
 
-def test_lifespan_stops_abandoned_recordings(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    kept_end = datetime(2026, 1, 2, tzinfo=UTC)
-
-    async def seed() -> tuple[str, str, str]:
-        store = SqliteStore(settings.db_path)
-        await store.initialize()
-        recording = Session(
-            id=new_id(),
-            title="Aberta",
-            started_at=datetime(2026, 1, 1, tzinfo=UTC),
-            ended_at=None,
-            status="recording",
+@pytest.mark.skipif(sys.platform != "win32", reason="sidecar é Windows")
+def test_ready_line_only_after_port_accepts_connections(tmp_path) -> None:
+    env = {
+        **os.environ,
+        "DROIDNOTE_DATA_DIR": str(tmp_path),
+        "DROIDNOTE_PORT": "0",
+        "DROIDNOTE_TOKEN": "startup-test",
+        "PYTHONPATH": str(BACKEND),
+    }
+    if VOICE.exists():
+        env["DROIDNOTE_VOICE_MODEL"] = str(VOICE)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "app"],
+        cwd=BACKEND,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+    )
+    try:
+        deadline = time.monotonic() + 90
+        payload = None
+        assert proc.stdout is not None
+        while time.monotonic() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            if line.startswith("DROIDNOTE_READY "):
+                payload = json.loads(line.split(" ", 1)[1])
+                break
+        assert payload, "backend não publicou DROIDNOTE_READY"
+        # Na hora, sem esperar: é exatamente o que a janela do app faz.
+        request = urllib.request.Request(
+            f"http://{payload['host']}:{payload['port']}/setup/settings",
+            headers={"X-DroidNote-Token": payload["token"]},
         )
-        idle = Session(
-            id=new_id(),
-            title="Fechada",
-            started_at=datetime(2026, 1, 1, tzinfo=UTC),
-            ended_at=kept_end,
-            status="stopped",
-        )
-        fallen = Session(
-            id=new_id(),
-            title="Queda",
-            started_at=datetime(2026, 1, 1, tzinfo=UTC),
-            ended_at=kept_end,
-            status="recording",
-        )
-        await store.create_session(recording)
-        await store.create_session(idle)
-        await store.create_session(fallen)
-        return recording.id, idle.id, fallen.id
+        with urllib.request.urlopen(request, timeout=10) as response:
+            assert response.status == 200
+        runtime = json.loads((tmp_path / "runtime.json").read_text(encoding="utf-8"))
+        assert runtime["port"] == payload["port"]
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
 
-    recording_id, idle_id, fallen_id = asyncio.run(seed())
-    monkeypatch.setattr("app.main.WhisperEngine.is_ready", lambda self: False)
-    monkeypatch.setattr("app.main.OnnxVoiceEmbedder.is_ready", lambda self: True)
-    monkeypatch.setattr("app.main.OnnxVoiceEmbedder.load", lambda self: None)
-    monkeypatch.setattr("app.main.build_audio_capture", lambda _rate: FakeAudioCapture())
 
-    with TestClient(create_app(settings)):
-        pass
+def test_ready_server_waits_for_slow_startup(tmp_path, capsys) -> None:
+    """Inicialização lenta (banco grande, antivírus): o anúncio espera, a porta já responde."""
+    import asyncio
+    import socket
+    import threading
+    from contextlib import asynccontextmanager
 
-    async def check() -> None:
-        store = SqliteStore(settings.db_path)
-        recording = await store.get_session(recording_id)
-        assert recording is not None
-        assert recording.status == "stopped"
-        assert recording.ended_at is not None
-        idle = await store.get_session(idle_id)
-        assert idle is not None
-        assert idle.status == "stopped"
-        assert idle.ended_at == kept_end
-        fallen = await store.get_session(fallen_id)
-        assert fallen is not None
-        assert fallen.status == "stopped"
-        assert fallen.ended_at == kept_end
+    import uvicorn
+    from fastapi import FastAPI
 
-    asyncio.run(check())
+    from app.main import _ReadyServer
+
+    @asynccontextmanager
+    async def slow(app):
+        await asyncio.sleep(2)
+        yield
+
+    application = FastAPI(lifespan=slow)
+
+    @application.get("/ping")
+    async def ping() -> dict[str, str]:
+        return {"ok": "1"}
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    config = uvicorn.Config(application, host="127.0.0.1", port=port, log_level="warning")
+    runtime = tmp_path / "runtime.json"
+    server = _ReadyServer(config, {"host": "127.0.0.1", "port": port, "token": "t"}, runtime)
+    thread = threading.Thread(target=server.run, daemon=True)
+    started = time.monotonic()
+    thread.start()
+    try:
+        while not runtime.exists() and time.monotonic() - started < 20:
+            time.sleep(0.02)
+        assert runtime.exists()
+        assert time.monotonic() - started >= 1.9  # esperou a inicialização terminar
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/ping", timeout=5) as response:
+            assert response.status == 200
+        assert "DROIDNOTE_READY" in capsys.readouterr().out
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)

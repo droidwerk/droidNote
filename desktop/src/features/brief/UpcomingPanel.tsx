@@ -43,11 +43,10 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
 
   if (!data.configured) {
     return (
-      <button type="button" className="upcoming-connect" onClick={onConnect}>
+      <button type="button" className="upcoming-connect" onClick={onConnect} title={t("calendar.connectHint")}>
         <Icon name="calendar" size={16} />
         <span>
           <strong>{t("calendar.connectTitle")}</strong>
-          <small>{t("calendar.connectHint")}</small>
         </span>
         <Icon name="arrow" size={14} />
       </button>

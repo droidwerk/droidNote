@@ -21,6 +21,14 @@ dependencies = [
   "python-docx>=1.1.0",
   "python-dateutil>=2.8.2",
   "tzdata>=2024.1",
+  # Documentos no chat (lidos neste PC).
+  "langchain-core>=0.3",
+  "langchain-community>=0.3",
+  "langchain-text-splitters>=0.3",
+  "pypdf>=5",
+  "docx2txt>=0.8",
+  "openpyxl>=3.1",
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

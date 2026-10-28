@@ -1,0 +1,222 @@
+/* IA no centro: a nota, as anotações e o contexto ocupam a área principal; a
+   transcrição vira apoio, no canto. Também a barra lateral recolhível. */
+
+/* ---------------------------------------------------------------- workspace */
+
+/* A área principal só rola na vertical; arredondamento de subpixel não pode
+   criar uma barra horizontal fantasma. */
+.main-scroll {
+  overflow-x: hidden;
+}
+
+/* Altura fixa = a da janela: os dois painéis sempre do mesmo tamanho, cada um
+   com a própria rolagem. Nada de um encolher e o outro esticar a página. */
+.workspace.is-ai-first {
+  --work-h: clamp(460px, calc(100vh - var(--strip) - 48px), 1200px);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  align-items: stretch;
+  height: var(--work-h);
+}
+
+.workspace.is-ai-first.is-dock-min {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+
+.workspace.is-ai-first > .panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.workspace.is-ai-first > .side-panel {
+  order: -1;
+  position: static;
+  max-height: none;
+}
+
+.workspace.is-ai-first > .side-panel > .side-body,
+.workspace.is-ai-first > .side-panel > .summary {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.workspace.is-ai-first > .transcript-panel > .panel-head,
+.workspace.is-ai-first > .transcript-panel > .purged-note {
+  flex: none;
+}
+
+.workspace.is-ai-first > .transcript-panel > .transcript-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace.is-ai-first > .transcript-panel .transcript-well {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace.is-ai-first > .transcript-panel .transcript,
+.workspace.is-ai-first > .transcript-panel .transcript-empty {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.workspace.is-ai-first > .transcript-panel > .ticker,
+.workspace.is-ai-first > .transcript-panel > .ticker-empty {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.workspace.is-ai-first > .transcript-panel > .panel-foot {
+  flex: none;
+}
+
+.workspace.is-ai-first > .side-panel > .tabs {
+  margin: 14px 16px 0;
+}
+
+.workspace.is-ai-first > .side-panel .side-body {
+  padding: 18px 20px 22px;
+}
+
+.workspace.is-ai-first > .side-panel .tabs button {
+  height: 34px;
+  font-size: 13px;
+}
+
+.workspace.is-ai-first > .transcript-panel .panel-head {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.workspace.is-ai-first > .transcript-panel .panel-title h2 {
+  font-size: 14px;
+}
+
+.workspace.is-ai-first > .transcript-panel .panel-meta {
+  font-size: 10px;
+}
+
+.workspace.is-ai-first > .transcript-panel .search-field {
+  flex: 1 1 100%;
+  order: 3;
+}
+
+.workspace.is-ai-first > .transcript-panel .transcript {
+  padding: 6px 6px 14px;
+  font-size: 13px;
+}
+
+.workspace.is-ai-first > .transcript-panel .transcript-empty {
+  padding: 24px 18px;
+  gap: 12px;
+}
+
+.workspace.is-ai-first > .transcript-panel .transcript-toolbar {
+  padding: 6px 10px 6px 12px;
+}
+
+.dock-toggle {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.dock-toggle:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.ticker {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ticker:hover {
+  background: var(--hover);
+}
+
+.ticker-line {
+  display: grid;
+  gap: 1px;
+  padding-left: 8px;
+  border-left: 2px solid var(--voice);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ticker-line b {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--voice);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ticker-line b small {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.ticker-line > span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-soft);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ticker.is-live .ticker-line:last-child > span {
+  color: var(--text);
+}
+
+.ticker-empty {
+  padding: 14px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .workspace.is-ai-first,
+  .workspace.is-ai-first.is-dock-min {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace.is-ai-first {
+    height: auto;
+  }
+
+  .workspace.is-ai-first > .panel {
+    height: var(--work-h);
+  }
+
+  .workspace.is-ai-first > .transcript-panel {
+    height: min(420px, var(--work-h));
+  }
+}

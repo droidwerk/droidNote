@@ -19,6 +19,7 @@ from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
 from app.application.brief import BriefService
+from app.application.documents import DocumentService
 from app.application.meetings import MeetingWatcher, normalize_mode
 from app.application.retention import RetentionService
 from app.application.tasks import TaskService
@@ -171,6 +172,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         container.tasks = tasks
         await tasks.backfill()
         container.brief = BriefService(store)
+        container.documents = DocumentService(store, resolved.data_dir / "tmp")
         retention = RetentionService(store, lambda session_id: session_recording_path(resolved, session_id))
         container.retention = retention
 
@@ -288,19 +290,39 @@ def _bind_port(host: str, preferred: int) -> int:
         return int(sock.getsockname()[1])
 
 
+class _ReadyServer(uvicorn.Server):
+    """Só anuncia DROIDNOTE_READY quando a porta já aceita conexões.
+
+    Antes o anúncio saía antes do uvicorn subir: o app instalado pegava a porta,
+    perguntava o status na hora e levava "connection refused" ("Failed to fetch"
+    na tela) enquanto o banco, os templates e os serviços ainda inicializavam.
+    """
+
+    def __init__(self, config: uvicorn.Config, payload: dict[str, object], runtime_path: Path) -> None:
+        super().__init__(config)
+        self._payload = payload
+        self._runtime_path = runtime_path
+
+    async def startup(self, sockets=None) -> None:  # type: ignore[override]
+        await super().startup(sockets=sockets)
+        if self.should_exit:
+            return
+        self._runtime_path.write_text(json.dumps(self._payload), encoding="utf-8")
+        print(f"DROIDNOTE_READY {json.dumps(self._payload)}", flush=True)
+
+
 def run() -> None:
     settings = get_settings()
     port = _bind_port(settings.host, settings.port)
     payload = {"host": settings.host, "port": port, "token": settings.token}
-    settings.runtime_path.write_text(json.dumps(payload), encoding="utf-8")
-    print(f"DROIDNOTE_READY {json.dumps(payload)}", flush=True)
-    uvicorn.run(
+    config = uvicorn.Config(
         app,
         host=settings.host,
         port=port,
         log_level="warning",
         access_log=False,
     )
+    _ReadyServer(config, payload, settings.runtime_path).run()
 
 
 if __name__ == "__main__":

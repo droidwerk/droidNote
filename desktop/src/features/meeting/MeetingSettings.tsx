@@ -4,6 +4,7 @@ import { api } from "../../shared/api/client";
 import type { Settings } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
 import { copyToClipboard } from "../../shared/lib/format";
+import { InfoTip } from "../../shared/ui/InfoTip";
 import { useConfirm } from "../../shared/ui/ConfirmDialog";
 import { Button, Card } from "../../shared/ui/primitives";
 import { useToast } from "../../shared/ui/Toast";
@@ -55,8 +56,7 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
 
   return (
     <Card className="settings-card settings-card-wide">
-      <h2>{t("calendar.settingsTitle")}</h2>
-      <p className="muted">{t("calendar.settingsHelp")}</p>
+      <h2 className="with-tip">{t("calendar.settingsTitle")}<InfoTip text={t("calendar.settingsHelp")} /></h2>
       {settings.has_calendar && !editing ? (
         <div className="calendar-linked">
           <span className="state-led is-on" aria-hidden />
@@ -109,8 +109,7 @@ export function ConsentCard({ settings, persist }: { settings: Settings; persist
 
   return (
     <Card className="settings-card settings-card-wide">
-      <h2>{t("consent.settingsTitle")}</h2>
-      <p className="muted">{t("consent.settingsHelp")}</p>
+      <h2 className="with-tip">{t("consent.settingsTitle")}<InfoTip text={t("consent.settingsHelp")} /></h2>
       <textarea
         className="input consent-text"
         rows={3}
@@ -194,13 +193,14 @@ export function RetentionCard({ settings, persist }: { settings: Settings; persi
 
   return (
     <Card className="settings-card settings-card-wide">
-      <h2>{t("retention.title")}</h2>
-      <p className="muted">{t("retention.help")}</p>
+      <h2 className="with-tip">
+        {t("retention.title")}
+        <InfoTip text={`${t("retention.help")} ${t("retention.keeps")}`} />
+      </h2>
       <div className="retention-grid">
         {select(audio, (days) => change(days, transcript), t("retention.audio"))}
         {select(transcript, (days) => change(audio, days), t("retention.transcript"))}
       </div>
-      <small className="field-help">{t("retention.keeps")}</small>
     </Card>
   );
 }

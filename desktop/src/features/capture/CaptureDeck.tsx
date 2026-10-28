@@ -82,7 +82,6 @@ export function CaptureDeck({
             {asrQueued > 0 ? <em>· {t("console.queue", { count: asrQueued })}</em> : null}
           </span>
           <p className={recording ? "timecode is-live" : "timecode"}>{formatTimecode(elapsedMs)}</p>
-          <span className="deck-action">{label}</span>
         </div>
       </div>
 
@@ -113,6 +112,7 @@ export function CaptureDeck({
         />
       </div>
 
+      {recording ? (
       <div className={voiceFresh ? "deck-now is-on" : "deck-now"} aria-live="polite">
         <span className="eyebrow">{t("voices.speakingNow")}</span>
         {voice && voiceFresh ? (
@@ -124,6 +124,7 @@ export function CaptureDeck({
           <span className="deck-now-idle">—</span>
         )}
       </div>
+      ) : null}
       {toolbar ? <div className="deck-toolbar">{toolbar}</div> : null}
     </section>
   );
@@ -161,7 +162,6 @@ function ChannelStrip({
       <div className="channel-head">
         <span className="channel-id">
           <Icon name={icon} size={14} />
-          <span>{tone === "mic" ? "CH·01" : "CH·02"}</span>
           {title}
         </span>
         <span className="channel-state">{state}</span>

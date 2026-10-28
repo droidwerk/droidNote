@@ -10,7 +10,7 @@ from app.application.retention import RetentionService
 from app.application.tasks import TaskService
 from app.domain.models import ActionItem, Session, Summary, TranscriptSegment
 from app.infrastructure.audio.agc import TARGET_RMS, AutoGain
-from app.infrastructure.calendar.ics import expand, parse_events
+from app.infrastructure.calendar.ics import CalendarError, expand, normalize_url, parse_events
 from app.infrastructure.persistence.sqlite import SqliteStore, new_id
 from tests.conftest import auth
 
@@ -70,6 +70,56 @@ async def test_task_sync_keeps_done_state_across_regenerated_notes(tmp_path) -> 
     assert "Revisar contrato" not in texts  # aberta e fora da ata nova: sai
     assert texts["Ligar p/ Bia"].done is True  # feita: fica como histórico
     assert "Agendar demo" in texts
+
+
+async def test_note_task_and_ai_task_do_not_duplicate(tmp_path) -> None:
+    store = await _store(tmp_path)
+    tasks = TaskService(store)
+    session = await _session(store, "Kickoff")
+    other = await _session(store, "Outra")
+
+    # A ata criou a tarefa; depois "Virar tarefa" na anotação igual devolve a mesma.
+    (ai_task,) = await tasks.sync_from_summary(session.id, [ActionItem("Enviar proposta revisada até sexta")])
+    again = await tasks.create("enviar proposta revisada ate sexta", session_id=session.id)
+    assert again.id == ai_task.id
+    assert len(await tasks.list(session_id=session.id)) == 1
+    # Em outra conversa é outra tarefa.
+    assert (await tasks.create("Enviar proposta revisada até sexta", session_id=other.id)).id != ai_task.id
+
+    # Ordem inversa: a anotação virou tarefa antes; a ata (re)gerada não repete.
+    third = await _session(store, "Terceira")
+    manual = await tasks.create("Mandar contrato", session_id=third.id)
+    synced = await tasks.sync_from_summary(third.id, [ActionItem("Mandar contrato!"), ActionItem("Agendar demo")])
+    assert sorted(item.text for item in synced) == ["Agendar demo", "Mandar contrato"]
+    assert manual.id in {item.id for item in synced}
+
+
+async def test_search_covers_notes_minutes_and_tasks(tmp_path) -> None:
+    from app.application.search import search_extras
+    from app.domain.models import UserNote
+
+    store = await _store(tmp_path)
+    session = await _session(store, "Kickoff")
+    await store.add_user_note(
+        UserNote(id=new_id(), session_id=session.id, at_ms=29_000, text="Revisar o ORÇAMENTO", created_at=datetime.now(tz=UTC), kind="task")
+    )
+    await _summary(store, session.id, decisions=[], actions=[])
+    await store.save_summary_notes(session.id, "# Kickoff\n\n## Decisões\n\n- Orçamento aprovado `01:10`\n")
+    await TaskService(store).create("Mandar orçamento final", session_id=session.id)
+
+    hits = await search_extras(store, "orcamento")
+    assert [(item.text, item.at_ms, item.kind) for item in hits.notes] == [("Revisar o ORÇAMENTO", 29_000, "task")]
+    assert [(item.session_id, item.excerpt) for item in hits.summaries] == [(session.id, "Orçamento aprovado 01:10")]
+    assert [item.text for item in hits.tasks] == ["Mandar orçamento final"]
+    assert (await search_extras(store, "o")).notes == []  # termo curto demais
+    assert (await search_extras(store, "inexistente")).tasks == []
+
+
+async def test_search_endpoint_returns_extra_groups(client: AsyncClient) -> None:
+    await client.post("/tasks", headers=auth(), json={"text": "Ligar para a Bia"})
+    body = (await client.get("/sessions/search", headers=auth(), params={"q": "bia"})).json()
+    assert [item["text"] for item in body["tasks"]] == ["Ligar para a Bia"]
+    assert body["notes"] == [] and body["summaries"] == [] and body["segments"] == []
 
 
 async def test_task_backfill_runs_once(tmp_path) -> None:
@@ -148,6 +198,17 @@ END:VCALENDAR
 """
 
 
+def test_ics_rejects_private_address() -> None:
+    assert normalize_url("webcal://calendar.example.com/basic.ics").startswith("https://")
+    for raw in ("http://127.0.0.1/a.ics", "http://10.1.2.3/a.ics", "http://169.254.169.254/a.ics"):
+        try:
+            normalize_url(raw)
+        except CalendarError as exc:
+            assert str(exc) == "blocked_url"
+        else:
+            raise AssertionError(raw)
+
+
 def test_ics_expands_recurrence_overrides_and_skips_noise() -> None:
     folded = ICS.replace("SUMMARY:Kickoff projeto Atlas", "SUMMARY:Kickoff projeto\r\n  Atlas")
     events = expand(
@@ -194,8 +255,10 @@ async def test_brief_finds_same_title_and_one_on_one(tmp_path) -> None:
     await _summary(store, recent.id, decisions=["Migrar para Postgres"], actions=["Criar tabela"])
     await TaskService(store).sync_from_summary(recent.id, [ActionItem("Criar tabela")])
 
+    # Gravação de hoje sem ata: é a mais recente, mas não deve virar "reunião anterior".
+    empty = await _session(store, "Daily dados · 28/10", days_ago=0.1)
     brief = await BriefService(store).for_title("Daily Dados", [])
-    assert [item.session.id for item in brief.related] == [recent.id, older.id]
+    assert [item.session.id for item in brief.related] == [recent.id, empty.id, older.id]
     assert brief.related[0].decisions == ["Migrar para Postgres"]
     assert [task.text for task in brief.pending] == ["Criar tabela"]
 
@@ -280,6 +343,17 @@ async def test_settings_hide_calendar_url_and_store_phase2_options(client: Async
     assert (body["retention_audio_days"], body["retention_transcript_days"], body["auto_gain"]) == (30, 0, False)
     preview = await client.get("/setup/retention/preview?audio_days=7", headers=auth())
     assert preview.json()["audio_days"] == 7
+
+
+async def test_folder_rename(client: AsyncClient) -> None:
+    first = (await client.post("/tags", headers=auth(), json={"name": "Clientes"})).json()
+    await client.post("/tags", headers=auth(), json={"name": "Aulas"})
+    renamed = await client.patch(f"/tags/{first['id']}", headers=auth(), json={"name": "Clientes 2026"})
+    assert renamed.json()["name"] == "Clientes 2026"
+    clash = await client.patch(f"/tags/{first['id']}", headers=auth(), json={"name": "aulas"})
+    assert clash.status_code == 409
+    missing = await client.patch("/tags/nope", headers=auth(), json={"name": "X"})
+    assert missing.status_code == 404
 
 
 # ------------------------------------------------------------- ganho

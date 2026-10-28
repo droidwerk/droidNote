@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { api } from "../../shared/api/client";
-import type { Segment, Session } from "../../shared/api/types";
+import type { SearchResult, Session } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
 import { formatClock, formatDate, highlight } from "../../shared/lib/format";
 import { Icon, type IconName } from "../../shared/ui/Icon";
@@ -17,11 +17,14 @@ interface CommandPaletteProps {
   onOpenChat: () => void;
   onOpenSettings: () => void;
   onOpenLive: () => void;
+  onOpenTasks: () => void;
 }
+
+const NO_HITS: SearchResult = { query: "", segments: [], notes: [], summaries: [], tasks: [] };
 
 interface Item {
   key: string;
-  group: "actions" | "sessions" | "excerpts";
+  group: "actions" | "sessions" | "notes" | "minutes" | "tasks" | "excerpts";
   icon: IconName;
   title: string;
   meta?: string;
@@ -39,10 +42,11 @@ export function CommandPalette({
   onOpenChat,
   onOpenSettings,
   onOpenLive,
+  onOpenTasks,
 }: CommandPaletteProps) {
   const t = useT();
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<Segment[]>([]);
+  const [hits, setHits] = useState<SearchResult>(NO_HITS);
   const [searching, setSearching] = useState(false);
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -51,7 +55,7 @@ export function CommandPalette({
   useEffect(() => {
     if (!open) return;
     setQuery("");
-    setHits([]);
+    setHits(NO_HITS);
     setCursor(0);
     window.setTimeout(() => input.current?.focus(), 10);
   }, [open]);
@@ -59,7 +63,7 @@ export function CommandPalette({
   useEffect(() => {
     const cleaned = query.trim();
     if (!open || cleaned.length < 2) {
-      setHits([]);
+      setHits(NO_HITS);
       setSearching(false);
       return undefined;
     }
@@ -69,10 +73,10 @@ export function CommandPalette({
       void api
         .search(cleaned)
         .then((result) => {
-          if (!cancelled) setHits(result.segments.slice(0, 12));
+          if (!cancelled) setHits({ ...NO_HITS, ...result, segments: result.segments.slice(0, 12) });
         })
         .catch(() => {
-          if (!cancelled) setHits([]);
+          if (!cancelled) setHits(NO_HITS);
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
@@ -112,17 +116,43 @@ export function CommandPalette({
         meta: formatDate(item.started_at),
         run: () => onOpenSession(item.id),
       }));
-    const excerptItems: Item[] = hits.map((segment) => ({
+    const sessionTitle = (id: string | null) => (id ? titles.get(id)?.title : undefined) ?? "—";
+    const noteItems: Item[] = hits.notes.map((note) => ({
+      key: `n-${note.id}`,
+      group: "notes",
+      icon: "dictation",
+      title: sessionTitle(note.session_id),
+      meta: formatClock(note.at_ms),
+      excerpt: note.text,
+      run: () => onOpenSession(note.session_id, note.at_ms),
+    }));
+    const minuteItems: Item[] = hits.summaries.map((hit) => ({
+      key: `m-${hit.session_id}`,
+      group: "minutes",
+      icon: "spark",
+      title: sessionTitle(hit.session_id),
+      excerpt: hit.excerpt,
+      run: () => onOpenSession(hit.session_id),
+    }));
+    const taskItems: Item[] = hits.tasks.map((task) => ({
+      key: `t-${task.id}`,
+      group: "tasks",
+      icon: "tasks",
+      title: task.text,
+      meta: task.done ? t("palette.taskDone") : task.session_id ? sessionTitle(task.session_id) : undefined,
+      run: onOpenTasks,
+    }));
+    const excerptItems: Item[] = hits.segments.map((segment) => ({
       key: `e-${segment.id}`,
       group: "excerpts",
       icon: "voice",
-      title: titles.get(segment.session_id)?.title ?? "—",
+      title: sessionTitle(segment.session_id),
       meta: formatClock(segment.start_ms),
       excerpt: segment.text,
       run: () => onOpenSession(segment.session_id, segment.start_ms),
     }));
-    return [...actions, ...sessionItems, ...excerptItems];
-  }, [query, hits, sessions, recording, titles, t, onToggleCapture, onOpenLive, onOpenChat, onOpenSettings, onOpenSession]);
+    return [...actions, ...sessionItems, ...noteItems, ...minuteItems, ...taskItems, ...excerptItems];
+  }, [query, hits, sessions, recording, titles, t, onToggleCapture, onOpenLive, onOpenChat, onOpenSettings, onOpenSession, onOpenTasks]);
 
   useEffect(() => {
     if (cursor >= items.length) setCursor(Math.max(0, items.length - 1));
@@ -144,6 +174,9 @@ export function CommandPalette({
   const groups: { id: Item["group"]; label: string }[] = [
     { id: "actions", label: t("palette.actions") },
     { id: "sessions", label: t("palette.sessions") },
+    { id: "notes", label: t("palette.notes") },
+    { id: "minutes", label: t("palette.minutes") },
+    { id: "tasks", label: t("palette.tasks") },
     { id: "excerpts", label: t("palette.excerpts") },
   ];
 

@@ -72,6 +72,16 @@ async def download_voice(request: Request) -> SetupComponentOut:
     return SetupComponentOut(status=component.status, progress=component.progress, message=component.message)
 
 
+@router.post("/llm/start", response_model=SetupStatusOut)
+async def start_llm(request: Request) -> SetupStatusOut:
+    container = get_container(request.app)
+    try:
+        await container.setup.start_llm()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _to_out(await container.setup.status())
+
+
 @router.get("/plan", response_model=SetupPlanOut)
 async def setup_plan(request: Request) -> SetupPlanOut:
     plan = await get_container(request.app).setup.plan()

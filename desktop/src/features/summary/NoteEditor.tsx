@@ -6,9 +6,21 @@ interface NoteEditorProps {
   content: string;
   onChange: (markdown: string) => void;
   disabled?: boolean;
+  /** Clique numa marca de tempo (`12:40`) leva ao momento da fala. */
+  onCite?: (ms: number) => void;
 }
 
-export function NoteEditor({ content, onChange, disabled = false }: NoteEditorProps) {
+const STAMP = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+
+export function stampToMs(value: string): number | null {
+  const match = STAMP.exec(value.trim());
+  if (!match) return null;
+  const [, a, b, c] = match;
+  const parts = c !== undefined ? [Number(a), Number(b), Number(c)] : [0, Number(a), Number(b)];
+  return ((parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0)) * 1000;
+}
+
+export function NoteEditor({ content, onChange, disabled = false, onCite }: NoteEditorProps) {
   const editor = useEditor({
     extensions: [StarterKit],
     content: markdownToHtml(content),
@@ -23,7 +35,15 @@ export function NoteEditor({ content, onChange, disabled = false }: NoteEditorPr
   }, [disabled, editor]);
 
   return (
-    <div className="note-editor">
+    <div
+      className={onCite ? "note-editor has-cites" : "note-editor"}
+      onClick={(event) => {
+        const code = (event.target as HTMLElement).closest("code");
+        if (!code || !onCite) return;
+        const ms = stampToMs(code.textContent ?? "");
+        if (ms !== null) onCite(ms);
+      }}
+    >
       <EditorContent editor={editor} />
     </div>
   );
@@ -59,6 +79,7 @@ function htmlToMarkdown(html: string): string {
     .replace(/<h1[^>]*>(.*?)<\/h1>/gi, "# $1\n\n")
     .replace(/<h2[^>]*>(.*?)<\/h2>/gi, "## $1\n\n")
     .replace(/<h3[^>]*>(.*?)<\/h3>/gi, "### $1\n\n")
+    .replace(/<code[^>]*>(.*?)<\/code>/gi, "`$1`")
     .replace(/<li[^>]*>(.*?)<\/li>/gi, "- $1\n")
     .replace(/<\/p>/gi, "\n\n")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -70,8 +91,10 @@ function htmlToMarkdown(html: string): string {
 }
 
 function escapeHtml(value: string): string {
+  // `12:40` (citação do momento) vira <code>, que a nota mostra como marca clicável.
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }

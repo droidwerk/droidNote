@@ -41,6 +41,12 @@ class TaskService:
         cleaned = text.strip()
         if not cleaned:
             raise ValueError("empty")
+        if session_id:
+            # A ata pode já ter criado essa tarefa (ex.: anotação do tipo Tarefa): não duplica.
+            key = task_key(cleaned)
+            for item in await self._store.list_tasks(session_id=session_id):
+                if not item.done and task_key(item.text) == key:
+                    return item
         task = TaskItem(
             id=new_id(),
             text=cleaned,
@@ -81,17 +87,24 @@ class TaskService:
             raise KeyError(task_id)
 
     async def sync_from_summary(self, session_id: str, items: list[ActionItem]) -> list[TaskItem]:
-        existing = [item for item in await self._store.list_tasks(session_id=session_id) if item.origin == "ai"]
+        all_tasks = await self._store.list_tasks(session_id=session_id)
+        existing = [item for item in all_tasks if item.origin == "ai"]
+        # O que você mesmo já virou tarefa nesta conversa a ata não repete.
+        manual = {task_key(item.text) for item in all_tasks if item.origin != "ai"}
         by_key: dict[str, TaskItem] = {}
         for item in existing:
             by_key.setdefault(task_key(item.text), item)
         kept: set[str] = set()
         now = datetime.now(tz=UTC)
+        from app.application.summarize import strip_stamps
+
         for action in items:
-            text = action.text.strip()
+            text = strip_stamps(action.text)
             if not text:
                 continue
             key = task_key(text)
+            if key in manual:
+                continue
             match = by_key.get(key)
             if match is not None and match.id not in kept:
                 task = replace(match, text=text, owner=_clean(action.owner), due=_clean(action.due))

@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CommandPalette } from "../features/command/CommandPalette";
 import { MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
-import { FolderSidebar } from "../features/session/FolderSidebar";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { Wizard } from "../features/setup/Wizard";
 import { ChatPage } from "../pages/ChatPage";
 import { LivePage } from "../pages/LivePage";
 import { SessionPage } from "../pages/SessionPage";
 import { SettingsPage, type SettingsTab } from "../pages/SettingsPage";
+import { LibraryPage } from "../pages/LibraryPage";
 import { TasksPage } from "../pages/TasksPage";
 import { copyConsent } from "../features/consent/consent";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
@@ -16,6 +16,7 @@ import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, NoteTe
 import { isCaptureLanguage, isUiLanguage, useI18n, type CaptureLanguage } from "../shared/i18n";
 import { openMiniWindow, requestAttention } from "../shared/lib/miniWindow";
 import { mergeSegmentLists } from "../shared/lib/segments";
+import { useFlag } from "../shared/lib/useFlag";
 import { useUpdateNotice } from "../shared/lib/useUpdateNotice";
 import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
@@ -25,7 +26,9 @@ import { Icon, type IconName } from "../shared/ui/Icon";
 import { StatusStrip } from "../shared/ui/StatusStrip";
 import { useToast } from "../shared/ui/Toast";
 
-type View = "live" | "session" | "settings" | "chat" | "tasks";
+type View = "live" | "session" | "settings" | "chat" | "tasks" | "library";
+
+const RECENT_LIMIT = 14;
 
 const idleCapture: CaptureState = {
   recording: false,
@@ -43,8 +46,9 @@ export function App() {
   const [view, setView] = useState<View>("live");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /** Sessão da captura (a que o "Ao vivo" mostra); independe da conversa aberta em "Conversas". */
+  const [captureId, setCaptureId] = useState<string | null>(null);
   const [capture, setCapture] = useState<CaptureState>(idleCapture);
   const [liveSegments, setLiveSegments] = useState<Segment[]>([]);
   const [micOnly, setMicOnly] = useState(false);
@@ -86,6 +90,11 @@ export function App() {
   const [tasksRevision, setTasksRevision] = useState(0);
   const [openTasks, setOpenTasks] = useState(0);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("transcription");
+  const [navCollapsed, toggleNav] = useFlag("droidnote.navCollapsed");
+  const [summaryBusy, setSummaryBusy] = useState<string | null>(null);
+  const [summaryRevision, setSummaryRevision] = useState(0);
+  // O socket é criado uma vez; a reação à ata automática lê sempre o estado atual por aqui.
+  const onSummaryEvent = useRef<(event: Record<string, unknown>) => void>(() => undefined);
   const recordingRef = useRef(false);
   const loadTemplates = useCallback(async () => {
     try {
@@ -95,8 +104,8 @@ export function App() {
     }
   }, []);
   const [engineInfo, setEngineInfo] = useState({ asr: "—", note: "—" });
-  const activeIdRef = useRef<string | null>(null);
-  activeIdRef.current = activeId;
+  const captureIdRef = useRef<string | null>(null);
+  captureIdRef.current = captureId;
   useUpdateNotice(ready && !needsWizard && !bootError);
 
   const openChat = useCallback((focus?: ChatFocus) => {
@@ -288,7 +297,9 @@ export function App() {
           const info = await invoke("get_backend");
           setBackend(info);
         }
-        const status = await api.setupStatus();
+        // O motor local pode levar alguns segundos a mais para abrir a porta
+        // (antivírus, banco grande): erro de rede no início vira nova tentativa.
+        const status = await untilBackendAnswers(() => api.setupStatus(), () => cancelled);
         const settings = await api.getSettings();
         if (!cancelled) {
           if (isUiLanguage(settings.ui_language)) setLocale(settings.ui_language);
@@ -322,12 +333,12 @@ export function App() {
         const state = await api.captureState();
         if (!cancelled) {
           setCapture(state);
-          if (state.session_id) setActiveId(state.session_id);
+          if (state.session_id) setCaptureId(state.session_id);
         }
       } catch (err) {
         if (!cancelled) {
           setBootError(
-            err instanceof Error
+            err instanceof Error && !isNetworkError(err)
               ? err.message
               : t("boot.backendFailed"),
           );
@@ -392,7 +403,7 @@ export function App() {
                 : current.started_at
               : null,
           }));
-          if (typeof event.session_id === "string") setActiveId(event.session_id);
+          if (typeof event.session_id === "string") setCaptureId(event.session_id);
           if (!event.recording) {
             setMonitor(null);
             setLastMonitorAt(null);
@@ -437,9 +448,12 @@ export function App() {
         if (event.type === "tasks") {
           setTasksRevision((value) => value + 1);
         }
+        if (event.type === "summary") {
+          onSummaryEvent.current(event);
+        }
         if (event.type === "voices") {
           setVoicesRevision((value) => value + 1);
-          const current = activeIdRef.current;
+          const current = captureIdRef.current;
           if (current && event.session_id === current) {
             void api
               .session(current)
@@ -478,11 +492,11 @@ export function App() {
   }, [capture.recording, lastMonitorAt, socketLive]);
 
   useEffect(() => {
-    if (!capture.recording || !activeId) return undefined;
+    if (!capture.recording || !captureId) return undefined;
     let cancelled = false;
     const tick = async () => {
       try {
-        const detail = await api.session(activeId);
+        const detail = await api.session(captureId);
         if (cancelled) return;
         setLiveSegments((current) => mergeSegmentLists(current, detail.segments));
       } catch {
@@ -495,7 +509,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [capture.recording, activeId]);
+  }, [capture.recording, captureId]);
 
   const toggle = useCallback(async (override?: { mode?: CaptureMode; title?: string }) => {
     if (busy) return;
@@ -527,7 +541,7 @@ export function App() {
       setCapture(state);
       setLastMonitorAt(Date.now());
       setLiveSegments([]);
-      if (state.session_id) setActiveId(state.session_id);
+      if (state.session_id) setCaptureId(state.session_id);
       setView("live");
       await loadSessions();
     } catch (error) {
@@ -583,6 +597,30 @@ export function App() {
     setView("settings");
   };
 
+  onSummaryEvent.current = (event) => {
+    const sessionId = typeof event.session_id === "string" ? event.session_id : null;
+    if (!sessionId) return;
+    const title = sessions.find((item) => item.id === sessionId)?.title ?? "";
+    if (event.status === "start") {
+      setSummaryBusy(sessionId);
+      return;
+    }
+    setSummaryBusy((current) => (current === sessionId ? null : current));
+    setSummaryRevision((value) => value + 1);
+    if (event.status === "done") {
+      toast.push({
+        tone: "success",
+        title: t("doc.readyTitle"),
+        description: title || undefined,
+        action: { label: t("doc.readyOpen"), onClick: () => openSession(sessionId) },
+      });
+    } else if (event.status === "skipped") {
+      toast.push({ tone: "info", title: t("engine.offTitle"), description: t("doc.skipped") });
+    } else if (event.status === "error") {
+      toast.push({ tone: "error", title: t("doc.failed") });
+    }
+  };
+
   useEffect(() => {
     if (!ready || needsWizard) return;
     void loadTemplates();
@@ -606,11 +644,14 @@ export function App() {
       } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "r") {
         event.preventDefault();
         void toggle();
+      } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "b") {
+        event.preventDefault();
+        toggleNav();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ready, needsWizard, toggle]);
+  }, [ready, needsWizard, toggle, toggleNav]);
 
   useEffect(() => {
     if (!ready || needsWizard) return undefined;
@@ -645,27 +686,7 @@ export function App() {
     return <Wizard onDone={() => setNeedsWizard(false)} />;
   }
 
-  const visibleSessions = tagFilter
-    ? sessions.filter((item) => (item.tags ?? []).some((tag) => tag.id === tagFilter))
-    : sessions;
-  const sessionCountByFolder = new Map<string, number>();
-  for (const session of sessions) {
-    for (const tag of session.tags ?? []) {
-      sessionCountByFolder.set(tag.id, (sessionCountByFolder.get(tag.id) ?? 0) + 1);
-    }
-  }
-
-  const createFolder = async (name: string) => {
-    const folder = await api.createTag(name);
-    setTags(await api.tags());
-    setTagFilter(folder.id);
-  };
-
-  const deleteFolder = async (folder: Tag) => {
-    await api.deleteTag(folder.id);
-    if (tagFilter === folder.id) setTagFilter(null);
-    await loadSessions();
-  };
+  const recentSessions = sessions.slice(0, RECENT_LIMIT);
 
   const moveSessionToFolder = async (sessionId: string, folderId: string | null) => {
     const assigned = await api.setSessionTags(sessionId, folderId ? [folderId] : []);
@@ -680,33 +701,37 @@ export function App() {
     setView("session");
   };
 
-  const groups = groupByDay(visibleSessions, t);
+  const groups = groupByDay(recentSessions, t);
 
   return (
-    <div className={capture.recording ? "shell is-recording" : "shell"}>
+    <div className={["shell", capture.recording ? "is-recording" : "", navCollapsed ? "is-nav-collapsed" : ""].filter(Boolean).join(" ")}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <BrandLockup size="sidebar" />
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={toggleNav}
+            title={`${navCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")} (Ctrl+B)`}
+            aria-label={navCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
+            aria-expanded={!navCollapsed}
+          >
+            <Icon name="rail" size={16} />
+          </button>
         </div>
         <nav className="nav" aria-label={t("nav.primary")}>
           <NavButton icon="console" label={t("nav.live")} active={view === "live"} onClick={() => setView("live")} badge={capture.recording ? "rec" : undefined} />
+          <NavButton icon="folder" label={t("nav.library")} active={view === "library"} onClick={() => setView("library")} />
           <NavButton icon="tasks" label={t("nav.tasks")} active={view === "tasks"} onClick={() => setView("tasks")} badge={openTasks ? String(openTasks) : undefined} />
           <NavButton icon="chat" label={t("nav.chat")} active={view === "chat"} onClick={() => openChat()} badge={t("common.beta")} />
           <NavButton icon="settings" label={t("nav.settings")} active={view === "settings"} onClick={() => openSettings()} />
         </nav>
         <div className="sidebar-section">
-          <FolderSidebar
-            folders={tags}
-            selectedId={tagFilter}
-            sessionCount={sessions.length}
-            countByFolder={sessionCountByFolder}
-            onSelect={setTagFilter}
-            onCreate={createFolder}
-            onDelete={deleteFolder}
-            onMoveSession={(sessionId, folderId) => moveSessionToFolder(sessionId, folderId)}
-          />
+          <div className="sidebar-heading">
+            <span>{t("nav.recent")}</span>
+          </div>
           <div className="session-list">
-            {visibleSessions.length === 0 ? (
+            {recentSessions.length === 0 ? (
               <div className="empty-block">{t("nav.emptySessions")}</div>
             ) : (
               groups.map((group) => (
@@ -726,6 +751,12 @@ export function App() {
                 </div>
               ))
             )}
+            {sessions.length > recentSessions.length ? (
+              <button type="button" className="sidebar-all" onClick={() => setView("library")}>
+                {t("nav.seeAll", { count: sessions.length })}
+                <Icon name="arrow" size={13} />
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="sidebar-footer">
@@ -784,7 +815,7 @@ export function App() {
           {view === "live" ? (
             <LivePage
               capture={capture}
-              sessionId={activeId}
+              sessionId={captureId}
               liveSegments={liveSegments}
               busy={busy}
               error={captureError}
@@ -806,8 +837,8 @@ export function App() {
               onLoopbackChange={setLoopbackId}
               onToggle={() => void toggle()}
               onTitleChange={async (title) => {
-                if (!activeId) return;
-                const updated = await api.renameSession(activeId, title);
+                if (!captureId) return;
+                const updated = await api.renameSession(captureId, title);
                 setSessions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
               }}
               participantIds={participantIds}
@@ -825,6 +856,9 @@ export function App() {
               onTasksChanged={() => setTasksRevision((value) => value + 1)}
               onOpenSession={(sessionId) => openSession(sessionId)}
               onConnectCalendar={() => openSettings("meetings")}
+              summaryBusySessionId={summaryBusy}
+              summaryRevision={summaryRevision}
+              onOpenSettings={() => openSettings("transcription")}
               onRecordEvent={(event) => {
                 setCaptureMode("meeting");
                 setMicOnly(false);
@@ -848,6 +882,8 @@ export function App() {
           {view === "session" && activeId ? (
             <SessionPage
               sessionId={activeId}
+              summaryBusySessionId={summaryBusy}
+              summaryRevision={summaryRevision}
               seekTo={sessionSeek}
               templates={templates}
               notesRevision={notesRevision}
@@ -856,6 +892,7 @@ export function App() {
               voiceDownloading={voiceDownloading}
               onDownloadVoice={() => void downloadVoice()}
               onDeleted={() => {
+                if (captureId === activeId) setCaptureId(null);
                 setActiveId(null);
                 setView("live");
                 void loadSessions();
@@ -867,6 +904,15 @@ export function App() {
               onTagsChanged={() => void loadSessions()}
               languageLocked={language !== "auto"}
               onAsk={openChat}
+            />
+          ) : null}
+          {view === "library" ? (
+            <LibraryPage
+              sessions={sessions}
+              folders={tags}
+              liveSessionId={capture.recording ? capture.session_id : null}
+              onOpenSession={(sessionId) => openSession(sessionId)}
+              onChanged={loadSessions}
             />
           ) : null}
           {view === "tasks" ? (
@@ -881,7 +927,8 @@ export function App() {
               recipes={templates.filter((item) => item.kind === "recipe")}
               focus={chatFocus}
               onFocusConsumed={() => setChatFocus(null)}
-              onOpenSession={(sessionId) => openSession(sessionId)}
+              onOpenSession={(sessionId, atMs) => openSession(sessionId, atMs)}
+              onOpenSettings={() => openSettings("transcription")}
             />
           ) : null}
           {view === "settings" ? (
@@ -913,9 +960,31 @@ export function App() {
         onOpenChat={() => openChat()}
         onOpenSettings={() => openSettings()}
         onOpenLive={() => setView("live")}
+        onOpenTasks={() => setView("tasks")}
       />
     </div>
   );
+}
+
+const BOOT_RETRY_MS = 25_000;
+
+/** "Failed to fetch" do WebView: porta fechada, motor ainda subindo ou caído. */
+function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError || (err instanceof Error && /failed to fetch|networkerror|load failed/i.test(err.message));
+}
+
+async function untilBackendAnswers<T>(call: () => Promise<T>, cancelled: () => boolean): Promise<T> {
+  const started = Date.now();
+  let delay = 250;
+  for (;;) {
+    try {
+      return await call();
+    } catch (err) {
+      if (!isNetworkError(err) || cancelled() || Date.now() - started > BOOT_RETRY_MS) throw err;
+      await new Promise((resolve) => window.setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, 2_000);
+    }
+  }
 }
 
 function NavButton({
@@ -932,10 +1001,10 @@ function NavButton({
   badge?: string;
 }) {
   return (
-    <button className={active ? "nav-item is-active" : "nav-item"} aria-current={active ? "page" : undefined} onClick={onClick} type="button">
+    <button className={active ? "nav-item is-active" : "nav-item"} aria-current={active ? "page" : undefined} onClick={onClick} type="button" title={label}>
       <Icon name={icon} size={18} />
       <span>{label}</span>
-      {badge === "rec" ? <span className="nav-rec" aria-hidden /> : badge ? <span className="nav-badge">{badge}</span> : null}
+      {badge === "rec" ? <span className="nav-rec" aria-hidden /> : badge ? <span className={/^\d+$/.test(badge) ? "nav-badge is-count" : "nav-badge"}>{badge}</span> : null}
     </button>
   );
 }

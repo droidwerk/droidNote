@@ -25,9 +25,15 @@
 
 !macro NSIS_HOOK_POSTUNINSTALL
   RMDir /r /REBOOTOK "$LOCALAPPDATA\${BUNDLEID}"
+  ; Reuniões, gravações e modelos só saem se a pessoa marcar "apagar os dados do
+  ; app" na desinstalação. Desinstalar para reinstalar não pode apagar o histórico.
   ${If} $UpdateMode <> 1
+  ${AndIf} $DeleteAppDataCheckboxState = 1
     SetShellVarContext current
     RMDir /r /REBOOTOK "$APPDATA\DroidNote"
+  ${EndIf}
+  ${If} $UpdateMode <> 1
+    SetShellVarContext current
     RMDir /r /REBOOTOK "$LOCALAPPDATA\DroidNote"
   ${EndIf}
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
