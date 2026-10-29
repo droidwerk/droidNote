@@ -1,6 +1,6 @@
 [package]
 name = "droidnote"
-version = "2.2.4"
+version = "2.2.5"
 description = "DroidNote desktop shell"
 authors = ["Droidwerk"]
 edition = "2021"
