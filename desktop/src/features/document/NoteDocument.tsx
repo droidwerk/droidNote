@@ -6,8 +6,8 @@ import { Icon } from "../../shared/ui/Icon";
 import { EngineBanner } from "./EngineBanner";
 
 interface NoteDocumentProps {
-  /** Suas anotações (com o contexto que a IA achou em cada uma). */
-  notes: ReactNode;
+  /** Suas anotações (com o contexto que a IA achou em cada uma). Sem elas, só a ata. */
+  notes?: ReactNode;
   notesCount?: number;
   /** A ata escrita pela IA. */
   aiNote: ReactNode;
@@ -48,7 +48,7 @@ export function NoteDocument({ notes, notesCount = 0, aiNote, aiFirst, engineRev
   return (
     <div className="note-document">
       <EngineBanner revision={engineRevision} onOpenSettings={onOpenSettings} />
-      {aiFirst ? [ai, mine] : [mine, ai]}
+      {notes === undefined ? ai : aiFirst ? [ai, mine] : [mine, ai]}
     </div>
   );
 }

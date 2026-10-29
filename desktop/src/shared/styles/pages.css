@@ -42,6 +42,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 10px 12px;
   display: grid;
   align-content: start;
@@ -49,6 +50,9 @@
 }
 
 .chat-thread {
+  display: block;
+  width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   border: 0;
   border-radius: var(--r-sm);
@@ -933,6 +937,12 @@ body:has(.boot) {
 
 .boot-credit img {
   height: 16px;
+}
+
+@media (max-width: 1040px) {
+  .chat-page {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 860px) {

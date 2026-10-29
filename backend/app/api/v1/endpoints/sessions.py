@@ -5,18 +5,30 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from app.api.v1.deps import AppContainer, get_container
+from app.application.mindmap import MindMapService, to_markdown
+from app.application.documents import MAX_BYTES, DocumentService
 from app.application.export import export_docx, export_pdf
+from app.application.memory import Memory, MemoryService
 from app.application.search import search_extras
 from app.application.speakers import UNSET
 from app.core.config import session_recording_path
+from app.core.logging import get_logger
 from app.core.i18n import ui_message
 from app.core.security import verify_token
+from app.infrastructure.documents.readers import DocumentError
 from app.domain.models import Session
 from app.schemas.api import (
+    DocumentOut,
+    MemoryChangeOut,
+    MemoryOut,
+    MemoryResolvedOut,
+    MemoryThreadOut,
+    MindMapIn,
+    MindMapOut,
     NoteHitOut,
     NoteUpdateIn,
     ParticipantsIn,
@@ -32,6 +44,7 @@ from app.schemas.api import (
     SummaryOut,
     TagOut,
     TaskHitOut,
+    TaskOut,
     UserNoteIn,
     NoteExpandOut,
     UserNoteOut,
@@ -42,6 +55,7 @@ from app.schemas.api import (
 )
 
 router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(verify_token)])
+log = get_logger("sessions.api")
 _SAFE_NAME = re.compile(r"[^\w\s.-]+", re.UNICODE)
 
 
@@ -216,6 +230,191 @@ async def summarize_session(
         raise _missing(request) from None
     await container.bus.publish({"type": "tasks", "session_id": session_id})
     return SummaryOut.from_domain(summary)
+
+
+def _mindmaps(container: AppContainer) -> MindMapService:
+    if container.mindmaps is None:
+        container.mindmaps = MindMapService(container.store, container.llm, container.memory)
+    return container.mindmaps
+
+
+def _mindmap_out(record) -> MindMapOut:
+    return MindMapOut(
+        session_id=record.session_id,
+        origin=record.origin,
+        summary_id=record.summary_id,
+        updated_at=record.updated_at,
+        data=record.data,
+        markdown=to_markdown(record.data),
+    )
+
+
+def _memory(container: AppContainer) -> MemoryService:
+    if container.memory is None:
+        container.memory = MemoryService(container.llm, container.store, container.brief)
+    return container.memory
+
+
+def _llm_failed(container: AppContainer, exc: Exception) -> HTTPException:
+    """Motor caiu ou estourou o tempo: a tela recebe uma frase, não "Failed to fetch"."""
+    log.warning("llm call failed: %s %s", type(exc).__name__, exc)
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=ui_message(container.settings.ui_language, "llm_failed"),
+    )
+
+
+async def _require_llm(container: AppContainer) -> None:
+    setup = await container.setup.status()
+    if not setup.summarize_ready:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=setup.llm.message or ui_message(container.settings.ui_language, "llm_not_ready"),
+        )
+
+
+def _documents(container: AppContainer) -> DocumentService:
+    if container.documents is None:
+        container.documents = DocumentService(container.store, container.settings.data_dir / "tmp")
+    return container.documents
+
+
+@router.get("/{session_id}/documents", response_model=list[DocumentOut])
+async def list_session_documents(session_id: str, request: Request) -> list[DocumentOut]:
+    container = get_container(request.app)
+    try:
+        await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    return [DocumentOut.from_domain(item) for item in await _documents(container).list_for_session(session_id)]
+
+
+@router.post("/{session_id}/documents", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
+async def upload_session_document(session_id: str, request: Request, file: UploadFile = File(...)) -> DocumentOut:
+    """Material de apoio da conversa (pauta, slides, contrato): a ata e o chat passam a usá-lo."""
+    container = get_container(request.app)
+    try:
+        await container.sessions.get(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    data = await file.read(MAX_BYTES + 1)
+    try:
+        document = await _documents(container).ingest(file.filename or "", data, session_id=session_id)
+    except DocumentError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return DocumentOut.from_domain(document)
+
+
+@router.get("/{session_id}/mindmap", response_model=MindMapOut)
+async def get_mindmap(session_id: str, request: Request) -> MindMapOut:
+    """Mapa mental da conversa: o editado pela pessoa, ou um novo a partir da ata."""
+    container = get_container(request.app)
+    try:
+        return _mindmap_out(await _mindmaps(container).get(session_id))
+    except KeyError:
+        raise _missing(request) from None
+
+
+@router.put("/{session_id}/mindmap", response_model=MindMapOut)
+async def save_mindmap(session_id: str, payload: MindMapIn, request: Request) -> MindMapOut:
+    container = get_container(request.app)
+    try:
+        return _mindmap_out(await _mindmaps(container).save(session_id, payload.data))
+    except KeyError:
+        raise _missing(request) from None
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="nodeData") from None
+
+
+@router.post("/{session_id}/mindmap/reset", response_model=MindMapOut)
+async def reset_mindmap(session_id: str, request: Request) -> MindMapOut:
+    """Descarta edições e monta o mapa de novo a partir da ata."""
+    container = get_container(request.app)
+    try:
+        return _mindmap_out(await _mindmaps(container).reset(session_id))
+    except KeyError:
+        raise _missing(request) from None
+
+
+@router.post("/{session_id}/mindmap/refine", response_model=MindMapOut)
+async def refine_mindmap(session_id: str, request: Request) -> MindMapOut:
+    """A IA reagrupa os ramos; folhas com momento ou tarefa são preservadas."""
+    container = get_container(request.app)
+    await _require_llm(container)
+    try:
+        return _mindmap_out(await _mindmaps(container).refine(session_id))
+    except KeyError:
+        raise _missing(request) from None
+    except Exception as exc:
+        raise _llm_failed(container, exc) from exc
+
+
+def _memory_out(memory: Memory, titles: dict[str, Session]) -> MemoryOut:
+    return MemoryOut(
+        session_id=memory.session_id,
+        mode=memory.mode,  # type: ignore[arg-type]
+        generated=memory.generated,
+        stale=memory.stale,
+        language=memory.language,
+        created_at=memory.created_at,
+        thread=[
+            MemoryThreadOut(
+                session_id=item.session_id,
+                title=item.title,
+                started_at=item.started_at,
+                reason=item.reason,  # type: ignore[arg-type]
+                has_summary=item.has_summary,
+                decisions=item.decisions,
+                open_items=item.open_items,
+            )
+            for item in memory.thread
+        ],
+        resolved=[MemoryResolvedOut(item=item.item, how=item.how, task_id=item.task_id) for item in memory.resolved],
+        still_open=memory.still_open,
+        changed=[MemoryChangeOut(before=item.before, now=item.now) for item in memory.changed],
+        new_items=memory.new_items,
+        watch=memory.watch,
+        pending=[TaskOut.from_domain(task, titles.get(task.session_id or "")) for task in memory.pending],
+    )
+
+
+async def _titles(container: AppContainer, memory: Memory) -> dict[str, Session]:
+    wanted = {task.session_id for task in memory.pending if task.session_id}
+    out: dict[str, Session] = {}
+    for session_id in wanted:
+        session = await container.store.get_session(session_id)
+        if session is not None:
+            out[session_id] = session
+    return out
+
+
+@router.get("/{session_id}/memory", response_model=MemoryOut)
+async def get_memory(session_id: str, request: Request) -> MemoryOut:
+    """Fio das reuniões anteriores e, se já comparada, o que mudou (sem chamar a IA)."""
+    container = get_container(request.app)
+    try:
+        memory = await _memory(container).recall(session_id)
+    except KeyError:
+        raise _missing(request) from None
+    return _memory_out(memory, await _titles(container, memory))
+
+
+@router.post("/{session_id}/memory", response_model=MemoryOut)
+async def compare_memory(
+    session_id: str,
+    request: Request,
+    force: bool = Query(default=False),
+) -> MemoryOut:
+    """Compara a ata desta reunião com as anteriores da série (IA)."""
+    container = get_container(request.app)
+    await _require_llm(container)
+    try:
+        memory = await _memory(container).compare(session_id, force=force)
+    except KeyError:
+        raise _missing(request) from None
+    except Exception as exc:
+        raise _llm_failed(container, exc) from exc
+    return _memory_out(memory, await _titles(container, memory))
 
 
 @router.put("/{session_id}/participants", response_model=list[PersonOut])
@@ -502,14 +701,15 @@ async def export_session(
         segments = await container.store.list_segments(session_id)
         summary = await container.store.get_summary(session_id)
         people = await container.store.list_people()
+        participants = await container.store.list_session_participants(session_id)
         if format == "pdf":
-            payload = export_pdf(session, segments, summary, people, locale)
+            payload = export_pdf(session, segments, summary, people, locale, participants)
             return Response(
                 content=payload,
                 media_type="application/pdf",
                 headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'},
             )
-        payload = export_docx(session, segments, summary, people, locale)
+        payload = export_docx(session, segments, summary, people, locale, participants)
         return Response(
             content=payload,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

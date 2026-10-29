@@ -150,7 +150,8 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
 
   const dropProps = (target: FolderFilter) => ({
     onDragOver: (event: DragEvent) => {
-      if (!event.dataTransfer.types.includes(DRAG_TYPE) || target === "all") return;
+      const types = [...event.dataTransfer.types];
+      if (!(types.includes(DRAG_TYPE) || types.includes("text/plain")) || target === "all") return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
       setDropTarget(target);
@@ -303,7 +304,9 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
             />
           ) : folders.length === 0 ? (
             <p className="library-hint">{t("library.foldersHint")}</p>
-          ) : null}
+          ) : (
+            <p className="library-hint">{t("library.dragHint")}</p>
+          )}
         </nav>
 
         <section className="library-main">

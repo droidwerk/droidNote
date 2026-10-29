@@ -93,6 +93,9 @@ class CaptureService:
         self._last_level_emit = 0.0
         self._transcribing = False
         self._people: list[Person] = []
+        # Nomes de todas as pessoas conhecidas: o "falando agora" pode reconhecer
+        # alguém pela impressão vocal antes de ela virar participante.
+        self._names: dict[str, str] = {}
         self._self_person_id: str | None = None
         self._last_text: dict[str, str] = {}
         self._covered_until: dict[str, int] = {}
@@ -153,6 +156,7 @@ class CaptureService:
         )
         await self._store.create_session(session)
         self._people = []
+        self._names = {item.id: item.name for item in await self._store.list_people()}
         saved_self = await self._store.get_setting("self_person_id")
         self._self_person_id = saved_self or None
         self._last_text = {}
@@ -465,6 +469,8 @@ class CaptureService:
                 return
             cluster, person_id, score = found
             name = next((item.name for item in self._people if item.id == person_id), None)
+            if name is None and person_id:
+                name = self._names.get(person_id)
             self._now_voice = {
                 "cluster": cluster,
                 "person_id": person_id,

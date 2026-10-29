@@ -8,6 +8,7 @@ import { stampToMs } from "../features/summary/NoteEditor";
 import { AiThinking } from "../shared/ui/AiThinking";
 import { InfoTip } from "../shared/ui/InfoTip";
 import { Icon } from "../shared/ui/Icon";
+import { Markdown } from "../shared/ui/Markdown";
 import { templateName } from "../shared/lib/templates";
 import { useI18n, useT } from "../shared/i18n";
 import { copyToClipboard, formatClock, formatDate } from "../shared/lib/format";
@@ -394,7 +395,14 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
                     steps={docs.length ? [t("ai.readDocs"), t("ai.searchMemory"), t("ai.answer")] : [t("ai.searchMemory"), t("ai.answer")]}
                   />
                 ) : (
-                  <p>{item.role === "assistant" ? linkStamps(item.content, citedSession(item.citations), onOpenSession) : item.content}</p>
+                  item.role === "assistant" ? (
+                    <Markdown
+                      text={item.content}
+                      renderStamp={stampRenderer(citedSession(item.citations), onOpenSession)}
+                    />
+                  ) : (
+                    <p>{item.content}</p>
+                  )
                 )}
                 {item.role === "assistant" && item.content ? (
                   <div className="chat-turn-actions">
@@ -555,26 +563,19 @@ function citedSession(citations: ChatCitation[]): string | null {
   return ids.size === 1 ? [...ids][0] ?? null : null;
 }
 
-const STAMP_IN_TEXT = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
 
-function linkStamps(text: string, sessionId: string | null, open: (sessionId: string, atMs?: number) => void) {
-  if (!sessionId) return text;
-  const parts: ReactNode[] = [];
-  let last = 0;
-  for (const match of text.matchAll(STAMP_IN_TEXT)) {
-    const ms = stampToMs(match[1] ?? "");
-    if (ms === null || match.index === undefined) continue;
-    parts.push(text.slice(last, match.index));
-    parts.push(
-      <button key={`${match.index}`} type="button" className="chat-stamp" onClick={() => open(sessionId, ms)}>
-        {match[1]}
-      </button>,
+/** Marca de tempo da resposta vira botão que abre a conversa citada naquele momento. */
+function stampRenderer(sessionId: string | null, open: (sessionId: string, atMs?: number) => void) {
+  if (!sessionId) return undefined;
+  return (stamp: string): ReactNode => {
+    const ms = stampToMs(stamp);
+    if (ms === null) return stamp;
+    return (
+      <button type="button" className="chat-stamp" onClick={() => open(sessionId, ms)}>
+        {stamp}
+      </button>
     );
-    last = match.index + match[0].length;
-  }
-  if (!parts.length) return text;
-  parts.push(text.slice(last));
-  return parts;
+  };
 }
 
 function groupDocuments(citations: ChatCitation[]): { id: string; name: string; pages: number[]; excerpt: string }[] {

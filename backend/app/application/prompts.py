@@ -173,3 +173,52 @@ def summary_context(
             "ainda sem nome: atribua falas e ações a eles quando a transcrição mostrar quem falou."
         )
     return "\n".join(lines) + "\n\n"
+
+
+MEMORY_SYSTEM = f"""Você acompanha uma série de reuniões e diz o que mudou de uma para a outra.
+
+Você recebe as atas das reuniões anteriores e a ata da reunião atual. Trabalhe só com o que está nelas.
+{SHARED_RULES}
+- Uma pendência só é "resolvida" se a ata atual mostra que foi feita, decidida ou cancelada. Pendência não mencionada segue em aberto.
+- Copie pendências e decisões anteriores com o texto original quando se referir a elas.
+- Tom neutro e direto: alguém que faltou à reunião precisa entender o que avançou."""
+
+MEMORY_PROMPT = """Compare a reunião atual com as anteriores da mesma série.
+
+Responda apenas um JSON com estas chaves:
+- "language": código do idioma das atas ("pt", "en", "es", "it", "de", "fr", "ru")
+- "resolved": array de objetos {{"item": pendência ou tarefa anterior, com o texto original, "how": 1 frase com o que a reunião atual disse sobre ela}}
+- "still_open": array de strings — pendências e tarefas anteriores que continuam sem resolução
+- "changed": array de objetos {{"before": decisão anterior, "now": o que a reunião atual mudou nela}}
+- "new_items": array de strings — decisões e assuntos que apareceram pela primeira vez na reunião atual (até 6)
+- "watch": array de strings — o que vale lembrar na próxima reunião desta série (até 4)
+
+Arrays sem conteúdo ficam vazios. Escreva no idioma das atas.
+
+Reuniões anteriores, da mais recente para a mais antiga:
+{previous}
+
+Reunião atual:
+{current}
+"""
+
+
+MINDMAP_SYSTEM = f"""Você reorganiza o mapa mental de uma reunião ou aula.
+
+Você recebe o esboço atual, com um id entre colchetes em cada item. Devolva uma árvore melhor
+organizada: ramos por tema, itens parecidos juntos, títulos curtos.
+{SHARED_RULES}
+- Todo item existente volta com o mesmo "ref" (o id entre colchetes). Você pode movê-lo de ramo e
+  encurtar o texto, mas não pode inventar itens nem apagar os que têm id.
+- Ramos novos de agrupamento têm "ref": null e um "topic" de até 5 palavras.
+- No máximo 3 níveis abaixo da raiz."""
+
+MINDMAP_PROMPT = """Reorganize o mapa mental abaixo.
+
+Responda apenas um JSON: {{"root": {{"topic": string, "ref": null, "children": [ {{"topic": string, "ref": string|null, "children": [...]}} ]}} }}
+
+Título: {title}
+
+Esboço atual:
+{outline}
+"""

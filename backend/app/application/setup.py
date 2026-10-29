@@ -19,6 +19,7 @@ from app.core.hardware import (
     OLLAMA_INSTALLER_GB,
     WHISPER_DOWNLOAD_GB,
     available_ram_gb,
+    gpu_name,
     disk_has_room,
     estimate_download_gb,
     suggest_note_model,
@@ -31,7 +32,7 @@ from app.domain.models import SetupComponentStatus, SetupStatus
 from app.domain.ports import AsrPort, AudioCapturePort, SessionRepository
 from app.infrastructure.asr.openai_engine import CLOUD_ASR_MODELS
 from app.infrastructure.asr.whisper_engine import catalog_whisper_models
-from app.infrastructure.llm.ollama_manager import OLLAMA_CATALOG
+from app.infrastructure.llm.ollama_manager import OLLAMA_CATALOG, find_installed_aliases
 from app.infrastructure.llm.openai_chat import CLOUD_LLM_MODELS
 from app.infrastructure.llm.router import LlmRouter, normalize_provider
 from app.schemas.api import BootstrapIn, SettingsIn, SettingsOut
@@ -131,7 +132,7 @@ class SetupService:
         probe = self._audio.probe()
         audio_ok = bool(probe.get("microphone"))
         audio_message = str(probe.get("message") or "")
-        ram = available_ram_gb() or total_ram_gb()
+        ram = max(available_ram_gb(), total_ram_gb() * 0.7)
         save_recordings = await self._save_recordings_flag()
         kind = (await self._store.get_setting("disclaimer_kind")) or "local"
         capture_ready = self._asr.is_ready()
@@ -159,7 +160,7 @@ class SetupService:
         )
 
     async def plan(self) -> dict[str, object]:
-        ram = available_ram_gb() or total_ram_gb()
+        ram = max(available_ram_gb(), total_ram_gb() * 0.7)
         catalog = await self.list_models()
         save_recordings = await self._save_recordings_flag()
         need_installer = not bool(self._llm.local.find_binary())
@@ -181,6 +182,9 @@ class SetupService:
         disk_ok, free, needed = disk_has_room(self._settings.data_dir, download)
         return {
             "ram_gb": ram,
+            "total_ram_gb": total_ram_gb(),
+            "free_ram_gb": available_ram_gb(),
+            "gpu_name": gpu_name(),
             "vram_gb": vram_gb(),
             "suggested_note_model": suggest_note_model(ram),
             "suggested_whisper_model": suggest_whisper_model(ram),
@@ -556,16 +560,22 @@ class SetupService:
                     "learn_more": _ollama_learn_more(item["id"]),
                 }
             )
+        # gemma4:latest no disco com os mesmos pesos de gemma4:e4b: conta como instalado.
+        try:
+            aliases = await find_installed_aliases([model_id for model_id, _ in OLLAMA_CATALOG], installed)
+        except Exception:
+            aliases = {}
         for model_id, label in OLLAMA_CATALOG:
             if any(row["id"] == model_id for row in ollama_rows):
                 continue
+            alias = aliases.get(model_id)
             ollama_rows.append(
                 {
                     "id": model_id,
                     "label": label,
-                    "installed": _ollama_name_present(model_id, installed),
+                    "installed": bool(alias) or _ollama_name_present(model_id, installed),
                     "source": "ollama",
-                    "detail": "",
+                    "detail": f"= {alias}" if alias else "",
                     "recommended": _is_recommended(model_id),
                     "learn_more": _ollama_learn_more(model_id),
                 }

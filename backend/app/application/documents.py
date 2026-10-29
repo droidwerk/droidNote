@@ -24,7 +24,9 @@ class DocumentService:
         self._store = store
         self._work_dir = work_dir
 
-    async def ingest(self, filename: str, data: bytes, *, chat_id: str | None = None) -> ChatDocument:
+    async def ingest(
+        self, filename: str, data: bytes, *, chat_id: str | None = None, session_id: str | None = None
+    ) -> ChatDocument:
         name = Path(filename or "documento").name[:160]
         kind = document_kind(name)
         if not data:
@@ -32,6 +34,8 @@ class DocumentService:
         if len(data) > MAX_BYTES:
             raise DocumentError("too_large")
         if chat_id and len(await self._store.list_documents(chat_id=chat_id)) >= MAX_PER_CHAT:
+            raise DocumentError("too_many")
+        if session_id and len(await self._store.list_documents(session_id=session_id)) >= MAX_PER_CHAT:
             raise DocumentError("too_many")
         self._work_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self._work_dir) as folder:
@@ -46,6 +50,7 @@ class DocumentService:
         document = ChatDocument(
             id=document_id,
             chat_id=chat_id,
+            session_id=session_id,
             name=name,
             kind=kind,
             size=len(data),
@@ -59,6 +64,9 @@ class DocumentService:
 
     async def list(self, chat_id: str) -> list[ChatDocument]:
         return await self._store.list_documents(chat_id=chat_id)
+
+    async def list_for_session(self, session_id: str) -> list[ChatDocument]:
+        return await self._store.list_documents(session_id=session_id)
 
     async def delete(self, document_id: str) -> None:
         if not await self._store.delete_document(document_id):

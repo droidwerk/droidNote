@@ -269,7 +269,6 @@ export function UserNotes({ sessionId, recording, momentMs = null, revision = 0,
 
       <div className="user-notes-composer">
         <div className="note-kinds" role="radiogroup" aria-label={t("notes.kindAria")}>
-          <InfoTip text={t("notes.shiftHint")} side="top" />
           <button type="button" role="radio" aria-checked={kind === null} className={kind === null ? "is-on" : ""} onClick={() => setKind(null)}>
             {t("notes.free")}
           </button>
@@ -286,6 +285,7 @@ export function UserNotes({ sessionId, recording, momentMs = null, revision = 0,
               {t(`mini.marker_${item.id}`)}
             </button>
           ))}
+          <InfoTip text={t("notes.shiftHint")} side="top" align="end" />
         </div>
         <div className="user-notes-input">
           <textarea

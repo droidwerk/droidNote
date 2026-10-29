@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -218,6 +219,23 @@ CREATE TABLE IF NOT EXISTS voiceprints (
     samples INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mindmaps (
+    session_id TEXT PRIMARY KEY,
+    origin TEXT NOT NULL DEFAULT 'auto',
+    summary_id TEXT,
+    payload_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE TABLE IF NOT EXISTS session_memory (
+    session_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
 """
 
 INDEXES = """
@@ -267,8 +285,14 @@ class SqliteStore:
             await _ensure_column(db, "segments", "speaker_cluster", "TEXT")
             await _ensure_column(db, "segments", "speaker_confidence", "REAL")
             await _ensure_column(db, "segments", "speaker_locked", "INTEGER NOT NULL DEFAULT 0")
+            await _ensure_column(db, "documents", "session_id", "TEXT")
             await db.executescript(INDEXES)
             await db.execute("PRAGMA journal_mode=WAL")
+            try:
+                # Tabela de uma versão anterior; se outro processo ainda a segura, fica para a próxima abertura.
+                await db.execute("DROP TABLE IF EXISTS diagrams")
+            except sqlite3.OperationalError:
+                pass
             await db.execute("DROP TABLE IF EXISTS memory_messages")
             await db.execute("DROP TABLE IF EXISTS memory_threads")
             await db.commit()
@@ -343,6 +367,13 @@ class SqliteStore:
             await db.execute("DELETE FROM session_notes WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM tasks WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            await db.execute(
+                "DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE session_id = ?)",
+                (session_id,),
+            )
+            await db.execute("DELETE FROM documents WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM mindmaps WHERE session_id = ?", (session_id,))
+            await db.execute("DELETE FROM session_memory WHERE session_id = ?", (session_id,))
             await db.commit()
 
     async def add_segment(self, segment: TranscriptSegment) -> None:
@@ -1067,12 +1098,13 @@ class SqliteStore:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
-                INSERT INTO documents (id, chat_id, name, kind, size, pages, chunks, chars, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO documents (id, chat_id, session_id, name, kind, size, pages, chunks, chars, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document.id,
                     document.chat_id,
+                    document.session_id,
                     document.name,
                     document.kind,
                     document.size,
@@ -1088,7 +1120,13 @@ class SqliteStore:
             )
             await db.commit()
 
-    async def list_documents(self, *, chat_id: str | None = None, ids: Sequence[str] | None = None) -> list[ChatDocument]:
+    async def list_documents(
+        self,
+        *,
+        chat_id: str | None = None,
+        ids: Sequence[str] | None = None,
+        session_id: str | None = None,
+    ) -> list[ChatDocument]:
         sql = "SELECT * FROM documents"
         params: list[str] = []
         if ids is not None:
@@ -1099,6 +1137,9 @@ class SqliteStore:
         elif chat_id is not None:
             sql += " WHERE chat_id = ?"
             params.append(chat_id)
+        elif session_id is not None:
+            sql += " WHERE session_id = ?"
+            params.append(session_id)
         sql += " ORDER BY created_at ASC"
         async with aiosqlite.connect(self._path) as db:
             db.row_factory = aiosqlite.Row
@@ -1290,6 +1331,77 @@ class SqliteStore:
             await db.execute("DELETE FROM voiceprints WHERE person_id = ?", (person_id,))
             await db.commit()
 
+    # ----------------------------------------------------------- mapa mental
+
+    async def get_mindmap(self, session_id: str):
+        from app.application.mindmap import MindMapRecord, loads
+
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT origin, summary_id, payload_json, updated_at FROM mindmaps WHERE session_id = ?",
+                (session_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return MindMapRecord(
+            session_id=session_id,
+            origin=str(row[0] or "auto"),
+            summary_id=row[1],
+            data=loads(str(row[2] or "{}")),
+            updated_at=_parse_dt(row[3]) or datetime.now(tz=UTC),
+        )
+
+    async def save_mindmap(self, record) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO mindmaps (session_id, origin, summary_id, payload_json, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    origin = excluded.origin,
+                    summary_id = excluded.summary_id,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    record.session_id,
+                    record.origin,
+                    record.summary_id,
+                    json.dumps(record.data, ensure_ascii=False),
+                    _dump_dt(record.updated_at),
+                ),
+            )
+            await db.commit()
+
+    # --------------------------------------------------------- memória da série
+
+    async def get_memory(self, session_id: str) -> tuple[str, str, datetime | None] | None:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT fingerprint, payload_json, created_at FROM session_memory WHERE session_id = ?",
+                (session_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return str(row[0]), str(row[1]), _parse_dt(row[2])
+
+    async def save_memory(self, session_id: str, fingerprint: str, payload_json: str, created_at: datetime) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO session_memory (session_id, fingerprint, payload_json, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    fingerprint = excluded.fingerprint,
+                    payload_json = excluded.payload_json,
+                    created_at = excluded.created_at
+                """,
+                (session_id, fingerprint, payload_json, _dump_dt(created_at)),
+            )
+            await db.commit()
+
 def new_id() -> str:
     return str(uuid4())
 
@@ -1357,6 +1469,7 @@ def _row_to_document(row: aiosqlite.Row) -> ChatDocument:
         chunks=int(row["chunks"] or 0),
         chars=int(row["chars"] or 0),
         created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
+        session_id=_column(row, "session_id"),
     )
 
 

@@ -93,6 +93,7 @@ export function App() {
   const [navCollapsed, toggleNav] = useFlag("droidnote.navCollapsed");
   const [summaryBusy, setSummaryBusy] = useState<string | null>(null);
   const [summaryRevision, setSummaryRevision] = useState(0);
+  const [memoryRevision, setMemoryRevision] = useState(0);
   // O socket é criado uma vez; a reação à ata automática lê sempre o estado atual por aqui.
   const onSummaryEvent = useRef<(event: Record<string, unknown>) => void>(() => undefined);
   const recordingRef = useRef(false);
@@ -450,6 +451,9 @@ export function App() {
         }
         if (event.type === "summary") {
           onSummaryEvent.current(event);
+        }
+        if (event.type === "memory" && event.status === "done") {
+          setMemoryRevision((value) => value + 1);
         }
         if (event.type === "voices") {
           setVoicesRevision((value) => value + 1);
@@ -858,6 +862,7 @@ export function App() {
               onConnectCalendar={() => openSettings("meetings")}
               summaryBusySessionId={summaryBusy}
               summaryRevision={summaryRevision}
+              memoryRevision={memoryRevision}
               onOpenSettings={() => openSettings("transcription")}
               onRecordEvent={(event) => {
                 setCaptureMode("meeting");
@@ -884,6 +889,9 @@ export function App() {
               sessionId={activeId}
               summaryBusySessionId={summaryBusy}
               summaryRevision={summaryRevision}
+              memoryRevision={memoryRevision}
+              tasksRevision={tasksRevision}
+              onOpenSession={(sessionId) => openSession(sessionId)}
               seekTo={sessionSeek}
               templates={templates}
               notesRevision={notesRevision}
@@ -1063,9 +1071,10 @@ function toMonitor(value: Record<string, unknown>): MonitorFrame {
         }
       : null,
     voice:
-      isRecord(value.voice) && typeof value.voice.cluster === "string"
+      // Uma voz da sessão (cluster) ou uma pessoa conhecida pela impressão vocal (só person_id).
+      isRecord(value.voice) && (typeof value.voice.cluster === "string" || typeof value.voice.person_id === "string")
         ? {
-            cluster: value.voice.cluster,
+            cluster: typeof value.voice.cluster === "string" ? value.voice.cluster : null,
             person_id: typeof value.voice.person_id === "string" ? value.voice.person_id : null,
             name: typeof value.voice.name === "string" ? value.voice.name : null,
             source: typeof value.voice.source === "string" ? value.voice.source : null,

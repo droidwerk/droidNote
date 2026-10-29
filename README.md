@@ -7,13 +7,13 @@
 
 <p align="center">
   <strong>Assistente local de gravações.</strong><br>
-  Transcreva e gere notas neste computador — sem conta obrigatória e sem bot no Meet, Teams ou Zoom.
+  Transcreva e gere notas neste computador, sem conta obrigatória e sem bot no Meet, Teams ou Zoom.
 </p>
 
 <p align="center">
   <a href="https://github.com/droidwerk/droidNote/releases/latest/download/DroidNote-Setup.exe"><img src="https://img.shields.io/badge/Baixar_para_Windows-x64-FF4500?style=for-the-badge" alt="Baixar para Windows"></a>
   &nbsp;
-  <a href="https://github.com/droidwerk/droidNote/releases/latest"><img src="https://img.shields.io/github/v/release/droidwerk/droidNote?style=for-the-badge&label=versão&color=1a1a1a" alt="Versão"></a>
+  <a href="https://github.com/droidwerk/droidNote/releases/latest"><img src="https://img.shields.io/github/v/release/droidwerk/droidNote?style=for-the-badge&amp;label=vers%C3%A3o&amp;labelColor=333333&amp;color=FF4500" alt="Versão"></a>
 </p>
 
 <p align="center">
@@ -30,8 +30,10 @@ O DroidNote captura o microfone e, se você quiser, o áudio de outros aplicativ
 | Captura | Quem falou | Transcrição | Notas |
 | --- | --- | --- | --- |
 | Microfone e áudio do sistema, neste PC | Separa as vozes pelo som, palavra a palavra | Whisper local ou API OpenAI | Resumo no dispositivo ou via OpenAI |
-| Filtro de eco: sem fone, a chamada não entra duas vezes | Dê nome a uma voz uma vez; ela é reconhecida nas próximas gravações | Idioma da captura independente do idioma da interface | Chat sobre as sessões, com fontes agrupadas |
+| Filtro de eco: sem fone, a chamada não entra duas vezes | Dê nome a uma voz uma vez; ela é reconhecida nas próximas gravações | Idioma da captura independente do idioma da interface | Chat sobre as sessões, com fontes. Ainda em beta |
 | Sem bot convidado na chamada | Linha do tempo de quem falou quando e quanto | Busca em tudo o que já foi dito (`Ctrl+K`) | A ata atribui falas e ações a cada voz |
+
+As ações da ata viram tarefas, com dono e prazo, reunidas numa lista só. A biblioteca guarda as sessões. Se você colar o endereço secreto do calendário (Google, Outlook ou iCloud), a próxima reunião aparece com o que ficou pendente.
 
 A interface e a transcrição são duas escolhas distintas. O app pode ficar em português e a captura em alemão, por exemplo.
 
@@ -41,9 +43,9 @@ A interface e a transcrição são duas escolhas distintas. O app pode ficar em 
 
 Você escolhe no primeiro uso e pode mudar em Preferências.
 
-**Modelos locais** — áudio, transcrição e notas permanecem neste computador. O app baixa o motor de transcrição (e, se faltar, o motor de notas) e mostra o tamanho antes de instalar.
+**Modelos locais.** Áudio, transcrição e notas permanecem neste computador. O app baixa o motor de transcrição (e, se faltar, o motor de notas) e mostra o tamanho antes de instalar.
 
-**API OpenAI** — mais preciso, com chave própria. O áudio da transcrição e trechos da nota saem deste PC e vão para a OpenAI. Vale a [política de privacidade da OpenAI](https://openai.com/policies/privacy-policy).
+**API OpenAI.** Mais preciso, com chave própria. O áudio da transcrição e trechos da nota saem deste PC e vão para a OpenAI. Vale a [política de privacidade da OpenAI](https://openai.com/policies/privacy-policy).
 
 O arquivo WAV é opcional e pode ser desligado. A chave da API, se você usar uma, fica só nesta máquina.
 
@@ -73,9 +75,9 @@ A instalação é por cima da atual. Notas, gravações e modelos não são apag
 
 ## Documentação técnica
 
-- [Arquitetura](docs/architecture.md) — processos, camadas, dados, captura, notas, atualização
-- [Desenvolvimento](docs/development.md) — `dev.ps1`, testes, build do Setup
-- [Diagnóstico e melhorias](docs/melhorias.md) — o que foi medido, corrigido e o que vem a seguir
+- [Arquitetura](docs/architecture.md): processos, camadas, dados, captura, notas, atualização
+- [Desenvolvimento](docs/development.md): `dev.ps1`, testes, build do Setup
+- [Diagnóstico e melhorias](docs/melhorias.md): o que foi medido, corrigido e o que vem a seguir
 
 ---
 

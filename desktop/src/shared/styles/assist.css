@@ -296,7 +296,6 @@
   color: var(--text);
   font-size: 12.5px;
   line-height: 1.55;
-  white-space: pre-wrap;
 }
 
 .mini-link {
@@ -351,4 +350,209 @@
 
 .mini-context small {
   color: var(--faint);
+}
+
+
+def test_parse_markdown_blocks_from_minutes() -> None:
+    from app.application.export import parse_markdown
+
+    blocks = parse_markdown("# Título\\n\\n## Resumo\\n\\nUma frase.\\nOutra.\\n\\n### Assunto\\n- Ponto `01:10`\\n  - Sub\\n- [ ] Tarefa (02:00)\\n")
+    assert [(b.kind, b.level) for b in blocks] == [("title", 0), ("h2", 0), ("p", 0), ("h3", 0), ("li", 0), ("li", 1), ("li", 0)]
+    assert blocks[2].text == "Uma frase. Outra."
+    assert blocks[6].text == "Tarefa (02:00)"
+
+
+async def test_pdf_and_docx_exports_render_minutes_markdown(client, app) -> None:
+    from datetime import UTC, datetime
+
+    from app.domain.models import ActionItem, Session, Summary, TranscriptSegment
+    from app.infrastructure.persistence.sqlite import new_id
+    from tests.conftest import auth
+
+    store = app.state.container.store
+    session = Session(id=new_id(), title="Reunião 29/10/2026 17:08", started_at=datetime.now(tz=UTC), ended_at=None, status="stopped")
+    await store.create_session(session)
+    await store.add_segment(TranscriptSegment(id=new_id(), session_id=session.id, start_ms=1_000, end_ms=3_000, text="Olá <todos> & bem-vindos."))
+    await store.save_summary(
+        Summary(
+            id=new_id(), session_id=session.id, highlights=[], decisions=["Fechar o piloto (00:01)"],
+            action_items=[ActionItem(text="Enviar proposta", owner="Ana")], raw_text="{}", created_at=datetime.now(tz=UTC),
+            notes_markdown="# Reunião\\n\\n## Resumo\\n\\nTexto **forte**.\\n\\n### Assunto\\n- Ponto `00:01`\\n",
+        )
+    )
+    pdf = await client.get(f"/sessions/{session.id}/export?format=pdf", headers=auth())
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    assert "filename=" in pdf.headers["content-disposition"]
+    docx = await client.get(f"/sessions/{session.id}/export?format=docx", headers=auth())
+    assert docx.status_code == 200 and docx.content[:2] == b"PK"
+'''
+t.write_text(s, encoding="utf-8")
+print("tests ok")
+
+# ------------------------------------------------------------- chat + mini
+patch(
+    "desktop/src/pages/ChatPage.tsx",
+    [
+        (
+            '''                  <p>{item.role === "assistant" ? linkStamps(item.content, citedSession(item.citations), onOpenSession) : item.content}</p>''',
+            '''                  item.role === "assistant" ? (
+                    <Markdown
+                      text={item.content}
+                      renderStamp={stampRenderer(citedSession(item.citations), onOpenSession)}
+                    />
+                  ) : (
+                    <p>{item.content}</p>
+                  )''',
+        ),
+        (
+            '''function linkStamps(text: string, sessionId: string | null, open: (sessionId: string, atMs?: number) => void) {
+  if (!sessionId) return text;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(STAMP_IN_TEXT)) {
+    const ms = stampToMs(match[1] ?? "");
+    if (ms === null || match.index === undefined) continue;
+    parts.push(text.slice(last, match.index));
+    parts.push(
+      <button key={`${match.index}`} type="button" className="chat-stamp" onClick={() => open(sessionId, ms)}>
+        {match[1]}
+      </button>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (!parts.length) return text;
+  parts.push(text.slice(last));
+  return parts;
+}''',
+            '''/** Marca de tempo da resposta vira botão que abre a conversa citada naquele momento. */
+function stampRenderer(sessionId: string | null, open: (sessionId: string, atMs?: number) => void) {
+  if (!sessionId) return undefined;
+  return (stamp: string): ReactNode => {
+    const ms = stampToMs(stamp);
+    if (ms === null) return stamp;
+    return (
+      <button type="button" className="chat-stamp" onClick={() => open(sessionId, ms)}>
+        {stamp}
+      </button>
+    );
+  };
+}''',
+        ),
+    ],
+)
+cp = ROOT / "desktop/src/pages/ChatPage.tsx"
+s = cp.read_text(encoding="utf-8")
+s = re.sub(r"const STAMP_IN_TEXT = .*\n", "", s, count=1)
+if 'import { Markdown } from "../shared/ui/Markdown";' not in s:
+    s = s.replace('import { Icon } from "../shared/ui/Icon";', 'import { Icon } from "../shared/ui/Icon";\nimport { Markdown } from "../shared/ui/Markdown";', 1)
+cp.write_text(s, encoding="utf-8")
+print("chat ok")
+
+patch(
+    "desktop/src/features/mini/MiniConsole.tsx",
+    [
+        (
+            '''                  <div className="mini-answer" aria-live="polite">
+                    {answer}''',
+            '''                  <div className="mini-answer" aria-live="polite">
+                    <Markdown text={answer} />''',
+        ),
+    ],
+)
+mc = ROOT / "desktop/src/features/mini/MiniConsole.tsx"
+s = mc.read_text(encoding="utf-8")
+if 'shared/ui/Markdown' not in s:
+    s = s.replace('import { Icon } from "../../shared/ui/Icon";', 'import { Icon } from "../../shared/ui/Icon";\nimport { Markdown } from "../../shared/ui/Markdown";', 1)
+    assert 'shared/ui/Markdown' in s, "mini import"
+mc.write_text(s, encoding="utf-8")
+
+css = ROOT / "desktop/src/shared/styles/assist.css"
+s = css.read_text(encoding="utf-8")
+s = s.replace("  font-size: 12.5px;\n  line-height: 1.55;\n  white-space: pre-wrap;\n}", "  font-size: 12.5px;\n  line-height: 1.55;\n}", 1)
+s += '''
+
+/* ------------------------------------------------- Markdown das respostas da IA */
+
+.md {
+  display: grid;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.md p {
+  margin: 0;
+}
+
+.md h3,
+.md h4,
+.md h5 {
+  margin: 6px 0 0;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.md h3 { font-size: 15px; }
+.md h4 { font-size: 13.5px; }
+.md h5 { font-size: 12.5px; color: var(--text-soft); letter-spacing: 0.02em; text-transform: uppercase; }
+
+.md ul,
+.md ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.md ul ul,
+.md ol ol,
+.md ul ol,
+.md ol ul {
+  margin-top: 4px;
+}
+
+.md li::marker {
+  color: var(--accent-hi);
+}
+
+.md code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+.md pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.md blockquote {
+  margin: 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--accent-line);
+  color: var(--text-soft);
+}
+
+.md strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.md .chat-stamp {
+  vertical-align: baseline;
 }

@@ -8,8 +8,10 @@ from app.application.brief import BriefService
 from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
+from app.application.mindmap import MindMapService
 from app.application.documents import DocumentService
 from app.application.meetings import MeetingWatcher
+from app.application.memory import MemoryService
 from app.application.retention import RetentionService
 from app.application.tasks import TaskService
 from app.application.templates import TemplateService
@@ -42,6 +44,8 @@ class AppContainer:
     brief: BriefService | None = None
     retention: RetentionService | None = None
     documents: DocumentService | None = None
+    mindmaps: MindMapService | None = None
+    memory: MemoryService | None = None
 
 
 def get_container(app: FastAPI) -> AppContainer:

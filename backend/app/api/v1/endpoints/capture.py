@@ -118,6 +118,23 @@ async def finish_session(container: AppContainer, session_id: str) -> None:
     await auto_summarize(container, session_id)
 
 
+async def compare_memory(container: AppContainer, session_id: str) -> None:
+    """Ata pronta: a memória da série ("o que mudou desde a última vez") sai logo depois."""
+    memory = container.memory
+    if memory is None:
+        return
+    try:
+        result = await memory.recall(session_id)
+        if result.mode != "after" or result.generated and not result.stale:
+            return
+        await container.bus.publish({"type": "memory", "status": "start", "session_id": session_id})
+        await memory.compare(session_id)
+        await container.bus.publish({"type": "memory", "status": "done", "session_id": session_id})
+    except Exception:
+        log.exception("memory compare failed session=%s", session_id)
+        await container.bus.publish({"type": "memory", "status": "error", "session_id": session_id})
+
+
 async def auto_summarize(container: AppContainer, session_id: str) -> None:
     """Gravação terminou: a ata sai sozinha, sem a pessoa precisar pedir."""
     if (await container.store.get_setting("auto_summary")) == "0":
@@ -139,5 +156,6 @@ async def auto_summarize(container: AppContainer, session_id: str) -> None:
         log.exception("auto summary failed session=%s", session_id)
         await container.bus.publish({"type": "summary", "status": "error", "session_id": session_id})
         return
+    await compare_memory(container, session_id)
     await container.bus.publish({"type": "summary", "status": "done", "session_id": session_id})
     await container.bus.publish({"type": "tasks", "session_id": session_id})

@@ -89,5 +89,98 @@
 
 .note-kinds > .info-tip {
   align-self: center;
-  margin-right: 2px;
+  margin-left: auto;
+}
+
+/* Passo a passo da chave OpenAI: fechado é uma linha; aberto, uma lista numerada. */
+.key-guide {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.key-guide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-hi);
+  font-size: 12.5px;
+}
+
+.key-guide-toggle:hover {
+  text-decoration: underline;
+}
+
+.key-guide-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  animation: pop-in var(--t-med) var(--ease);
+}
+
+.key-guide-body h4 {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.key-guide-body p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.key-guide-body ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.key-guide-body li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.key-guide-num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-hi);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.key-guide-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--muted) !important;
+  font-size: 12px !important;
+}
+
+.key-guide-note .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ok);
+}
+
+.form-grid > .key-guide {
+  grid-column: 1 / -1;
 }

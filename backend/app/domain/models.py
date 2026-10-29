@@ -165,6 +165,8 @@ class ChatDocument:
     chars: int
     created_at: datetime
     chat_id: str | None = None
+    # Material de apoio de uma reunião ou aula (pauta, slides, contrato): a ata e o chat usam.
+    session_id: str | None = None
 
 
 @dataclass(frozen=True)

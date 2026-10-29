@@ -33,7 +33,9 @@ export type IconName =
   | "attach"
   | "expand"
   | "collapse"
-  | "rail";
+  | "rail"
+  | "mindmap"
+  | "memory";
 
 const PATHS: Record<IconName, ReactElement> = {
   console: (
@@ -170,6 +172,22 @@ const PATHS: Record<IconName, ReactElement> = {
     <>
       <rect x="4" y="5" width="16" height="14" rx="2" />
       <path d="M9.5 5v14" />
+    </>
+  ),
+  mindmap: (
+    <>
+      <circle cx="12" cy="12" r="2.6" />
+      <circle cx="5" cy="6.5" r="1.8" />
+      <circle cx="19" cy="6.5" r="1.8" />
+      <circle cx="5" cy="17.5" r="1.8" />
+      <circle cx="19" cy="17.5" r="1.8" />
+      <path d="M10 10.5 6.4 7.7M14 10.5l3.6-2.8M10 13.5l-3.6 2.8M14 13.5l3.6 2.8" />
+    </>
+  ),
+  memory: (
+    <>
+      <path d="M12 4.5a4 4 0 0 0-4 4v1.2a3.2 3.2 0 0 0-1.5 6v.3a3.5 3.5 0 0 0 5.5 2.9 3.5 3.5 0 0 0 5.5-2.9v-.3a3.2 3.2 0 0 0-1.5-6V8.5a4 4 0 0 0-4-4z" />
+      <path d="M12 4.5v14.6M8 10.5h4M12 14h4" />
     </>
   ),
   expand: <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />,

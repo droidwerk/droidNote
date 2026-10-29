@@ -139,6 +139,36 @@ def test_tracker_short_piece_never_creates_a_voice() -> None:
     assert tracker.clusters == {}
 
 
+def test_tracker_brief_unmatched_piece_does_not_found_a_voice() -> None:
+    first, second = _voices(2, seed=11)
+    rng = np.random.default_rng(12)
+    tracker = SpeakerTracker()
+    base = tracker.assign(_sample(first, rng), 4.0, "loopback")
+    assert base is not None
+    # 2 s de uma voz distinta: não vira "Voz 2"; sem parecença, herda do vizinho.
+    assert tracker.assign(_sample(second, rng), 2.0, "loopback") is None
+    assert len(tracker.clusters) == 1
+    # 2 s meio parecidos com a voz 1 (entre o provisório e o limiar) ficam com ela sem mover o centróide.
+    before = tracker.clusters[base.cluster].seconds
+    orthogonal = _unit(second - float(second @ first) * first)
+    close = tracker.assign(_unit(0.45 * first + 0.893 * orthogonal), 2.0, "loopback")
+    assert close is not None and close.cluster == base.cluster
+    assert tracker.clusters[base.cluster].seconds == before
+    # Com fala suficiente, a segunda voz nasce.
+    other = tracker.assign(_sample(second, rng), 3.0, "loopback")
+    assert other is not None and other.cluster != base.cluster
+
+
+def test_spectral_dissolves_tiny_islands() -> None:
+    first, second = _voices(2, seed=13)
+    rng = np.random.default_rng(14)
+    points = [_sample(first, rng, 0.9) for _ in range(20)] + [_sample(second, rng, 0.9) for _ in range(20)]
+    stray = _unit(_sample(first, rng, 0.9) * 0.5 + rng.normal(0, 0.9, first.size))
+    labels = spectral_labels(points + [stray, stray])
+    assert len(set(labels)) == 2
+    assert labels[-1] in set(labels[:40])
+
+
 def test_spectral_finds_three_voices_and_one_voice() -> None:
     centers = _voices(3, seed=7)
     rng = np.random.default_rng(8)

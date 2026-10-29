@@ -238,7 +238,7 @@
 }
 
 .note-filters button,
-.note-kinds button {
+.note-kinds button:not(.info-tip-button) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -259,7 +259,7 @@
 }
 
 .note-filters button:hover,
-.note-kinds button:hover {
+.note-kinds button:not(.info-tip-button):hover {
   color: var(--text);
 }
 

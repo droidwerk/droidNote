@@ -22,6 +22,11 @@ WHISPER_DOWNLOAD_GB: dict[str, float] = {
     "distil-large-v3": 1.5,
 }
 OLLAMA_DOWNLOAD_GB: dict[str, float] = {
+    "gemma4:e2b": 4.6,
+    "gemma4:e4b": 6.6,
+    "gemma4:12b": 7.7,
+    "gemma4:26b": 16.0,
+    "qwen3.6:35b-a3b": 23.0,
     "qwen2.5:3b": 2.0,
     "qwen3:4b": 2.5,
     "qwen3:8b": 5.2,
@@ -100,6 +105,26 @@ def _windows_free_disk_gb(path: Path) -> float:
     return free.value / 1024**3
 
 
+def gpu_name() -> str:
+    """Nome da primeira GPU NVIDIA ("NVIDIA GeForce RTX 4060"). Vazio sem nvidia-smi."""
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        completed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            creationflags=creationflags,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if completed.returncode != 0:
+        return ""
+    lines = (completed.stdout or "").strip().splitlines()
+    return lines[0].strip() if lines else ""
+
+
 def vram_gb() -> float:
     """VRAM da primeira GPU NVIDIA, em GB. Zero se não houver nvidia-smi."""
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -162,18 +187,40 @@ def disk_has_room(path: Path, download_gb: float) -> tuple[bool, float, float]:
     return free >= needed, free, needed
 
 
-def suggest_note_model(ram_gb: float | None = None) -> str:
-    """Modelo local de nota que a máquina aguenta sem travar."""
+# Pesos que cabem na placa de vídeo rodam 10× mais rápido do que os que transbordam para a RAM
+# (medido: gemma4 9,6 GB numa placa de 8 GB = 3 tokens/s). Folga para o contexto da conversa.
+VRAM_HEADROOM_GB = 1.2
+# Do menor para o maior: a escolha por VRAM pega o maior que cabe.
+DENSE_NOTE_MODELS = ("gemma4:e2b", "gemma4:e4b", "gemma4:12b")
+
+
+def suggest_note_model(ram_gb: float | None = None, *, vram: float | None = None) -> str:
+    """Modelo local de nota que a máquina aguenta sem travar.
+
+    Sem placa de vídeo, manda a RAM (MoE 26B/35B com 3–4B ativos é rápido na CPU, mas o modelo
+    inteiro precisa caber). Com placa, o modelo denso tem que caber na VRAM — senão fica lento demais.
+    """
     ram = available_ram_gb() if ram_gb is None else ram_gb
-    if ram >= 24:
-        return "gemma3:12b"
-    if ram >= 16:
-        return "qwen3:8b"
-    if ram >= 8:
-        return "qwen3:4b"
-    if ram > 0:
-        return "qwen2.5:3b"
-    return "qwen3:4b"
+    if ram >= 32:
+        by_ram = "qwen3.6:35b-a3b"
+    elif ram >= 24:
+        by_ram = "gemma4:26b"
+    elif ram >= 16:
+        by_ram = "gemma4:12b"
+    elif ram >= 8:
+        by_ram = "gemma4:e4b"
+    elif ram > 0:
+        by_ram = "gemma4:e2b"
+    else:
+        by_ram = "gemma4:e4b"
+    gpu = vram_gb() if vram is None else vram
+    if gpu <= 0 or by_ram not in DENSE_NOTE_MODELS:
+        return by_ram
+    fits = [name for name in DENSE_NOTE_MODELS if OLLAMA_DOWNLOAD_GB[name] + VRAM_HEADROOM_GB <= gpu]
+    if not fits:
+        return DENSE_NOTE_MODELS[0]
+    best = fits[-1]
+    return best if DENSE_NOTE_MODELS.index(best) < DENSE_NOTE_MODELS.index(by_ram) else by_ram
 
 
 def suggest_whisper_model(

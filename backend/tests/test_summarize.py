@@ -41,3 +41,10 @@ def test_parse_summary_json_drops_repeated_lines() -> None:
     assert parsed["highlights"] == ["X", "Y"]
     assert parsed["decisions"] == ["Fechar piloto"]
     assert parsed["open_items"] == ["Orçamento"]
+
+
+def test_parse_summary_json_joins_overview_given_as_a_list() -> None:
+    from app.application.summarize import parse_summary_json
+
+    parsed = parse_summary_json('{"overview": ["Primeira frase.", "Segunda frase."], "topics": []}')
+    assert parsed["overview"] == "Primeira frase. Segunda frase."

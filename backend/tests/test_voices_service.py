@@ -147,6 +147,31 @@ async def test_probe_matches_known_voice_without_creating_new_ones(voices) -> No
     assert service.probe(session_id, _audio(0.2, 1.5)) is None
 
 
+@pytest.mark.asyncio
+async def test_probe_names_a_known_person_before_any_transcript(voices) -> None:
+    service, store = voices
+    first = await _session(store)
+    await service.begin(first, mode="meeting", self_person_id=None, call=True)
+    await _record(service, store, first, [(0.0, "a"), (0.1, "b")])
+    await service.refine(first, final=True)
+    ana = await store.create_person("Ana")
+    await service.assign(first, "v1", ana.id)
+
+    second = await _session(store)
+    await service.begin(second, mode="meeting", self_person_id=None, call=True)
+    # Nenhuma fala transcrita ainda: a primeira sonda só anota, a segunda confirma o nome.
+    assert service.probe(second, _audio(0.0, 1.5)) is None
+    found = service.probe(second, _audio(0.0, 1.5))
+    assert found is not None and found[0] is None and found[1] == ana.id
+    # Voz desconhecida zera a confirmação; a Ana precisa de duas sondas de novo.
+    assert service.probe(second, _audio(0.1, 1.5)) is None
+    assert service.probe(second, _audio(0.0, 1.5)) is None
+    assert service.probe(second, _audio(0.0, 1.5)) == (None, ana.id, 1.0)
+    # Depois de uma fala dela, a sonda devolve a voz da sessão já com o nome.
+    await _record(service, store, second, [(0.0, "oi")])
+    assert service.probe(second, _audio(0.0, 1.5)) == ("v1", ana.id, 1.0)
+
+
 def test_unnamed_voices_reach_the_note_prompt() -> None:
     segments = [
         TranscriptSegment(id="1", session_id="s", start_ms=0, end_ms=1000, text="Proponho sexta.", speaker_cluster="v2"),

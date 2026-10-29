@@ -79,6 +79,54 @@ export interface Brief {
   pending: TaskItem[];
 }
 
+/** Mapa mental da conversa: dados no formato do editor (mind-elixir) mais origem e esboço. */
+export interface MindMap {
+  session_id: string;
+  origin: "auto" | "edited" | "ai";
+  summary_id: string | null;
+  updated_at: string;
+  data: { nodeData: unknown; direction?: number };
+  markdown: string;
+}
+
+export interface MemoryThread {
+  session_id: string;
+  title: string;
+  started_at: string;
+  reason: "title" | "people" | "both";
+  has_summary: boolean;
+  decisions: string[];
+  open_items: string[];
+}
+
+export interface MemoryResolved {
+  item: string;
+  how: string;
+  task_id: string | null;
+}
+
+export interface MemoryChange {
+  before: string;
+  now: string;
+}
+
+/** Memória da série: o que liga esta reunião às anteriores e o que mudou. */
+export interface Memory {
+  session_id: string;
+  mode: "before" | "after";
+  generated: boolean;
+  stale: boolean;
+  language: string | null;
+  created_at: string | null;
+  thread: MemoryThread[];
+  resolved: MemoryResolved[];
+  still_open: string[];
+  changed: MemoryChange[];
+  new_items: string[];
+  watch: string[];
+  pending: TaskItem[];
+}
+
 export interface CalendarEvent {
   uid: string;
   title: string;
@@ -172,7 +220,8 @@ export interface ChannelLevel {
 }
 
 export interface LiveVoice {
-  cluster: string;
+  /** Nulo quando a pessoa foi reconhecida pela impressão vocal antes de ter uma voz na sessão. */
+  cluster: string | null;
   person_id: string | null;
   name: string | null;
   source: string | null;
@@ -319,6 +368,9 @@ export interface SetupPlan {
   whisper_download_gb?: Record<string, number>;
   ollama_download_gb?: Record<string, number>;
   ollama_installer_gb?: number;
+  total_ram_gb?: number;
+  free_ram_gb?: number;
+  gpu_name?: string;
 }
 
 export interface BackendInfo {
@@ -362,6 +414,7 @@ export interface ChatDocument {
   chars: number;
   created_at: string;
   chat_id: string | null;
+  session_id?: string | null;
 }
 
 export interface ChatMessage {
