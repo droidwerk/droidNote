@@ -54,6 +54,7 @@ export function CaptureDeck({
   const voice = recording ? monitor?.voice ?? null : null;
   const voiceFresh = Boolean(voice);
   const person = voice?.person_id ? people.find((item) => item.id === voice.person_id) : undefined;
+  const voiceSeed = voice?.cluster ?? voice?.person_id ?? "known";
   const label =
     pending === "start" ? t("live.starting") : pending === "stop" ? t("live.stopping") : recording ? t("live.stop") : t("live.start");
 
@@ -116,8 +117,8 @@ export function CaptureDeck({
       <div className={voiceFresh ? "deck-now is-on" : "deck-now"} aria-live="polite">
         <span className="eyebrow">{t("voices.speakingNow")}</span>
         {voice && voiceFresh ? (
-          <span className="deck-now-voice" style={{ "--voice": clusterToken(voice.cluster) } as CSSProperties}>
-            <VoicePrint seed={voice.cluster} color={clusterToken(voice.cluster)} active />
+          <span className="deck-now-voice" style={{ "--voice": clusterToken(voiceSeed) } as CSSProperties}>
+            <VoicePrint seed={voiceSeed} color={clusterToken(voiceSeed)} active />
             <strong>{person?.name ?? voice.name ?? voiceName(voice.cluster)}</strong>
           </span>
         ) : (

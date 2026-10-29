@@ -9,6 +9,8 @@ import { AppVersion, BrandLockup, SiteCredit } from "../../shared/ui/Brand";
 import { PrivacyPolicy } from "../../shared/ui/PrivacyPolicy";
 import { Button, Card, ProgressBar } from "../../shared/ui/primitives";
 import { StatusGlyph } from "../../shared/ui/ModelSelect";
+import { PcAnalysis } from "./PcAnalysis";
+import { OpenAiKeyGuide } from "./OpenAiKeyGuide";
 
 interface WizardProps {
   onDone: () => void;
@@ -221,15 +223,11 @@ export function Wizard({ onDone }: WizardProps) {
             whisperModel={whisperModel}
             t={t}
           />
-          <p className="wizard-ram">
-            {t("wizard.ramDetected")}{" "}
-            <strong>{plan.ram_gb > 0 ? t("wizard.ramFree", { gb: plan.ram_gb.toFixed(0) }) : t("wizard.ramUnknown")}</strong>
-            {plan.vram_gb && plan.vram_gb > 0 ? <> · {t("wizard.gpuWith", { gb: plan.vram_gb.toFixed(1) })}</> : null}.
-            {t("wizard.recommend", {
-              note: humanModel(plan.suggested_note_model, t),
-              whisper: humanWhisper(plan.suggested_whisper_model, t),
-            })}
-          </p>
+          <PcAnalysis
+            plan={plan}
+            noteLabel={humanModel(plan.suggested_note_model, t)}
+            whisperLabel={humanWhisper(plan.suggested_whisper_model, t)}
+          />
 
           <ModelDecision
             title={t("wizard.notesEngine")}
@@ -336,6 +334,7 @@ export function Wizard({ onDone }: WizardProps) {
             </Button>
           </div>
           {keyMessage ? <p className="muted">{keyMessage}</p> : null}
+          <OpenAiKeyGuide />
           <p className="muted">
             {t("wizard.nextConsent")}
           </p>

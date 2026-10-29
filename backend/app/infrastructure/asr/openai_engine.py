@@ -14,10 +14,14 @@ from app.infrastructure.asr.whisper_engine import build_asr_prompt, filter_trans
 log = get_logger("asr.openai")
 
 OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
+# Preços por minuto de áudio (tabela da OpenAI): mini US$ 0,003; os demais US$ 0,006.
+# A interface traduz nome e explicação (models.* e modelHelp.*); aqui fica o nome curto de reserva.
 CLOUD_ASR_MODELS: tuple[tuple[str, str], ...] = (
-    ("gpt-4o-transcribe", "GPT-4o Transcribe — recomendado, melhor precisão"),
-    ("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe — mais barato"),
-    ("whisper-1", "Whisper 1 — clássico"),
+    ("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe — recomendado"),
+    ("gpt-4o-mini-transcribe-2025-12-15", "GPT-4o mini Transcribe (dez/2025)"),
+    ("gpt-4o-transcribe", "GPT-4o Transcribe"),
+    ("gpt-4o-transcribe-diarize", "GPT-4o Transcribe Diarize"),
+    ("whisper-1", "Whisper 1"),
 )
 CLOUD_MODELS = CLOUD_ASR_MODELS
 
@@ -65,6 +69,9 @@ class OpenAIWhisperEngine:
             data["prompt"] = prompt
         if locked:
             data["language"] = locked
+        if "diarize" in self.model:
+            # O modelo com diarização só responde neste formato; o texto vem por segmento.
+            data["response_format"] = "diarized_json"
         with httpx.Client(timeout=60.0, verify=ssl_verify()) as client:
             response = client.post(
                 OPENAI_TRANSCRIBE_URL,
@@ -77,7 +84,12 @@ class OpenAIWhisperEngine:
             log.warning("openai transcribe failed status=%s", response.status_code)
             raise RuntimeError(detail)
         payload = response.json()
-        text = filter_transcript(str(payload.get("text") or ""), locked)
+        raw_text = str(payload.get("text") or "")
+        if not raw_text and isinstance(payload.get("segments"), list):
+            raw_text = " ".join(
+                str(item.get("text") or "").strip() for item in payload["segments"] if isinstance(item, dict)
+            )
+        text = filter_transcript(raw_text, locked)
         return text, locked or None
 
     def transcribe_words(
@@ -90,6 +102,8 @@ class OpenAIWhisperEngine:
         """Palavras com tempo. Só o whisper-1 devolve timestamps; os modelos
         gpt-4o-* devolvem o texto da janela inteira como um trecho só."""
         duration = len(samples) / float(sample_rate or 16_000)
+        if "diarize" in self.model:
+            return self._transcribe_diarized(samples, sample_rate, language=language)
         if self.model != "whisper-1":
             text, detected = self.transcribe_window(samples, sample_rate, language=language)
             return ([(0.0, duration, text)] if text else []), detected
@@ -140,6 +154,53 @@ class OpenAIWhisperEngine:
             if text:
                 words.append((0.0, duration, text))
         return words, detected
+
+    def _transcribe_diarized(
+        self,
+        samples: Sequence[float],
+        sample_rate: int,
+        *,
+        language: str | None = None,
+    ) -> tuple[list[tuple[float, float, str]], str | None]:
+        """Modelo com diarização: cada trecho de um falante volta com início e fim dentro da janela.
+
+        Só os cortes entram no fluxo — como "palavras" com tempo — para o motor de voz do DroidNote
+        separar a janela por quem falou. O rótulo "speaker A/B" da OpenAI é descartado: quem diz
+        quem é cada voz (e dá nome a ela) continua sendo a impressão vocal guardada neste PC.
+        """
+        self.load()
+        locked = whisper_language_arg(language)
+        wav = samples_to_wav_bytes(samples, sample_rate)
+        duration = len(samples) / float(sample_rate or 16_000)
+        data: dict[str, str] = {"model": self.model, "response_format": "diarized_json"}
+        if locked:
+            data["language"] = locked
+        with httpx.Client(timeout=60.0, verify=ssl_verify()) as client:
+            response = client.post(
+                OPENAI_TRANSCRIBE_URL,
+                headers={"Authorization": f"Bearer {self.api_key.strip()}"},
+                data=data,
+                files={"file": ("audio.wav", wav, "audio/wav")},
+            )
+        if response.status_code >= 400:
+            log.warning("openai transcribe failed status=%s", response.status_code)
+            raise RuntimeError(_error_detail(response))
+        payload = response.json()
+        pieces: list[tuple[float, float, str]] = []
+        for segment in payload.get("segments") or []:
+            if not isinstance(segment, dict):
+                continue
+            text = filter_transcript(str(segment.get("text") or ""), locked)
+            if not text:
+                continue
+            start = max(0.0, float(segment.get("start") or 0.0))
+            end = max(start, min(duration, float(segment.get("end") or start)))
+            pieces.append((start, end, text))
+        if not pieces:
+            text = filter_transcript(str(payload.get("text") or ""), locked)
+            if text:
+                pieces.append((0.0, duration, text))
+        return pieces, locked or None
 
     def test_key(self, api_key: str | None = None) -> tuple[bool, str]:
         key = (api_key if api_key is not None else self.api_key).strip()

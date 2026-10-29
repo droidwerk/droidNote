@@ -21,11 +21,23 @@ function downloadInBrowser(blob: Blob, suggestedName: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** Nome de arquivo que o Windows aceita: títulos trazem "29/10/2026 17:08", e `/` e `:` são proibidos. */
+export function safeFileName(name: string): string {
+  const cleaned = name
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/\s*-\s*/g, "-")
+    .replace(/^[\s.-]+|[\s.]+$/g, "")
+    .trim();
+  return cleaned || "droidnote";
+}
+
 export async function saveBlob(
   blob: Blob,
-  suggestedName: string,
+  name: string,
   filters: SaveFilter[],
 ): Promise<SaveResult> {
+  const suggestedName = safeFileName(name);
   if (!isTauri()) {
     downloadInBrowser(blob, suggestedName);
     return { status: "saved", path: null };

@@ -19,6 +19,8 @@ from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
 from app.application.brief import BriefService
+from app.application.mindmap import MindMapService
+from app.application.memory import MemoryService
 from app.application.documents import DocumentService
 from app.application.meetings import MeetingWatcher, normalize_mode
 from app.application.retention import RetentionService
@@ -98,7 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else:
             # Primeira execução: escolhe o que a máquina aguenta em vez de assumir
             # um modelo grande e travar o PC do usuário.
-            ram = available_ram_gb() or total_ram_gb()
+            ram = max(available_ram_gb(), total_ram_gb() * 0.7)
             resolved.ollama_model = suggest_note_model(ram)
             resolved.whisper_model = saved_whisper or suggest_whisper_model(ram)
             log.info(
@@ -153,17 +155,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         capture.bind_loop(asyncio.get_running_loop())
         tasks = TaskService(store)
+        brief = BriefService(store)
+        memory = MemoryService(llm, store, brief)
         container = AppContainer(
             settings=resolved,
             store=store,
             bus=bus,
             capture=capture,
             sessions=SessionService(store),
-            summarize=SummarizeService(llm, store, tasks),
+            summarize=SummarizeService(llm, store, tasks, memory=memory),
             setup=SetupService(resolved, store, audio, asr, llm, voice=embedder),
             llm=llm,
             speakers=SpeakersService(llm, store),
-            chat=ChatService(llm, store),
+            chat=ChatService(llm, store, memory=memory),
             voices=voices,
         )
         app.state.container = container
@@ -171,7 +175,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await container.templates.ensure_builtins()
         container.tasks = tasks
         await tasks.backfill()
-        container.brief = BriefService(store)
+        container.brief = brief
+        container.memory = memory
+        container.mindmaps = MindMapService(store, llm, memory)
         container.documents = DocumentService(store, resolved.data_dir / "tmp")
         retention = RetentionService(store, lambda session_id: session_recording_path(resolved, session_id))
         container.retention = retention

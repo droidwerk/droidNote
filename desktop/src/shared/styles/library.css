@@ -514,6 +514,31 @@
   font-size: 12px;
 }
 
+/* Entre 900 e 1180 px a coluna do título ficava com 40 px: pastas mais estreitas e colunas menores. */
+@media (max-width: 1180px) {
+  .library-body {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .library-row {
+    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 120px) 104px 60px;
+  }
+
+  .library-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 1000px) {
+  .library-row {
+    grid-template-columns: 36px minmax(0, 1fr) 104px 60px;
+  }
+
+  .library-row > :nth-child(3) {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .library-body {
     grid-template-columns: minmax(0, 1fr);

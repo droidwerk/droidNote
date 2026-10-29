@@ -15,12 +15,21 @@ import numpy as np
 
 from app.infrastructure.voice.embedder import normalize
 
-LIVE_THRESHOLD = 0.6
+# Calibrado em gravações reais (medição em scratchpad/tools/measure_voices.py):
+# falas inteiras da mesma pessoa ficam em mediana 0,73–0,83 com p10 0,42–0,54;
+# pessoas diferentes nunca passaram de 0,51 (centróides entre 0,14 e 0,28).
+LIVE_THRESHOLD = 0.5
 OFFLINE_THRESHOLD = 0.45
 KNOWN_THRESHOLD = 0.58
 SHORT_SECONDS = 1.2
-SHORT_MARGIN = 0.12
-MERGE_THRESHOLD = 0.62
+SHORT_MARGIN = 0.06
+# Abaixo disso um trecho não funda voz nova: ou vai para a voz mais parecida
+# (se passar de PROVISIONAL_THRESHOLD) ou herda a do vizinho. Vozes fantasmas
+# nasciam de falas de 1–2 s com impressão ruim.
+NEW_VOICE_MIN_S = 2.5
+PROVISIONAL_THRESHOLD = 0.35
+MERGE_THRESHOLD = 0.45
+MIN_CLUSTER_UNITS = 3
 SINGLE_VOICE_FLOOR = 0.42
 PRUNE_RATIOS = (0.05, 0.1, 0.15, 0.25, 0.35)
 MIN_PRUNE = 4
@@ -138,6 +147,12 @@ class SpeakerTracker:
         if short:
             # Trecho curto demais para fundar uma voz nova: herda do vizinho.
             return None
+        if seconds < NEW_VOICE_MIN_S and self.clusters:
+            # Pouca fala para uma voz própria: fica provisoriamente com a mais
+            # parecida (sem somar ao centróide) ou herda do vizinho.
+            if cluster is not None and sim_cluster >= PROVISIONAL_THRESHOLD:
+                return VoiceMatch(cluster.key, cluster.person_id, sim_cluster)
+            return None
         created = self._create(vector, seconds, source, at_ms, None)
         return VoiceMatch(created.key, None, 1.0, created=True)
 
@@ -243,8 +258,24 @@ def spectral_labels(
             best = (score, clusters, vectors[:, :clusters])
     if best is None:
         return agglomerate(list(matrix), weights, threshold=merge_threshold)
-    labels = _kmeans(best[2], best[1])
+    labels = _dissolve_islands(matrix, _kmeans(best[2], best[1]))
     return _merge_close(matrix, labels, weights, merge_threshold)
+
+
+def _dissolve_islands(matrix: np.ndarray, labels: list[int]) -> list[int]:
+    """Grupo com menos de MIN_CLUSTER_UNITS unidades não é uma voz: é uma fala
+    com impressão ruim. Vai para o grupo de centróide mais próximo."""
+    counts = Counter(labels)
+    big = [group for group, count in counts.items() if count >= MIN_CLUSTER_UNITS]
+    if not big or len(big) == len(counts):
+        return labels
+    centroids = {group: normalize(matrix[[i for i, item in enumerate(labels) if item == group]].sum(axis=0)) for group in big}
+    result = list(labels)
+    for index, group in enumerate(labels):
+        if group in centroids:
+            continue
+        result[index] = max(big, key=lambda candidate: float(matrix[index] @ centroids[candidate]))
+    return result
 
 
 def _pruned_affinity(sims: np.ndarray, keep: int) -> np.ndarray:

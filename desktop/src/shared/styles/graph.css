@@ -1,0 +1,422 @@
+/* Diagramas da conversa (fluxo e relações) e memória da série de reuniões. */
+
+/* --------------------------------------------------------------- mapa mental */
+
+.mindmap-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.mindmap-host {
+  height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 18px 18px,
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 18px 18px,
+    var(--surface-2);
+}
+
+.mindmap-host .map-container {
+  font-family: var(--font-body);
+}
+
+.mindmap-host me-tpc {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.mindmap-host me-root > me-tpc {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 8px 16px;
+}
+
+.mindmap-host me-main > me-wrapper > me-parent > me-tpc {
+  font-weight: 600;
+}
+
+.summary-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mindmap-host .mind-elixir-tags span,
+.mindmap-host .tags span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.mindmap-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.mindmap-foot em {
+  font-style: normal;
+  color: var(--muted);
+}
+
+.dg-hint {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------- memória */
+
+.memory {
+  display: grid;
+  gap: 14px;
+}
+
+.memory-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-hi);
+}
+
+.memory-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.memory-thread {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: left;
+}
+
+.memory-chip:hover:not(:disabled) {
+  border-color: var(--line-bright);
+  color: var(--text);
+}
+
+.memory-chip time {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.memory-chip span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.memory-chip small {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.memory-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.memory-list li > div {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.memory-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.memory-list s {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.memory-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--surface-hi);
+  color: var(--muted);
+}
+
+.memory-list .memory-mark::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.memory-list.tone-resolved .memory-mark,
+.memory-list.tone-changed .memory-mark {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.memory-list.tone-resolved .memory-mark::before,
+.memory-list.tone-changed .memory-mark::before {
+  display: none;
+}
+
+.memory-list.tone-changed .memory-mark {
+  background: var(--accent-soft);
+  color: var(--accent-hi);
+}
+
+.memory-list.tone-open .memory-mark { color: var(--warn); background: var(--warn-soft); }
+.memory-list.tone-decision .memory-mark { color: var(--accent-hi); background: var(--accent-soft); }
+.memory-list.tone-new .memory-mark { color: var(--info); background: rgba(56, 189, 248, 0.12); }
+.memory-list.tone-watch .memory-mark { color: var(--voice-4); background: rgba(192, 132, 252, 0.12); }
+
+.memory-list li.is-done strong {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.memory-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.memory-task:hover:not(:disabled) {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.memory-task:disabled {
+  color: var(--ok);
+  border-color: transparent;
+}
+
+.memory-cta {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.memory-stale {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.memory-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.memory-foot .brief-link,
+.memory-stale .brief-link {
+  font-size: 11.5px;
+  color: var(--accent-hi);
+}
+
+
+/* ----------------------------------------------------- abas laterais compactas */
+
+.side-panel {
+  container-type: inline-size;
+}
+
+.side-panel > .tabs {
+  flex-wrap: wrap;
+}
+
+.side-panel > .tabs button {
+  flex: 1 1 auto;
+  padding: 0 9px;
+}
+
+@container (max-width: 420px) {
+  .side-panel > .tabs .tab-label {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------- material de apoio */
+
+.context-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.context-drop {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 20px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  text-align: center;
+  color: var(--muted);
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+
+.context-drop strong {
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.context-drop p {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.context-drop .icon {
+  color: var(--accent-hi);
+}
+
+.context-drop.is-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ------------------------------------------------- assistente: análise do PC */
+
+.pc-analysis {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.pc-analysis header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-hi);
+}
+
+.pc-analysis header strong {
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.pc-analysis dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.pc-analysis dt {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pc-analysis dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.pc-picks {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pc-picks li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: baseline;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.pc-pick-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pc-picks strong {
+  font-size: 13px;
+}
+
+.pc-picks small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ------------------------------------------------------ biblioteca: arrastar */
+
+.library-row[draggable="true"] {
+  cursor: grab;
+}
+
+.library-row[draggable="true"]:active {
+  cursor: grabbing;
+}

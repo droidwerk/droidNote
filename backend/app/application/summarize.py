@@ -15,11 +15,22 @@ class TaskSync(Protocol):
     async def sync_from_summary(self, session_id: str, items: list[ActionItem]) -> object: ...
 
 
+class PriorContext(Protocol):
+    async def prior_context(self, session: Session) -> str: ...
+
+
 class SummarizeService:
-    def __init__(self, llm: LlmPort, store: SessionRepository, tasks: TaskSync | None = None) -> None:
+    def __init__(
+        self,
+        llm: LlmPort,
+        store: SessionRepository,
+        tasks: TaskSync | None = None,
+        memory: PriorContext | None = None,
+    ) -> None:
         self._llm = llm
         self._store = store
         self._tasks = tasks
+        self._memory = memory
 
     async def summarize(self, session_id: str, template_id: str | None = None) -> Summary:
         session = await self._require_session(session_id)
@@ -107,7 +118,43 @@ class SummarizeService:
         notes = await lister(session.id) if callable(lister) else []
         if notes:
             parts.append(user_notes_instructions([(note.at_ms, note.text, note.kind) for note in notes]))
+        parts.append(await self._support_material(session.id))
+        if self._memory is not None:
+            # Reuniões anteriores da série: a ata diz o que foi retomado, resolvido ou segue aberto.
+            try:
+                parts.append(await self._memory.prior_context(session))
+            except Exception:
+                pass
         return "".join(parts)
+
+    async def _support_material(self, session_id: str) -> str:
+        """Pauta, slides ou contrato que a pessoa subiu para esta conversa: nomes e termos certos na ata."""
+        lister = getattr(self._store, "list_documents", None)
+        first = getattr(self._store, "first_document_chunks", None)
+        if not callable(lister) or not callable(first):
+            return ""
+        documents = await lister(session_id=session_id)
+        if not documents:
+            return ""
+        budget = SUPPORT_MAX_CHARS
+        blocks: list[str] = []
+        per_doc = max(2, 10 // len(documents))
+        for document in documents:
+            lines = [f"### {document.name}"]
+            for chunk in await first(document.id, per_doc):
+                text = chunk.text.strip()
+                if not text:
+                    continue
+                if len(text) > budget:
+                    text = text[: max(0, budget - 1)] + "…"
+                lines.append(text)
+                budget -= len(text)
+                if budget <= 0:
+                    break
+            blocks.append("\n".join(lines))
+            if budget <= 0:
+                break
+        return SUPPORT_INSTRUCTIONS + "\n\n".join(blocks) + "\n\n"
 
     def _empty_summary(self, session: Session) -> Summary:
         return Summary(
@@ -185,7 +232,7 @@ def _duration(session: Session, segments: list[TranscriptSegment]) -> str:
 
 def parse_summary_json(raw: str) -> dict:
     payload = _extract_json(raw)
-    overview = str(payload.get("overview") or "").strip()
+    overview = _text(payload.get("overview"))
     # Modelos pequenos repetem a mesma frase em vários pontos (e o resumo dentro dos assuntos).
     topics = [
         SummaryTopic(title=topic.title, points=_unique(topic.points, skip=[overview]))
@@ -217,7 +264,7 @@ def _user_notes(value: object) -> list[dict[str, str]]:
         elif isinstance(item, dict):
             note = str(item.get("note") or "").strip()
             if note:
-                notes.append({"note": note, "context": str(item.get("context") or "").strip()})
+                notes.append({"note": note, "context": _text(item.get("context"))})
     return notes
 
 
@@ -229,6 +276,13 @@ def template_instructions(body: str) -> str:
         f"{sections}\n\n"
     )
 
+
+SUPPORT_MAX_CHARS = 6_000
+SUPPORT_INSTRUCTIONS = (
+    "Material de apoio que a pessoa subiu para esta conversa (pauta, slides, contrato, apostila). Use-o para "
+    "grafar nomes, siglas e termos técnicos do jeito certo e para reconhecer quando a conversa trata de um item "
+    "dele; cite o item quando isso acontecer. Não resuma o material em si: a ata é sobre o que foi dito.\n"
+)
 
 CITE_INSTRUCTIONS = (
     "Citações: termine cada ponto dos assuntos, cada decisão, cada tarefa e cada pendência com o momento da "
@@ -353,6 +407,15 @@ def _extract_json(raw: str) -> dict:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+def _text(value: object) -> str:
+    """Campo de texto que o modelo às vezes devolve como lista de frases: vira um parágrafo."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return " ".join(str(item).strip() for item in value if str(item).strip())
+    return str(value).strip()
 
 
 def _string_list(value: object) -> list[str]:

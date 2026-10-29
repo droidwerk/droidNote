@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../shared/api/client";
-import type { ChatFocus, NoteTemplate, Person, SessionDetail, Tag } from "../shared/api/types";
+import type { Brief, ChatFocus, NoteTemplate, Person, SessionDetail, Tag } from "../shared/api/types";
 import { UserNotes } from "../features/notes/UserNotes";
+import { BriefCard } from "../features/brief/BriefCard";
+import { MindMapPanel } from "../features/mindmap/MindMapPanel";
+import { MemoryPanel } from "../features/memory/MemoryPanel";
+import { ContextPanel } from "../features/context/ContextPanel";
 import { templateName } from "../shared/lib/templates";
 import { pluralForm, useI18n } from "../shared/i18n";
 import { AudioPlayer } from "../features/audio/AudioPlayer";
@@ -18,7 +22,7 @@ import { formatClock, formatDate } from "../shared/lib/format";
 import { openLocalPath, parentDirectory, saveBlob } from "../shared/lib/saveFile";
 import { buildRoster, countWords, mergeVoicesByPerson } from "../shared/lib/voices";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
-import { Icon } from "../shared/ui/Icon";
+import { Icon, type IconName } from "../shared/ui/Icon";
 import { Button } from "../shared/ui/primitives";
 import { SessionTitle } from "../shared/ui/SessionTitle";
 import { useToast } from "../shared/ui/Toast";
@@ -39,10 +43,13 @@ interface SessionPageProps {
   onAsk?: (focus: ChatFocus) => void;
   summaryBusySessionId?: string | null;
   summaryRevision?: number;
+  memoryRevision?: number;
+  tasksRevision?: number;
+  onOpenSession?: (sessionId: string) => void;
 }
 
 type ExportFormat = "markdown" | "pdf" | "docx" | "json";
-type SideTab = "doc" | "voices";
+type SideTab = "doc" | "notes" | "context" | "mindmap" | "memory" | "voices";
 
 const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter: string }[] = [
   { format: "markdown", label: "Markdown", ext: "md", filter: "Markdown" },
@@ -50,6 +57,31 @@ const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter
   { format: "docx", label: "DOCX", ext: "docx", filter: "Word" },
   { format: "json", label: "JSON", ext: "json", filter: "JSON" },
 ];
+
+/** Aba do painel lateral: ícone sempre; o texto some quando o painel fica estreito. */
+export function SideTabButton<T extends string>({
+  id,
+  icon,
+  label,
+  side,
+  onPick,
+  count,
+}: {
+  id: T;
+  icon: IconName;
+  label: string;
+  side: T;
+  onPick: (id: T) => void;
+  count?: number;
+}) {
+  return (
+    <button type="button" role="tab" aria-selected={side === id} className={side === id ? "is-on" : ""} title={label} onClick={() => onPick(id)}>
+      <Icon name={icon} size={15} />
+      <span className="tab-label">{label}</span>
+      {count ? <span className="tab-count">{count}</span> : null}
+    </button>
+  );
+}
 
 export function SessionPage({
   sessionId,
@@ -67,6 +99,9 @@ export function SessionPage({
   onAsk,
   summaryBusySessionId = null,
   summaryRevision = 0,
+  memoryRevision = 0,
+  tasksRevision = 0,
+  onOpenSession,
 }: SessionPageProps) {
   const { t, locale } = useI18n();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -85,6 +120,7 @@ export function SessionPage({
   const [dockMin, toggleDock] = useTranscriptDock();
   const [refining, setRefining] = useState(false);
   const [recipesOpen, setRecipesOpen] = useState(false);
+  const [brief, setBrief] = useState<Brief | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const confirm = useConfirm();
   const toast = useToast();
@@ -122,6 +158,18 @@ export function SessionPage({
   useEffect(() => {
     if (seekTo !== null && seekTo !== undefined) setSeekMs(seekTo);
   }, [seekTo, sessionId]);
+
+  // Reuniões parecidas (mesmo título ou mesmas pessoas) e o que ficou pendente nelas.
+  useEffect(() => {
+    let alive = true;
+    void api
+      .brief({ sessionId })
+      .then((next) => alive && setBrief(next))
+      .catch(() => alive && setBrief(null));
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, tasksRevision, memoryRevision, detail?.session.title]);
 
   const lastRevision = useRef(voicesRevision);
   useEffect(() => {
@@ -437,32 +485,54 @@ export function SessionPage({
         </section>
         <aside className="panel side-panel">
           <div className="tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={side === "doc"} className={side === "doc" ? "is-on" : ""} onClick={() => setSide("doc")}>
-              <Icon name="spark" size={15} />
-              {t("doc.tab")}
-            </button>
-            <button type="button" role="tab" aria-selected={side === "voices"} className={side === "voices" ? "is-on" : ""} onClick={() => setSide("voices")}>
-              <Icon name="voice" size={15} />
-              {t("voices.title")}
-              {roster.length ? <span className="tab-count">{roster.length}</span> : null}
-            </button>
+            <SideTabButton id="doc" icon="spark" label={t("doc.tab")} side={side} onPick={setSide} />
+            <SideTabButton id="notes" icon="edit" label={t("notes.tab")} side={side} onPick={setSide} />
+            <SideTabButton id="context" icon="attach" label={t("context.tab")} side={side} onPick={setSide} />
+            <SideTabButton id="mindmap" icon="mindmap" label={t("mindmap.tab")} side={side} onPick={setSide} />
+            <SideTabButton id="memory" icon="memory" label={t("memory.tab")} side={side} onPick={setSide} count={brief?.pending.length} />
+            <SideTabButton id="voices" icon="voice" label={t("voices.title")} side={side} onPick={setSide} count={roster.length} />
           </div>
-          {side === "doc" ? (
+          {side === "notes" ? (
+            <div className="side-body">
+              <UserNotes
+                sessionId={sessionId}
+                recording={false}
+                momentMs={activeMs}
+                revision={notesRevision + summaryRevision}
+                onSeek={cite}
+                onTasksChanged={onTagsChanged}
+                onAsk={onAsk ? (text) => onAsk({ sessionId, sessionTitle: detail.session.title, prompt: text }) : undefined}
+              />
+            </div>
+          ) : side === "context" ? (
+            <div className="side-body">
+              <ContextPanel sessionId={sessionId} revision={summaryRevision} />
+            </div>
+          ) : side === "mindmap" ? (
+            <div className="side-body">
+              <MindMapPanel
+                sessionId={sessionId}
+                title={detail.session.title}
+                hasSummary={Boolean(detail.summary)}
+                revision={summaryRevision + tasksRevision}
+                onCite={cite}
+              />
+            </div>
+          ) : side === "memory" ? (
+            <div className="side-body">
+              <MemoryPanel
+                sessionId={sessionId}
+                revision={summaryRevision + memoryRevision + tasksRevision}
+                onOpenSession={onOpenSession}
+                onTasksChanged={onTagsChanged}
+              />
+              {brief ? <BriefCard brief={brief} onOpenSession={onOpenSession} onTasksChanged={onTagsChanged} /> : null}
+            </div>
+          ) : side === "doc" ? (
             <div className="side-body">
               <NoteDocument
                 aiFirst={Boolean(detail.summary)}
                 engineRevision={summaryRevision}
-                notes={
-                  <UserNotes
-                    sessionId={sessionId}
-                    recording={false}
-                    momentMs={activeMs}
-                    revision={notesRevision + summaryRevision}
-                    onSeek={cite}
-                    onTasksChanged={onTagsChanged}
-                    onAsk={onAsk ? (text) => onAsk({ sessionId, sessionTitle: detail.session.title, prompt: text }) : undefined}
-                  />
-                }
                 aiNote={
                   <SummaryPanel
                     summary={detail.summary}

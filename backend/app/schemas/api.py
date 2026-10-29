@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -431,6 +431,56 @@ class VoiceAssignIn(BaseModel):
     name: str | None = Field(default=None, max_length=80)
 
 
+class MindMapOut(BaseModel):
+    session_id: str
+    origin: Literal["auto", "edited", "ai"]
+    summary_id: str | None = None
+    updated_at: datetime
+    data: dict[str, Any]
+    markdown: str = ""
+
+
+class MindMapIn(BaseModel):
+    data: dict[str, Any]
+
+
+class MemoryThreadOut(BaseModel):
+    session_id: str
+    title: str
+    started_at: datetime
+    reason: Literal["title", "people", "both"]
+    has_summary: bool = False
+    decisions: list[str] = Field(default_factory=list)
+    open_items: list[str] = Field(default_factory=list)
+
+
+class MemoryResolvedOut(BaseModel):
+    item: str
+    how: str = ""
+    task_id: str | None = None
+
+
+class MemoryChangeOut(BaseModel):
+    before: str
+    now: str
+
+
+class MemoryOut(BaseModel):
+    session_id: str
+    mode: Literal["before", "after"]
+    generated: bool
+    stale: bool = False
+    language: str | None = None
+    created_at: datetime | None = None
+    thread: list[MemoryThreadOut] = Field(default_factory=list)
+    resolved: list[MemoryResolvedOut] = Field(default_factory=list)
+    still_open: list[str] = Field(default_factory=list)
+    changed: list[MemoryChangeOut] = Field(default_factory=list)
+    new_items: list[str] = Field(default_factory=list)
+    watch: list[str] = Field(default_factory=list)
+    pending: list[TaskOut] = Field(default_factory=list)
+
+
 class SessionDetailOut(BaseModel):
     session: SessionOut
     segments: list[SegmentOut]
@@ -513,6 +563,9 @@ class BootstrapIn(BaseModel):
 
 class SetupPlanOut(BaseModel):
     ram_gb: float
+    total_ram_gb: float = 0.0
+    free_ram_gb: float = 0.0
+    gpu_name: str = ""
     suggested_note_model: str
     suggested_whisper_model: str
     ollama_binary: bool
@@ -676,6 +729,7 @@ class DocumentOut(BaseModel):
     chars: int
     created_at: datetime
     chat_id: str | None = None
+    session_id: str | None = None
 
     @classmethod
     def from_domain(cls, item: ChatDocument) -> DocumentOut:
@@ -689,6 +743,7 @@ class DocumentOut(BaseModel):
             chars=item.chars,
             created_at=item.created_at,
             chat_id=item.chat_id,
+            session_id=item.session_id,
         )
 
 

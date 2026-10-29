@@ -6,6 +6,7 @@ import { useI18n } from "../../shared/i18n";
 import { closeMiniWindow, focusMainWindow, resizeMiniWindow } from "../../shared/lib/miniWindow";
 import { clusterToken, voiceName } from "../../shared/lib/voices";
 import { AiThinking } from "../../shared/ui/AiThinking";
+import { Markdown } from "../../shared/ui/Markdown";
 import { Icon, type IconName } from "../../shared/ui/Icon";
 import { copyConsent } from "../consent/consent";
 import { VoicePrint } from "../voices/VoicePrint";
@@ -98,7 +99,7 @@ export function MiniConsole() {
       }
       if (event.type === "monitor") {
         const raw = event.voice as LiveVoice | null | undefined;
-        setVoice(raw && typeof raw.cluster === "string" ? raw : null);
+        setVoice(raw && (typeof raw.cluster === "string" || typeof raw.person_id === "string") ? raw : null);
       }
       if (event.type === "segment" && event.segment && typeof event.segment === "object") {
         const segment = event.segment as { id?: string; text?: string; speaker_cluster?: string | null; speaker_name?: string | null };
@@ -269,7 +270,7 @@ export function MiniConsole() {
                 ) : null}
                 {answer ? (
                   <div className="mini-answer" aria-live="polite">
-                    {answer}
+                    <Markdown text={answer} />
                     {!asking ? (
                       <button type="button" className="mini-link" onClick={() => setAnswer("")}>
                         {t("mini.askAgain")}
@@ -335,8 +336,8 @@ export function MiniConsole() {
       ) : (
         <div className="mini-body">
           {speaker && voice ? (
-            <span className="mini-voice" style={{ "--voice": clusterToken(voice.cluster) } as CSSProperties}>
-              <VoicePrint seed={voice.cluster} color={clusterToken(voice.cluster)} active size="sm" />
+            <span className="mini-voice" style={{ "--voice": clusterToken(voice.cluster ?? voice.person_id ?? "known") } as CSSProperties}>
+              <VoicePrint seed={voice.cluster ?? voice.person_id ?? "known"} color={clusterToken(voice.cluster ?? voice.person_id ?? "known")} active size="sm" />
               <strong>{speaker}</strong>
             </span>
           ) : (

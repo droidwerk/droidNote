@@ -12,6 +12,7 @@ import { InfoTip } from "../shared/ui/InfoTip";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Button, Card, PageHeader, ProgressBar } from "../shared/ui/primitives";
 import { ModelSelect, StatusGlyph } from "../shared/ui/ModelSelect";
+import { OpenAiKeyGuide } from "../features/setup/OpenAiKeyGuide";
 import { PrivacyLink } from "../shared/ui/PrivacyPolicy";
 import { Icon } from "../shared/ui/Icon";
 import { CalendarCard, ConsentCard, RetentionCard } from "../features/meeting/MeetingSettings";
@@ -458,13 +459,7 @@ export function SettingsPage({
                     </small>
                   </span>
                 </label>
-              ) : (
-                <p className="muted">
-                  <PrivacyLink onOpen={openPrivacy} />
-                  {" — "}
-                  {t("settings.localStays")}
-                </p>
-              )}
+              ) : null}
 
               {cloud ? (
                 <div className="form-grid">
@@ -472,11 +467,10 @@ export function SettingsPage({
                     {t("settings.asrModel")}
                     <ModelSelect
                       label={t("settings.asrModel")}
-                      value={settings.asr_cloud_model ?? "gpt-4o-transcribe"}
-                      options={optionsFor(
-                        catalog?.asr_cloud ?? [],
-                        settings.asr_cloud_model ?? "",
-                        "openai",
+                      value={settings.asr_cloud_model ?? "gpt-4o-mini-transcribe"}
+                      options={localizeModels(
+                        optionsFor(catalog?.asr_cloud ?? [], settings.asr_cloud_model ?? "", "openai"),
+                        t,
                       )}
                       onChange={(id) => setSettings({ ...settings, asr_cloud_model: id })}
                       showStatus={false}
@@ -487,10 +481,9 @@ export function SettingsPage({
                     <ModelSelect
                       label={t("settings.noteModel")}
                       value={settings.llm_cloud_model ?? "gpt-4o-mini"}
-                      options={optionsFor(
-                        catalog?.llm_cloud ?? [],
-                        settings.llm_cloud_model ?? "",
-                        "openai",
+                      options={localizeModels(
+                        optionsFor(catalog?.llm_cloud ?? [], settings.llm_cloud_model ?? "", "openai"),
+                        t,
                       )}
                       onChange={(id) => setSettings({ ...settings, llm_cloud_model: id })}
                       showStatus={false}
@@ -545,6 +538,7 @@ export function SettingsPage({
                       </>
                     )}
                   </label>
+                  <OpenAiKeyGuide defaultOpen={!settings.has_api_key} />
                 </div>
               ) : (
                 <div className="form-grid">
@@ -585,30 +579,13 @@ export function SettingsPage({
                       <StatusGlyph installed={false} />
                       {t("settings.willDownload")}
                     </span>
+                    <InfoTip text={`${t("modelHelp.legend")} ${t("settings.localExpectBody")}`} />
                   </p>
                 </div>
               )}
 
-              {cloud ? (
-                <p className="banner">
-                  {t("settings.cloudBanner")}{" "}
-                  <PrivacyLink onOpen={openPrivacy} />
-                </p>
-              ) : (
+              {cloud ? null : (
                 <>
-                  <h3 className="with-tip">
-                    {t("settings.localExpectTitle")}
-                    <InfoTip
-                      text={
-                        <>
-                          {t("settings.localExpectBody")}
-                          <br />
-                          <br />
-                          {t("settings.localExpectHint")}
-                        </>
-                      }
-                    />
-                  </h3>
                   <div className="row">
                     <span className={catalog?.ollama_online ? "badge on" : "badge"}>
                       {catalog?.ollama_online ? t("settings.ollamaOnline") : t("settings.ollamaOffline")}
@@ -620,8 +597,8 @@ export function SettingsPage({
                     </span>
                   </div>
                   <div className="tutorial">
-                    <h3 className="with-tip">{t("settings.downloadTitle")}<InfoTip text={t("settings.downloadHint")} /></h3>
-                    <Button onClick={() => void downloadModel()} disabled={downloading}>
+                    <Button onClick={() => void downloadModel()} disabled={downloading} title={t("settings.downloadHint")}>
+                      <Icon name="cloud" size={15} />
                       {downloading ? t("settings.downloading") : t("settings.downloadSelected")}
                     </Button>
                     {downloading || downloadStatus ? (
@@ -943,9 +920,15 @@ export function SettingsPage({
 
 function localizeModels(items: ModelOption[], t: TranslateFn): ModelOption[] {
   return items.map((item) => {
-    const key = `models.${item.id}`;
+    // Ponto no id (gpt-4.1-mini, qwen3.6) viraria caminho para o tradutor: nas chaves é sublinhado.
+    const safeId = item.id.replace(/\./g, "_");
+    const key = `models.${safeId}`;
     const label = t(key);
-    return label === key ? item : { ...item, label };
+    // A segunda linha de cada opção explica, sem jargão, para quem aquele modelo serve.
+    const helpKey = `modelHelp.${safeId}`;
+    const help = t(helpKey);
+    const detail = help === helpKey ? item.detail : [help, item.detail].filter(Boolean).join(" · ");
+    return { ...item, label: label === key ? item.label : label, detail };
   });
 }
 

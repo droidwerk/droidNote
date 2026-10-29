@@ -45,3 +45,14 @@ async def test_cloud_engine_without_key_reports_missing() -> None:
 def test_normalize_provider_accepts_legacy_aliases() -> None:
     assert normalize_provider("cloud") == "openai"
     assert normalize_provider("") == "neste_pc"
+
+
+def test_context_window_follows_the_prompt_size() -> None:
+    from app.infrastructure.llm.ollama_manager import MAX_CONTEXT, MIN_CONTEXT, context_window
+
+    assert context_window(1_000) == MIN_CONTEXT
+    # Reunião de 1 hora (~45k caracteres) cabe com folga, sem abrir a janela máxima do modelo.
+    assert 16_384 <= context_window(45_000) <= 24_576
+    assert context_window(1_000_000) == MAX_CONTEXT
+    payload = OllamaManager("http://x", "gemma4:e4b").build_payload("x" * 30_000, stream=False)
+    assert payload["options"]["num_ctx"] == context_window(30_000 + len(SYSTEM_PROMPT))

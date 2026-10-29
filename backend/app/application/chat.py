@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Protocol
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -20,10 +21,15 @@ MAX_EXCERPT = 420
 HISTORY_TURNS = 12
 
 
+class SeriesMemory(Protocol):
+    async def chat_context(self, session_id: str) -> str: ...
+
+
 class ChatService:
-    def __init__(self, llm: LlmPort, store: SqliteStore) -> None:
+    def __init__(self, llm: LlmPort, store: SqliteStore, memory: SeriesMemory | None = None) -> None:
         self._llm = llm
         self._store = store
+        self._memory = memory
 
     async def list_chats(self) -> list[Chat]:
         return await self._store.list_chats()
@@ -81,7 +87,9 @@ class ChatService:
         attach = getattr(self._store, "attach_documents", None)
         if document_ids and callable(attach):
             await attach(chat.id, list(document_ids))
-        doc_citations, doc_context = await self._retrieve_documents(cleaned, chat.id)
+        doc_citations, doc_context = await self._retrieve_documents(
+            cleaned, chat.id, session_id or chat.focus_session_id
+        )
         citations, context = await self._retrieve(
             cleaned,
             session_id=session_id or chat.focus_session_id,
@@ -142,12 +150,18 @@ class ChatService:
         await self._store.save_chat(chat)
         return chat
 
-    async def _retrieve_documents(self, query: str, chat_id: str) -> tuple[list[ChatCitation], str]:
-        """Trechos dos documentos anexados: os que casam com a pergunta e, se faltar, o começo de cada um."""
+    async def _retrieve_documents(
+        self, query: str, chat_id: str, session_id: str | None = None
+    ) -> tuple[list[ChatCitation], str]:
+        """Trechos dos documentos anexados ao chat e do material da reunião em foco: os que casam com a
+        pergunta e, se faltar, o começo de cada um."""
         lister = getattr(self._store, "list_documents", None)
         if not callable(lister):
             return [], ""
-        documents = await lister(chat_id=chat_id)
+        documents = list(await lister(chat_id=chat_id))
+        if session_id:
+            seen_ids = {item.id for item in documents}
+            documents += [item for item in await lister(session_id=session_id) if item.id not in seen_ids]
         if not documents:
             return [], ""
         names = {item.id: item.name for item in documents}
@@ -239,6 +253,15 @@ class ChatService:
                 block = f"Note of the focused lecture ({titles.get(session_id, session_id)}):\n{note}"
                 blocks.append(block)
                 used += len(block)
+            if self._memory is not None:
+                # "O que mudou desde a última reunião?" precisa das reuniões anteriores da série.
+                try:
+                    thread = await self._memory.chat_context(session_id)
+                except Exception:
+                    thread = ""
+                if thread:
+                    blocks.append(thread[:2_400])
+                    used += len(thread[:2_400])
 
         for segment, reason in picked:
             excerpt = segment.text.strip()

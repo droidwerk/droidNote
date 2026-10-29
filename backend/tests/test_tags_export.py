@@ -111,3 +111,37 @@ async def test_export_pdf_and_docx_and_audio(client: AsyncClient, app) -> None:
 
     detail = await client.get(f"/sessions/{session.id}", headers=auth())
     assert detail.json()["session"]["has_audio"] is True
+
+
+def test_parse_markdown_blocks_from_minutes() -> None:
+    from app.application.export import parse_markdown
+
+    blocks = parse_markdown("# Título\n\n## Resumo\n\nUma frase.\nOutra.\n\n### Assunto\n- Ponto `01:10`\n  - Sub\n- [ ] Tarefa (02:00)\n")
+    assert [(b.kind, b.level) for b in blocks] == [("title", 0), ("h2", 0), ("p", 0), ("h3", 0), ("li", 0), ("li", 1), ("li", 0)]
+    assert blocks[2].text == "Uma frase. Outra."
+    assert blocks[6].text == "Tarefa (02:00)"
+
+
+async def test_pdf_and_docx_exports_render_minutes_markdown(client, app) -> None:
+    from datetime import UTC, datetime
+
+    from app.domain.models import ActionItem, Session, Summary, TranscriptSegment
+    from app.infrastructure.persistence.sqlite import new_id
+    from tests.conftest import auth
+
+    store = app.state.container.store
+    session = Session(id=new_id(), title="Reunião 29/10/2026 17:08", started_at=datetime.now(tz=UTC), ended_at=None, status="stopped")
+    await store.create_session(session)
+    await store.add_segment(TranscriptSegment(id=new_id(), session_id=session.id, start_ms=1_000, end_ms=3_000, text="Olá <todos> & bem-vindos."))
+    await store.save_summary(
+        Summary(
+            id=new_id(), session_id=session.id, highlights=[], decisions=["Fechar o piloto (00:01)"],
+            action_items=[ActionItem(text="Enviar proposta", owner="Ana")], raw_text="{}", created_at=datetime.now(tz=UTC),
+            notes_markdown="# Reunião\n\n## Resumo\n\nTexto **forte**.\n\n### Assunto\n- Ponto `00:01`\n",
+        )
+    )
+    pdf = await client.get(f"/sessions/{session.id}/export?format=pdf", headers=auth())
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    assert "filename=" in pdf.headers["content-disposition"]
+    docx = await client.get(f"/sessions/{session.id}/export?format=docx", headers=auth())
+    assert docx.status_code == 200 and docx.content[:2] == b"PK"

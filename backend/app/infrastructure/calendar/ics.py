@@ -8,6 +8,7 @@ inteiro ficam de fora — não são reuniões.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 import socket
@@ -116,8 +117,10 @@ def _reject_private(host: str) -> None:
         raise CalendarError("blocked_url")
 
 
-def _guard_request(request: httpx.Request) -> None:
-    _reject_private(request.url.host)
+async def _guard_request(request: httpx.Request) -> None:
+    """Hook do AsyncClient precisa ser async: o httpx faz `await hook(request)` em cada redirecionamento.
+    A resolução de DNS é bloqueante, então sai da thread do servidor."""
+    await asyncio.to_thread(_reject_private, request.url.host)
 
 
 class IcsCalendar:

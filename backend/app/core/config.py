@@ -55,10 +55,10 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default_factory=default_data_dir)
     whisper_model: str = "small"
     whisper_device: str = "auto"
-    ollama_model: str = "qwen3:8b"
+    ollama_model: str = "gemma4:12b"
     ollama_base_url: str = "http://127.0.0.1:11434"
     provider: str = "neste_pc"
-    asr_cloud_model: str = "whisper-1"
+    asr_cloud_model: str = "gpt-4o-mini-transcribe"
     llm_cloud_model: str = "gpt-4o-mini"
     language: str = "pt"
     ui_language: str = "pt"

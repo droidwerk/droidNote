@@ -17,6 +17,10 @@ import type {
   Summary,
 } from "../shared/api/types";
 import { BriefCard } from "../features/brief/BriefCard";
+import { MindMapPanel } from "../features/mindmap/MindMapPanel";
+import { MemoryPanel } from "../features/memory/MemoryPanel";
+import { ContextPanel } from "../features/context/ContextPanel";
+import { SideTabButton } from "./SessionPage";
 import { UpcomingPanel } from "../features/brief/UpcomingPanel";
 import { CaptureDeck } from "../features/capture/CaptureDeck";
 import { NoteDocument } from "../features/document/NoteDocument";
@@ -81,6 +85,7 @@ interface LivePageProps {
   /** Ata gerada sozinha ao parar: em andamento ("start") ou pronta (muda a revisão). */
   summaryBusySessionId?: string | null;
   summaryRevision?: number;
+  memoryRevision?: number;
   onOpenSettings?: () => void;
   engineProvider?: Provider;
   onCaptureModeChange: (mode: CaptureMode) => void;
@@ -88,7 +93,7 @@ interface LivePageProps {
   onAsk?: (focus: ChatFocus) => void;
 }
 
-type SideTab = "doc" | "brief" | "voices";
+type SideTab = "doc" | "notes" | "context" | "brief" | "mindmap" | "voices";
 
 export function LivePage({
   capture,
@@ -132,6 +137,7 @@ export function LivePage({
   onRecordEvent,
   summaryBusySessionId = null,
   summaryRevision = 0,
+  memoryRevision = 0,
   onOpenSettings,
   engineProvider,
   onCaptureModeChange,
@@ -157,7 +163,7 @@ export function LivePage({
   const elapsedMs = useElapsed(capture.started_at ?? null, capture.recording);
 
   useEffect(() => {
-    if (capture.recording) setSide("doc");
+    setSide(capture.recording ? "notes" : "doc");
   }, [capture.recording]);
 
   // Briefing da sessão: reuniões parecidas (título ou pessoas) e o que ficou pendente.
@@ -356,13 +362,6 @@ export function LivePage({
           await persistParticipants([...participantIds, person.id]);
         }}
       />
-      <span className="deck-toolbar-spacer" />
-      <button type="button" className="tool-btn is-icon" onClick={onCopyConsent} title={t("consent.copyHint")} aria-label={t("consent.copyHint")}>
-        <Icon name="shield" size={15} />
-      </button>
-      <button type="button" className="tool-btn is-icon" onClick={onOpenMini} title={t("mini.openHint")} aria-label={t("mini.openHint")}>
-        <Icon name="chip" size={15} />
-      </button>
     </>
   );
 
@@ -386,6 +385,14 @@ export function LivePage({
           ) : (
             <h1>{t("live.title")}</h1>
           )}
+        </div>
+        <div className="page-actions">
+          <button type="button" className="tool-btn is-icon" onClick={onCopyConsent} title={t("consent.copyHint")} aria-label={t("consent.copyHint")}>
+            <Icon name="shield" size={15} />
+          </button>
+          <button type="button" className="tool-btn is-icon" onClick={onOpenMini} title={t("mini.openHint")} aria-label={t("mini.openHint")}>
+            <Icon name="chip" size={15} />
+          </button>
         </div>
       </header>
 
@@ -487,37 +494,34 @@ export function LivePage({
         {sessionId ? (
           <aside className="panel side-panel">
             <div className="tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={side === "doc"} className={side === "doc" ? "is-on" : ""} onClick={() => setSide("doc")}>
-                <Icon name="spark" size={15} />
-                {t("doc.tab")}
-              </button>
-              <button type="button" role="tab" aria-selected={side === "brief"} className={side === "brief" ? "is-on" : ""} onClick={() => setSide("brief")}>
-                <Icon name="calendar" size={15} />
-                {t("brief.tab")}
-                {brief?.pending.length ? <span className="tab-count">{brief.pending.length}</span> : null}
-              </button>
-              <button type="button" role="tab" aria-selected={side === "voices"} className={side === "voices" ? "is-on" : ""} onClick={() => setSide("voices")}>
-                <Icon name="voice" size={15} />
-                {t("voices.title")}
-                {roster.length ? <span className="tab-count">{roster.length}</span> : null}
-              </button>
+              <SideTabButton id="doc" icon="spark" label={t("doc.tab")} side={side} onPick={setSide} />
+              <SideTabButton id="notes" icon="edit" label={t("notes.tab")} side={side} onPick={setSide} />
+              <SideTabButton id="context" icon="attach" label={t("context.tab")} side={side} onPick={setSide} />
+              <SideTabButton id="mindmap" icon="mindmap" label={t("mindmap.tab")} side={side} onPick={setSide} />
+              <SideTabButton id="brief" icon="memory" label={t("memory.tab")} side={side} onPick={setSide} count={brief?.pending.length} />
+              <SideTabButton id="voices" icon="voice" label={t("voices.title")} side={side} onPick={setSide} count={roster.length} />
             </div>
-            {side === "doc" ? (
+            {side === "notes" ? (
+              <div className="side-body">
+                <UserNotes
+                  sessionId={sessionId}
+                  recording={capture.recording}
+                  revision={notesRevision + summaryRevision}
+                  onSeek={cite}
+                  onTasksChanged={onTasksChanged}
+                  onAsk={onAsk ? (text) => onAsk({ sessionId, sessionTitle, prompt: text }) : undefined}
+                />
+              </div>
+            ) : side === "context" ? (
+              <div className="side-body">
+                <ContextPanel sessionId={sessionId} revision={summaryRevision} />
+              </div>
+            ) : side === "doc" ? (
               <div className="side-body">
                 <NoteDocument
                   aiFirst={!capture.recording && Boolean(summary)}
                   engineRevision={summaryRevision}
                   onOpenSettings={onOpenSettings}
-                  notes={
-                    <UserNotes
-                      sessionId={sessionId}
-                      recording={capture.recording}
-                      revision={notesRevision + summaryRevision}
-                      onSeek={cite}
-                      onTasksChanged={onTasksChanged}
-                      onAsk={onAsk ? (text) => onAsk({ sessionId, sessionTitle, prompt: text }) : undefined}
-                    />
-                  }
                   aiNote={
                     <SummaryPanel
                       summary={summary}
@@ -538,8 +542,25 @@ export function LivePage({
                   }
                 />
               </div>
+            ) : side === "mindmap" ? (
+              <div className="side-body">
+                <MindMapPanel
+                  sessionId={sessionId}
+                  title={sessionTitle}
+                  hasSummary={Boolean(summary)}
+                  revision={summaryRevision + tasksRevision}
+                  onCite={cite}
+                />
+              </div>
             ) : side === "brief" ? (
               <div className="side-body">
+                <MemoryPanel
+                  sessionId={sessionId}
+                  revision={summaryRevision + memoryRevision + tasksRevision}
+                  aiReady={!capture.recording}
+                  onOpenSession={onOpenSession}
+                  onTasksChanged={onTasksChanged}
+                />
                 {brief ? (
                   <BriefCard brief={brief} onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} />
                 ) : (

@@ -16,6 +16,7 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
+    "mind-elixir": "^5.15.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

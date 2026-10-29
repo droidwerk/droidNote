@@ -24,6 +24,8 @@ import type {
   UserNote,
   VoicesResult,
   Brief,
+  Memory,
+  MindMap,
   ChatDocument,
   RetentionReport,
   TaskItem,
@@ -277,6 +279,20 @@ export const api = {
     if (query.people?.length) params.set("people", query.people.join(","));
     return request<Brief>(`/brief?${params.toString()}`);
   },
+  sessionDocuments: (sessionId: string) => request<ChatDocument[]>(`/sessions/${sessionId}/documents`),
+  uploadSessionDocument: (sessionId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<ChatDocument>(`/sessions/${sessionId}/documents`, { method: "POST", body: form });
+  },
+  mindmap: (sessionId: string) => request<MindMap>(`/sessions/${sessionId}/mindmap`),
+  saveMindMap: (sessionId: string, data: unknown) =>
+    request<MindMap>(`/sessions/${sessionId}/mindmap`, { method: "PUT", body: JSON.stringify({ data }) }),
+  resetMindMap: (sessionId: string) => request<MindMap>(`/sessions/${sessionId}/mindmap/reset`, { method: "POST" }),
+  refineMindMap: (sessionId: string) => request<MindMap>(`/sessions/${sessionId}/mindmap/refine`, { method: "POST" }),
+  memory: (sessionId: string) => request<Memory>(`/sessions/${sessionId}/memory`),
+  compareMemory: (sessionId: string, force = false) =>
+    request<Memory>(`/sessions/${sessionId}/memory${force ? "?force=true" : ""}`, { method: "POST" }),
   upcoming: (hours = 36) => request<Upcoming>(`/calendar/upcoming?hours=${hours}`),
   testCalendar: (url: string) =>
     request<{ ok: boolean; events: number; error: string | null }>("/calendar/test", {

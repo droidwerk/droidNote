@@ -18,6 +18,7 @@ import "./shared/styles/library.css";
 import "./shared/styles/assist.css";
 import "./shared/styles/focus.css";
 import "./shared/styles/ai.css";
+import "./shared/styles/graph.css";
 import "./shared/styles/doc.css";
 import "./shared/styles/tips.css";
 

@@ -13,9 +13,9 @@ log = get_logger("llm.openai")
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 CLOUD_LLM_MODELS: tuple[tuple[str, str], ...] = (
-    ("gpt-4o-mini", "GPT-4o mini — recomendado, rápido e barato"),
-    ("gpt-4o", "GPT-4o — melhor qualidade de nota"),
-    ("gpt-4.1-mini", "GPT-4.1 mini — equilíbrio"),
+    ("gpt-4o-mini", "GPT-4o mini — recomendado"),
+    ("gpt-4.1-mini", "GPT-4.1 mini"),
+    ("gpt-4o", "GPT-4o"),
 )
 
 

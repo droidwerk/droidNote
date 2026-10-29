@@ -198,3 +198,55 @@ async def test_live_meeting_question_uses_latest_lines(tmp_path) -> None:
     assert "fala numero 149" in llm.prompt
     assert "[live meeting]" in llm.prompt
     assert "fala numero 3 " not in llm.prompt
+
+
+async def test_session_material_feeds_minutes_and_chat(client, app) -> None:
+    """Pauta subida na reunião: a ata recebe o material e o chat em foco também o lê."""
+    from datetime import UTC, datetime
+
+    from app.application.chat import ChatService
+    from app.application.summarize import SummarizeService
+    from app.application.tasks import TaskService
+    from app.domain.models import Session, TranscriptSegment
+    from app.infrastructure.persistence.sqlite import new_id
+    from tests.conftest import auth
+    from tests.fakes import FakeLlm
+
+    class Recording(FakeLlm):
+        prompts: list[str] = []
+
+        async def generate_json(self, prompt, *, system=None):
+            self.prompts.append(prompt)
+            return await super().generate_json(prompt, system=system)
+
+        async def generate_text(self, prompt, *, system=None):
+            self.prompts.append(prompt)
+            return "ok"
+
+    container = app.state.container
+    store = container.store
+    session = Session(id=new_id(), title="Kickoff Atlas", started_at=datetime.now(tz=UTC), ended_at=None, status="stopped")
+    await store.create_session(session)
+    await store.add_segment(TranscriptSegment(id=new_id(), session_id=session.id, start_ms=0, end_ms=2_000, text="Vamos falar do SLA."))
+
+    uploaded = await client.post(
+        f"/sessions/{session.id}/documents",
+        headers=auth(),
+        files={"file": ("pauta.txt", b"Pauta: 1) SLA do Atlas (99,9%) 2) Orcamento Q1", "text/plain")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert uploaded.json()["session_id"] == session.id
+    listed = await client.get(f"/sessions/{session.id}/documents", headers=auth())
+    assert [item["name"] for item in listed.json()] == ["pauta.txt"]
+
+    llm = Recording()
+    await SummarizeService(llm, store, TaskService(store)).summarize(session.id)
+    assert "Material de apoio" in llm.prompts[-1] and "SLA do Atlas" in llm.prompts[-1]
+
+    chat = ChatService(llm, store)
+    await chat.ask("Qual o SLA combinado?", session_id=session.id)
+    assert "[document] pauta.txt" in llm.prompts[-1]
+
+    # Apagar a sessao leva o material junto.
+    await store.delete_session(session.id)
+    assert await store.list_documents(session_id=session.id) == []

@@ -11,14 +11,24 @@ from app.core.hardware import (
 
 
 def test_note_model_follows_available_ram() -> None:
-    assert suggest_note_model(32) == "gemma3:12b"
-    assert suggest_note_model(16) == "qwen3:8b"
-    assert suggest_note_model(8) == "qwen3:4b"
-    assert suggest_note_model(4) == "qwen2.5:3b"
+    assert suggest_note_model(40, vram=0) == "qwen3.6:35b-a3b"
+    assert suggest_note_model(24, vram=0) == "gemma4:26b"
+    assert suggest_note_model(16, vram=0) == "gemma4:12b"
+    assert suggest_note_model(8, vram=0) == "gemma4:e4b"
+    assert suggest_note_model(4, vram=0) == "gemma4:e2b"
+
+
+def test_note_model_fits_the_graphics_card_when_there_is_one() -> None:
+    # 16 GB de RAM pediria o 12B (7,7 GB), mas numa placa de 8 GB ele transborda: fica o E4B.
+    assert suggest_note_model(16, vram=8) == "gemma4:e4b"
+    assert suggest_note_model(16, vram=12) == "gemma4:12b"
+    assert suggest_note_model(16, vram=4) == "gemma4:e2b"
+    # Modelos MoE grandes seguem a RAM: rodam bem mesmo fora da placa.
+    assert suggest_note_model(40, vram=8) == "qwen3.6:35b-a3b"
 
 
 def test_unknown_ram_falls_back_to_a_safe_model() -> None:
-    assert suggest_note_model(0) == "qwen3:4b"
+    assert suggest_note_model(0, vram=0) == "gemma4:e4b"
     assert suggest_whisper_model(0, cuda=False) == "small"
 
 

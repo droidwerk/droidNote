@@ -383,3 +383,29 @@ def test_auto_gain_lifts_quiet_mic_without_pumping_silence() -> None:
 
     off = AutoGain(enabled=False)
     assert np.array_equal(off.process(quiet), quiet)
+
+
+async def test_ics_fetch_follows_the_async_guard_hook(monkeypatch) -> None:
+    """Regressão: o hook de bloqueio de IP privado era síncrono e o AsyncClient fazia `await hook()`."""
+    import httpx
+
+    from app.infrastructure.calendar.ics import IcsCalendar
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.path == "/old.ics":
+            return httpx.Response(302, headers={"location": "https://calendar.example.com/new.ics"})
+        return httpx.Response(200, text="BEGIN:VCALENDAR" + chr(10) + "END:VCALENDAR" + chr(10))
+
+    monkeypatch.setattr("app.infrastructure.calendar.ics._reject_private", lambda host: None)
+    real_client = httpx.AsyncClient
+
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.infrastructure.calendar.ics.httpx.AsyncClient", client)
+    text = await IcsCalendar().fetch("https://calendar.example.com/old.ics")
+    assert "BEGIN:VCALENDAR" in text
+    assert len(calls) == 2

@@ -40,10 +40,17 @@ from app.infrastructure.voice.tracker import (
 log = get_logger("voices")
 
 REFINE_EVERY_S = 40.0
+# No começo da reunião os rótulos ao vivo erram mais (pouca fala por voz): os
+# primeiros reagrupamentos vêm cedo e vão espaçando até o ritmo normal.
+REFINE_EARLY_S = (10.0, 15.0, 20.0, 30.0)
 REFINE_AFTER_NEW_VOICE_S = 15.0
 MAX_REFINE_FRAMES = 1200
 SELF_ENROLL_MIN_S = 20.0
 PROBE_THRESHOLD = 0.45
+# "Falando agora" por impressão vocal guardada: 1,5 s de áudio contra as pessoas
+# conhecidas. Precisa de duas sondas seguidas concordando para mostrar o nome.
+PROBE_KNOWN_THRESHOLD = 0.5
+PROBE_KNOWN_HITS = 2
 
 
 class VoiceEmbedderPort(Protocol):
@@ -85,7 +92,10 @@ class LiveVoices:
     new_voice: bool = False
     revision: int = 0
     refining: bool = False
+    refines: int = 0
     self_linked: bool = False
+    probe_person: str | None = None
+    probe_hits: int = 0
 
 
 class VoiceService:
@@ -197,9 +207,11 @@ class VoiceService:
         live.total_speech += spoken
         return labeled
 
-    def probe(self, session_id: str, samples: np.ndarray) -> tuple[str, str | None, float] | None:
-        """Quem está falando agora: compara 1,5 s de áudio com as vozes já
-        conhecidas na sessão, sem criar voz nova. Roda fora da thread de áudio."""
+    def probe(self, session_id: str, samples: np.ndarray) -> tuple[str | None, str | None, float] | None:
+        """Quem está falando agora: compara 1,5 s de áudio com as vozes da sessão
+        e com as impressões vocais guardadas, sem criar voz nova. Uma pessoa
+        conhecida aparece pelo nome antes mesmo de a transcrição chegar.
+        Roda fora da thread de áudio."""
         live = self._live.get(session_id)
         embedder = self._embedder
         if live is None or embedder is None:
@@ -210,12 +222,28 @@ class VoiceService:
         if not live.lock.acquire(blocking=False):
             return None
         try:
+            vector = normalize(vector)
             cluster, score = live.tracker.best_cluster(vector)
-            if cluster is None or score < PROBE_THRESHOLD:
-                return None
-            return cluster.key, cluster.person_id, score
+            person_id, person_score = live.tracker.best_person(vector)
+            known = self._confirm_known(live, person_id, person_score)
+            if cluster is not None and score >= PROBE_THRESHOLD:
+                return cluster.key, cluster.person_id or known, score
+            if known:
+                return None, known, person_score
+            return None
         finally:
             live.lock.release()
+
+    @staticmethod
+    def _confirm_known(live: LiveVoices, person_id: str | None, score: float) -> str | None:
+        if not person_id or score < PROBE_KNOWN_THRESHOLD:
+            live.probe_person, live.probe_hits = None, 0
+            return None
+        if live.probe_person == person_id:
+            live.probe_hits += 1
+        else:
+            live.probe_person, live.probe_hits = person_id, 1
+        return person_id if live.probe_hits >= PROBE_KNOWN_HITS else None
 
     def _resolve_live(self, live: LiveVoices, turn: Turn, source: str, start_ms: int) -> LabeledTurn:
         person = turn.person_id
@@ -259,7 +287,8 @@ class VoiceService:
         live = self._live.get(session_id)
         if live is None or live.refining:
             return
-        due = live.speech_since_refine >= REFINE_EVERY_S or (
+        every = REFINE_EARLY_S[live.refines] if live.refines < len(REFINE_EARLY_S) else REFINE_EVERY_S
+        due = live.speech_since_refine >= every or (
             live.new_voice and live.speech_since_refine >= REFINE_AFTER_NEW_VOICE_S
         )
         if not due:
@@ -278,6 +307,7 @@ class VoiceService:
         finally:
             if live is not None:
                 live.refining = False
+                live.refines += 1
                 live.new_voice = False
                 live.speech_since_refine = 0.0
 

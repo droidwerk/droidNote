@@ -25,16 +25,19 @@
 
 .page-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 20px;
+  gap: 12px 20px;
 }
 
 .page-head-copy {
   display: grid;
   gap: 6px;
   min-width: 0;
-  flex: 1;
+  /* O título nunca cede espaço para os botões: abaixo disto, os botões descem uma linha. */
+  flex: 1 1 auto;
+  min-width: min(360px, 100%);
 }
 
 .page-head h1 {
@@ -43,6 +46,7 @@
 
 .page-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
