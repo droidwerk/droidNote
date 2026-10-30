@@ -467,7 +467,7 @@ export function SettingsPage({
                     {t("settings.asrModel")}
                     <ModelSelect
                       label={t("settings.asrModel")}
-                      value={settings.asr_cloud_model ?? "gpt-4o-mini-transcribe"}
+                      value={settings.asr_cloud_model ?? "gpt-transcribe"}
                       options={localizeModels(
                         optionsFor(catalog?.asr_cloud ?? [], settings.asr_cloud_model ?? "", "openai"),
                         t,
@@ -480,7 +480,7 @@ export function SettingsPage({
                     {t("settings.noteModel")}
                     <ModelSelect
                       label={t("settings.noteModel")}
-                      value={settings.llm_cloud_model ?? "gpt-4o-mini"}
+                      value={settings.llm_cloud_model ?? "gpt-6-luna"}
                       options={localizeModels(
                         optionsFor(catalog?.llm_cloud ?? [], settings.llm_cloud_model ?? "", "openai"),
                         t,

@@ -595,8 +595,8 @@ class SettingsOut(BaseModel):
     mic_only_default: bool = False
     whisper_device: str = "auto"
     provider: str = "neste_pc"
-    asr_cloud_model: str = "whisper-1"
-    llm_cloud_model: str = "gpt-4o-mini"
+    asr_cloud_model: str = "gpt-transcribe"
+    llm_cloud_model: str = "gpt-6-luna"
     has_api_key: bool = False
     api_key_hint: str = ""
     language: str = "pt"

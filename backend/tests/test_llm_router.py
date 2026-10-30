@@ -11,7 +11,7 @@ from app.infrastructure.llm.router import LlmRouter, normalize_provider
 def build_router(provider: str = "neste_pc") -> LlmRouter:
     return LlmRouter(
         OllamaManager("http://127.0.0.1:11434", "qwen3:8b"),
-        OpenAIChatEngine(api_key="", model="gpt-4o-mini"),
+        OpenAIChatEngine(api_key="", model="gpt-6-luna"),
         provider=provider,
     )
 
@@ -30,7 +30,7 @@ def test_provider_switch_moves_notes_to_the_cloud_engine() -> None:
     assert router.model == "qwen3:8b"
     router.set_provider("openai")
     assert router.is_cloud
-    assert router.model == "gpt-4o-mini"
+    assert router.model == "gpt-6-luna"
 
 
 @pytest.mark.asyncio

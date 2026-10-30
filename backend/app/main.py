@@ -27,7 +27,7 @@ from app.application.retention import RetentionService
 from app.application.tasks import TaskService
 from app.application.templates import TemplateService
 from app.application.sessions import SessionService
-from app.application.setup import SetupService
+from app.application.setup import SetupService, migrate_cloud_asr_setting, migrate_cloud_llm_setting
 from app.application.speakers import SpeakersService
 from app.application.summarize import SummarizeService
 from app.application.voices import VoiceService
@@ -115,10 +115,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             resolved.whisper_device = saved_device
         if saved_provider:
             resolved.provider = saved_provider
-        if saved_cloud:
-            resolved.asr_cloud_model = saved_cloud
-        if saved_llm_cloud:
-            resolved.llm_cloud_model = saved_llm_cloud
+        resolved.asr_cloud_model = await migrate_cloud_asr_setting(
+            store, saved_cloud, resolved.asr_cloud_model
+        )
+        resolved.llm_cloud_model = await migrate_cloud_llm_setting(store, saved_llm_cloud, resolved.llm_cloud_model)
         if saved_language:
             resolved.language = saved_language
         if saved_ui_language:

@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     ollama_model: str = "gemma4:12b"
     ollama_base_url: str = "http://127.0.0.1:11434"
     provider: str = "neste_pc"
-    asr_cloud_model: str = "gpt-4o-mini-transcribe"
-    llm_cloud_model: str = "gpt-4o-mini"
+    asr_cloud_model: str = "gpt-transcribe"
+    llm_cloud_model: str = "gpt-6-luna"
     language: str = "pt"
     ui_language: str = "pt"
     sample_rate: int = 16_000

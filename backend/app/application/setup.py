@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from app.application.retention import parse_days
@@ -31,16 +32,42 @@ from app.core.hardware import (
 from app.core.user_errors import explain
 from app.domain.models import SetupComponentStatus, SetupStatus
 from app.domain.ports import AsrPort, AudioCapturePort, SessionRepository
-from app.infrastructure.asr.openai_engine import CLOUD_ASR_MODELS
+from app.infrastructure.asr.openai_engine import CLOUD_ASR_MODELS, normalize_cloud_asr_model
 from app.infrastructure.asr.whisper_engine import catalog_whisper_models
 from app.infrastructure.llm.ollama_manager import OLLAMA_CATALOG, find_installed_aliases
-from app.infrastructure.llm.openai_chat import CLOUD_LLM_MODELS
+from app.infrastructure.llm.openai_chat import CLOUD_LLM_MODELS, normalize_cloud_llm_model
 from app.infrastructure.llm.router import LlmRouter, normalize_provider
 from app.schemas.api import BootstrapIn, SettingsIn, SettingsOut
 
 UNATTENDED_FILE = "unattended.json"
 
 log = get_logger("setup")
+
+
+async def migrate_cloud_model_setting(
+    store: SessionRepository,
+    key: str,
+    saved: str | None,
+    fallback: str,
+    normalize: Callable[[str | None], str],
+) -> str:
+    """Modelo da OpenAI salvo em versões antigas: um descontinuado vira o equivalente
+    atual e a troca fica gravada, sem o usuário mexer."""
+    current = normalize(saved or fallback)
+    if saved and current != saved:
+        log.info("%s migrated from=%s to=%s", key, saved, current)
+        await store.set_setting(key, current)
+    return current
+
+
+async def migrate_cloud_asr_setting(store: SessionRepository, saved: str | None, fallback: str) -> str:
+    """Transcrição: gpt-4o-*-transcribe e whisper-1 viram gpt-transcribe."""
+    return await migrate_cloud_model_setting(store, "asr_cloud_model", saved, fallback, normalize_cloud_asr_model)
+
+
+async def migrate_cloud_llm_setting(store: SessionRepository, saved: str | None, fallback: str) -> str:
+    """Notas: gpt-4o e gpt-4.1 viram os modelos atuais da mesma faixa de preço."""
+    return await migrate_cloud_model_setting(store, "llm_cloud_model", saved, fallback, normalize_cloud_llm_model)
 
 
 class SetupService:
@@ -456,14 +483,14 @@ class SetupService:
                 self._settings.ui_language = ui_language
                 await self._store.set_setting("ui_language", ui_language)
         if payload.asr_cloud_model:
-            model = payload.asr_cloud_model.strip()
+            model = normalize_cloud_asr_model(payload.asr_cloud_model)
             self._settings.asr_cloud_model = model
             openai = getattr(asr, "openai", None)
             if openai is not None:
                 openai.model = model
             await self._store.set_setting("asr_cloud_model", model)
         if payload.llm_cloud_model:
-            model = payload.llm_cloud_model.strip()
+            model = normalize_cloud_llm_model(payload.llm_cloud_model)
             self._settings.llm_cloud_model = model
             self._llm.set_cloud_model(model)
             await self._store.set_setting("llm_cloud_model", model)
