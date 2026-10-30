@@ -6,4 +6,4 @@ import os
 # Precisa vir antes do primeiro `import numpy`.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-__version__ = "2.2.6"
+__version__ = "2.2.7"
