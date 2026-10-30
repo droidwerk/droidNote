@@ -822,6 +822,21 @@ export function SettingsPage({
                   <strong className="with-tip">{t("gain.title")}<InfoTip text={t("gain.hint")} /></strong>
                 </span>
               </label>
+              <label className="check-control">
+                <input
+                  type="checkbox"
+                  checked={settings.headphones === true}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setSettings({ ...settings, headphones: checked });
+                    void persist({ headphones: checked });
+                  }}
+                />
+                <span className="check-box" aria-hidden />
+                <span>
+                  <strong className="with-tip">{t("headphones.title")}<InfoTip text={t("headphones.hint")} /></strong>
+                </span>
+              </label>
             </Card>
             <RetentionCard settings={settings} persist={persist} />
           </>

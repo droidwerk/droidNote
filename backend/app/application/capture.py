@@ -164,7 +164,7 @@ class CaptureService:
         await self.set_participants(session.id, participant_ids or [])
         self._mic_buf = self._new_buffer()
         self._loop_buf = self._new_buffer()
-        self._echo = EchoGate()
+        self._echo = EchoGate(enabled=(await self._store.get_setting("headphones")) != "1")
         self._agc = AutoGain(enabled=(await self._store.get_setting("auto_gain")) != "0")
         self._mic_vad = StreamingVad()
         self._loop_vad = StreamingVad()

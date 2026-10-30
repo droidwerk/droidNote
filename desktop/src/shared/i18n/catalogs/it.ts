@@ -982,6 +982,10 @@ export const it: Messages = {
     done: "Pulizia fatta: audio {audio}, trascrizioni {transcripts}.",
     purgedNote: "La trascrizione di questa sessione è stata eliminata dalla conservazione. Verbale e appunti restano.",
   },
+  headphones: {
+    title: "Uso le cuffie",
+    hint: "Con le cuffie l'audio della riunione non rientra dal microfono e il filtro eco resta spento: nulla di ciò che dici viene tagliato. Senza cuffie, lascia deselezionato perché l'altoparlante non venga trascritto come se fossi tu.",
+  },
   gain: {
     title: "Guadagno automatico del microfono",
     hint: "Alza il volume di un microfono debole prima della trascrizione. Il WAV registrato non cambia.",

@@ -5,6 +5,8 @@ da chamada entrava duas vezes na transcrição (uma pelo áudio do sistema, outr
 como se fosse "Você"). Aqui cada quadro de 20 ms do microfone é comparado com o
 áudio do sistema no mesmo instante. Quando o microfone só carrega o eco, o
 quadro é silenciado para a transcrição — a gravação WAV continua intacta.
+
+Com fone de ouvido não há eco: `enabled=False` deixa o microfone passar inteiro.
 """
 
 from __future__ import annotations
@@ -20,7 +22,8 @@ OWN_SPEECH_MARGIN = 4.0  # ~12 dB acima do eco esperado
 
 
 class EchoGate:
-    def __init__(self) -> None:
+    def __init__(self, enabled: bool = True) -> None:
+        self.enabled = enabled
         self._history: deque[float] = deque(maxlen=DELAY_FRAMES)
         self._coupling = 0.25
         self._noise = 0.002
@@ -33,7 +36,7 @@ class EchoGate:
 
     def process(self, mic: np.ndarray, loop: np.ndarray | None) -> np.ndarray:
         data = np.asarray(mic, dtype=np.float32).reshape(-1)
-        if loop is None:
+        if loop is None or not self.enabled:
             for _ in range(max(1, data.size // FRAME)):
                 self._history.append(0.0)
                 self._recent.append(0)

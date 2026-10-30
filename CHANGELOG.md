@@ -11,6 +11,12 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Added
+- Preferences › Capture: "I use headphones". With headphones the meeting audio never reaches the microphone, so the echo filter is switched off and nothing you say is cut. Without it, the filter that keeps the speaker from being transcribed as you could also drop your own voice while the other side was talking.
+
+### Fixed
+- Voice recognition no longer labels two different voices as the same person, nor two people as one voice. A saved voiceprint used to link a whole voice to a person on the strength of a single matching window, and the link was then written back as if you had named the voice; now a person can be one voice per meeting, the link needs the whole voice to match the voiceprint, automatic matches are recomputed on every pass instead of being stored, and only the names you give are kept. Two voices are also no longer merged when their voiceprints are as close as 0.45 (real calls had two people at 0.51); the threshold is 0.55. Voiceprints learn only from clear, confident speech (at least 1 s and 0.5 confidence), so a wrong label no longer pollutes a person's voiceprint for the next meeting.
+
 ## [2.2.8] — 2026-10-30
 
 ### Changed
@@ -19,7 +25,6 @@ notes on GitHub are built from them.
 
 ### Fixed
 - Voices no longer vanish, swap names or merge mid-meeting. The periodic regrouping estimated a different number of voices on every pass (3, 5, 3, 5…) and rewrote every label each time; now a new count only takes effect once it repeats on two consecutive passes, two voices that belong to different people are never merged (a group that mixes them is split again), and a named voice absorbed by an unnamed one keeps its name.
-- Voice recognition no longer labels two different voices as the same person, nor two people as one voice. A saved voiceprint used to link a whole voice to a person on the strength of a single matching window, and the link was then written back as if you had named the voice; now a person can be one voice per meeting, the link needs the whole voice to match the voiceprint, automatic matches are recomputed on every pass instead of being stored, and only the names you give are kept. Two voices are also no longer merged when their voiceprints are as close as 0.45 (real calls had two people at 0.51); the threshold is 0.55. Voiceprints learn only from clear, confident speech (at least 1 s and 0.5 confidence), so a wrong label no longer pollutes a person's voiceprint for the next meeting.
 - Someone who joins a call speaking in short sentences gets their own voice. Short pieces that match nobody now add up until they found a voice (2.5 s), instead of being glued to the most similar existing voice for the rest of the meeting.
 - `install.ps1` run from a terminal inside a packaged app (the Claude desktop app is one) now installs through a small `install.cmd` opened by Explorer instead of a scheduled task, so DroidNote lands in your real profile with its Start menu and *Settings › Apps* entries.
 

@@ -99,6 +99,15 @@ def test_echo_gate_silences_speaker_bleed_but_keeps_own_voice() -> None:
     assert float(np.sqrt(np.mean(kept**2))) > 0.2
 
 
+def test_echo_gate_disabled_is_passthrough() -> None:
+    # Com fone não há eco: o porteiro desligado deixa o microfone inteiro.
+    rng = np.random.default_rng(6)
+    remote = rng.normal(scale=0.08, size=32_000).astype(np.float32)
+    gate = EchoGate(enabled=False)
+    assert np.array_equal(gate.process(remote * 0.3, remote), remote * 0.3)
+    assert gate.gated_ratio == 0.0
+
+
 def test_echo_gate_without_system_audio_is_passthrough() -> None:
     data = np.full(3200, 0.1, dtype=np.float32)
     assert np.array_equal(EchoGate().process(data, None), data)

@@ -982,6 +982,10 @@ export const en: Messages = {
     done: "Cleanup done: audio files {audio}, transcripts {transcripts}.",
     purgedNote: "This session's transcript was deleted by retention. The notes are still here.",
   },
+  headphones: {
+    title: "I use headphones",
+    hint: "With headphones the meeting audio never reaches the microphone, so the echo filter is off and none of your speech is cut. Without headphones, leave this unchecked so the speaker is not transcribed as you.",
+  },
   gain: {
     title: "Automatic mic gain",
     hint: "Raises a quiet microphone before transcription. The recorded WAV is unchanged.",

@@ -614,6 +614,8 @@ class SettingsOut(BaseModel):
     retention_audio_days: int = 0
     retention_transcript_days: int = 0
     auto_gain: bool = True
+    # Com fone o som da reunião não volta pelo microfone: o porteiro de eco fica desligado.
+    headphones: bool = False
     auto_summary: bool = True
 
 
@@ -639,6 +641,7 @@ class SettingsIn(BaseModel):
     retention_audio_days: int | None = Field(default=None, ge=0, le=3650)
     retention_transcript_days: int | None = Field(default=None, ge=0, le=3650)
     auto_gain: bool | None = None
+    headphones: bool | None = None
     auto_summary: bool | None = None
 
 
