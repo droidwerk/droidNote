@@ -28,6 +28,10 @@ SHORT_MARGIN = 0.06
 # nasciam de falas de 1–2 s com impressão ruim.
 NEW_VOICE_MIN_S = 2.5
 PROVISIONAL_THRESHOLD = 0.35
+# Falas curtas que não casam com voz nenhuma vão se somando: quando a soma
+# passa de NEW_VOICE_MIN_S, a voz nasce. Sem isso, quem entra na reunião
+# falando em frases curtas ficava colado na voz mais parecida para sempre.
+PENDING_MAX_GAP_MS = 60_000
 MERGE_THRESHOLD = 0.45
 MIN_CLUSTER_UNITS = 3
 SINGLE_VOICE_FLOOR = 0.42
@@ -55,6 +59,21 @@ class VoiceCluster:
         self.seconds += float(seconds)
         if source:
             self.sources[source] += 1
+
+
+@dataclass
+class PendingVoice:
+    """Trechos curtos de uma voz ainda sem cadastro, acumulando até virar voz."""
+
+    total: np.ndarray
+    seconds: float = 0.0
+    first_ms: int = 0
+    last_ms: int = 0
+    sources: Counter[str] = field(default_factory=Counter)
+
+    @property
+    def centroid(self) -> np.ndarray:
+        return normalize(self.total)
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,7 @@ class SpeakerTracker:
         self.known_threshold = known_threshold
         self.known = {key: normalize(value) for key, value in (known or {}).items()}
         self.clusters: dict[str, VoiceCluster] = {}
+        self.pending: PendingVoice | None = None
         self._next = 1
 
     def restore(self, key: str, embedding: np.ndarray, seconds: float, person_id: str | None, source: str | None, at_ms: int = 0) -> None:
@@ -144,17 +164,42 @@ class SpeakerTracker:
             created = self._create(vector, seconds, source, at_ms, person)
             return VoiceMatch(created.key, person, sim_person, created=True)
 
+        if not short and (seconds >= NEW_VOICE_MIN_S or not self.clusters):
+            self.pending = None
+            created = self._create(vector, seconds, source, at_ms, None)
+            return VoiceMatch(created.key, None, 1.0, created=True)
+
+        # Pouca fala para uma voz própria agora: soma com os trechos anteriores
+        # que também não casaram com ninguém. Se a soma chegar lá, a voz nasce.
+        founded = self._accumulate(vector, seconds, source, at_ms)
+        if founded is not None:
+            return VoiceMatch(founded.key, None, 1.0, created=True)
         if short:
-            # Trecho curto demais para fundar uma voz nova: herda do vizinho.
+            # Trecho curto demais: herda do vizinho.
             return None
-        if seconds < NEW_VOICE_MIN_S and self.clusters:
-            # Pouca fala para uma voz própria: fica provisoriamente com a mais
-            # parecida (sem somar ao centróide) ou herda do vizinho.
-            if cluster is not None and sim_cluster >= PROVISIONAL_THRESHOLD:
-                return VoiceMatch(cluster.key, cluster.person_id, sim_cluster)
+        if cluster is not None and sim_cluster >= PROVISIONAL_THRESHOLD:
+            # Fica provisoriamente com a mais parecida (sem somar ao centróide).
+            return VoiceMatch(cluster.key, cluster.person_id, sim_cluster)
+        return None
+
+    def _accumulate(self, vector: np.ndarray, seconds: float, source: str | None, at_ms: int) -> VoiceCluster | None:
+        pending = self.pending
+        stale = pending is not None and at_ms - pending.last_ms > PENDING_MAX_GAP_MS
+        if pending is None or stale or float(np.dot(pending.centroid, vector)) < self.threshold:
+            pending = PendingVoice(total=np.zeros_like(vector), first_ms=at_ms)
+            self.pending = pending
+        weight = float(min(max(seconds, 0.3), 12.0))
+        pending.total = pending.total + vector * weight
+        pending.seconds += float(seconds)
+        pending.last_ms = at_ms
+        if source:
+            pending.sources[source] += 1
+        if pending.seconds < NEW_VOICE_MIN_S:
             return None
-        created = self._create(vector, seconds, source, at_ms, None)
-        return VoiceMatch(created.key, None, 1.0, created=True)
+        self.pending = None
+        created = self._create(pending.centroid, pending.seconds, None, pending.first_ms, None)
+        created.sources = pending.sources
+        return created
 
     def link(self, key: str, person_id: str | None) -> None:
         cluster = self.clusters.get(key)
@@ -215,6 +260,7 @@ def spectral_labels(
     *,
     max_speakers: int = 10,
     merge_threshold: float = MERGE_THRESHOLD,
+    speakers: int | None = None,
 ) -> list[int]:
     """Clusterização espectral com número de vozes estimado pelo eigengap.
 
@@ -222,6 +268,9 @@ def spectral_labels(
     na matriz de afinidade mesmo quando a similaridade par-a-par é baixa, coisa
     que nenhum limiar fixo enxerga. Depois, grupos com centróides muito
     parecidos são fundidos.
+
+    `speakers` força o número de vozes (a estimativa do eigengap oscila entre
+    rodadas; quem chama pode segurar o número já aceito).
     """
     count = len(embeddings)
     if count == 0:
@@ -230,6 +279,16 @@ def spectral_labels(
         return [0]
     matrix = np.stack([normalize(item) for item in embeddings]).astype(np.float64)
     sims = np.clip(matrix @ matrix.T, -1.0, 1.0)
+    if speakers is not None and speakers >= 1:
+        if speakers == 1 or count <= speakers:
+            return [0] * count if speakers == 1 else list(range(count))
+        keep = min(count - 1, max(MIN_PRUNE, int(round(count * PRUNE_RATIOS[2]))))
+        affinity = _pruned_affinity(sims, keep)
+        laplacian = np.diag(affinity.sum(axis=1)) - affinity
+        _, vectors = np.linalg.eigh(laplacian)
+        # Sem a fusão de centróides: quem força o número já decidiu quantas
+        # vozes há; fundir aqui devolveria menos do que foi pedido.
+        return _dissolve_islands(matrix, _kmeans(vectors[:, :speakers], speakers))
     if count <= 3:
         return agglomerate(list(matrix), weights, threshold=merge_threshold)
     off_diag = sims[~np.eye(count, dtype=bool)]

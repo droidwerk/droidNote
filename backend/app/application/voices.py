@@ -31,6 +31,7 @@ from app.infrastructure.voice.diarize import Turn, Word, diarize_window, window_
 from app.infrastructure.voice.embedder import normalize
 from app.infrastructure.voice.tracker import (
     KNOWN_THRESHOLD,
+    MERGE_THRESHOLD,
     SpeakerTracker,
     VoiceCluster,
     blend_voiceprint,
@@ -45,6 +46,10 @@ REFINE_EVERY_S = 40.0
 REFINE_EARLY_S = (10.0, 15.0, 20.0, 30.0)
 REFINE_AFTER_NEW_VOICE_S = 15.0
 MAX_REFINE_FRAMES = 1200
+# Duas vozes com pessoas diferentes nunca se fundem: um grupo em que cada uma
+# tem pelo menos isto de fala, e cujas impressões são mesmo distintas, é
+# separado de novo.
+NAMED_SHARE_MIN_S = 5.0
 SELF_ENROLL_MIN_S = 20.0
 PROBE_THRESHOLD = 0.45
 # "Falando agora" por impressão vocal guardada: 1,5 s de áudio contra as pessoas
@@ -96,6 +101,10 @@ class LiveVoices:
     self_linked: bool = False
     probe_person: str | None = None
     probe_hits: int = 0
+    # Número de vozes já aceito pelo reagrupamento e o candidato que precisa
+    # se repetir na rodada seguinte para ser aceito.
+    accepted_count: int | None = None
+    candidate_count: int | None = None
 
 
 class VoiceService:
@@ -328,7 +337,11 @@ class VoiceService:
         units, owners = _units(order, frames_by_segment)
         if len(units) == 0:
             return segments
+        links = await self._store.list_session_voices(session_id)  # type: ignore[attr-defined]
+        live = self._live.get(session_id)
         labels = await asyncio.to_thread(spectral_labels, units)
+        labels = await self._settle_count(live, units, labels, final)
+        labels = _split_named(units, owners, labels, by_id, links)
 
         votes: dict[str, Counter[int]] = defaultdict(Counter)
         for owner, label in zip(owners, labels):
@@ -362,7 +375,10 @@ class VoiceService:
             key_of[group] = f"v{next_number}"
             used_numbers.add(next_number)
 
-        links = await self._store.list_session_voices(session_id)  # type: ignore[attr-defined]
+        # Cada grupo herda a pessoa da voz antiga com mais tempo entre os seus
+        # trechos, e não só da voz cuja chave ele herdou: quando uma voz com nome
+        # é absorvida por outra sem nome, o nome fica com o grupo.
+        group_links = _inherit_links(group_of, by_id, links)
         if key_of:
             # Numeração compacta pela ordem em que cada voz apareceu: quem falou
             # primeiro mantém o número; só vozes novas ou fundidas se reorganizam.
@@ -371,10 +387,9 @@ class VoiceService:
                 for group in key_of
             }
             renamed = {group: f"v{index}" for index, group in enumerate(sorted(key_of, key=first_at.get), start=1)}
-            links = {renamed[g]: links.get(key_of[g]) for g in key_of if links.get(key_of[g])}
+            links = {renamed[g]: group_links[g] for g in key_of if group_links.get(g)}
             key_of = renamed
         known = await self._known_voiceprints()
-        live = self._live.get(session_id)
         centroids: dict[str, np.ndarray] = {}
         for group, key in key_of.items():
             members = [i for i, owner in enumerate(owners) if group_of.get(owner) == group]
@@ -416,6 +431,7 @@ class VoiceService:
                         person_id=person_of.get(key),
                     )
                     rebuilt._next = max(rebuilt._next, index + 1)
+                rebuilt.pending = live.tracker.pending
                 live.tracker = rebuilt
                 live.self_linked = any(
                     person and person == live.self_person_id for person in person_of.values()
@@ -432,6 +448,33 @@ class VoiceService:
         )
         log.info("voices refined session=%s voices=%s segments=%s final=%s", session_id, len(key_of), len(rows), final)
         return await self._store.list_segments(session_id)  # type: ignore[attr-defined]
+
+    @staticmethod
+    async def _settle_count(
+        live: LiveVoices | None,
+        units: np.ndarray,
+        labels: list[int],
+        final: bool,
+    ) -> list[int]:
+        """Histerese no número de vozes: a estimativa do eigengap oscila de uma
+        rodada para outra (3, 5, 3, 5...) e cada oscilação funde ou separa vozes
+        na tela. Um número diferente do aceito só entra se vier em duas rodadas
+        seguidas; até lá, a sessão é reagrupada com o número já aceito."""
+        proposed = len(set(labels))
+        if live is None:
+            return labels
+        accepted = live.accepted_count
+        if accepted is None or proposed == accepted:
+            live.accepted_count = proposed
+            live.candidate_count = None
+            return labels
+        if proposed == live.candidate_count:
+            live.accepted_count = proposed
+            live.candidate_count = None
+            return labels
+        live.candidate_count = None if final else proposed
+        log.info("voices count held at %s (proposed %s)", accepted, proposed)
+        return await asyncio.to_thread(spectral_labels, units, None, speakers=accepted)
 
     def _resolve_people(
         self,
@@ -655,6 +698,77 @@ def summarize_voices(segments: Sequence[TranscriptSegment]) -> list[SessionVoice
         for key in talk
     ]
     return sorted(voices, key=lambda item: item.first_ms)
+
+
+def _split_named(
+    units: np.ndarray,
+    owners: list[str],
+    labels: list[int],
+    by_id: dict[str, TranscriptSegment],
+    links: dict[str, str | None],
+) -> list[int]:
+    """Um grupo novo que junta duas vozes com pessoas diferentes é separado de
+    novo: cada unidade vai para a pessoa de centróide mais próximo.
+
+    Só vale quando as impressões das pessoas são distintas de fato (centróides
+    abaixo do limiar de fusão). Pessoas "diferentes" com a mesma impressão são
+    um erro de rótulo ao vivo, não duas vozes, e aí o grupo fica inteiro."""
+    if not links or not labels:
+        return labels
+    person_of_unit = [links.get(by_id[owner].speaker_cluster or "") for owner in owners]
+    units_per_segment = Counter(owners)
+    seconds_of = {
+        segment_id: max(0.0, (by_id[segment_id].end_ms - by_id[segment_id].start_ms) / 1000.0) / count
+        for segment_id, count in units_per_segment.items()
+    }
+    result = list(labels)
+    next_label = max(labels) + 1
+    for group in sorted(set(labels)):
+        members = [i for i, label in enumerate(labels) if label == group]
+        share: dict[str, float] = defaultdict(float)
+        for index in members:
+            person = person_of_unit[index]
+            if person:
+                share[person] += seconds_of[owners[index]]
+        candidates = sorted(
+            (person for person, spoken in share.items() if spoken >= NAMED_SHARE_MIN_S),
+            key=lambda person: -share[person],
+        )
+        if len(candidates) < 2:
+            continue
+        centroids = {
+            person: normalize(units[[i for i in members if person_of_unit[i] == person]].sum(axis=0))
+            for person in candidates
+        }
+        named: list[str] = []
+        for person in candidates:
+            if all(float(centroids[person] @ centroids[other]) < MERGE_THRESHOLD for other in named):
+                named.append(person)
+        if len(named) < 2:
+            continue
+        target_label: dict[str, int] = {}
+        for position, person in enumerate(named):
+            target_label[person] = group if position == 0 else next_label
+            if position:
+                next_label += 1
+        for index in members:
+            nearest = max(named, key=lambda person: float(units[index] @ centroids[person]))
+            result[index] = target_label[nearest]
+    return result
+
+
+def _inherit_links(
+    group_of: dict[str, int],
+    by_id: dict[str, TranscriptSegment],
+    links: dict[str, str | None],
+) -> dict[int, str | None]:
+    seconds: dict[int, Counter[str]] = defaultdict(Counter)
+    for segment_id, group in group_of.items():
+        segment = by_id[segment_id]
+        person = links.get(segment.speaker_cluster or "")
+        if person:
+            seconds[group][person] += max(1, segment.end_ms - segment.start_ms)
+    return {group: counter.most_common(1)[0][0] for group, counter in seconds.items() if counter}
 
 
 def _units(order: list[str], frames_by_segment: dict[str, np.ndarray]) -> tuple[np.ndarray, list[str]]:

@@ -139,24 +139,41 @@ def test_tracker_short_piece_never_creates_a_voice() -> None:
     assert tracker.clusters == {}
 
 
-def test_tracker_brief_unmatched_piece_does_not_found_a_voice() -> None:
-    first, second = _voices(2, seed=11)
+def test_tracker_brief_unmatched_pieces_accumulate_into_a_voice() -> None:
+    first, second, stray = _voices(3, seed=11)
     rng = np.random.default_rng(12)
     tracker = SpeakerTracker()
     base = tracker.assign(_sample(first, rng), 4.0, "loopback")
     assert base is not None
-    # 2 s de uma voz distinta: não vira "Voz 2"; sem parecença, herda do vizinho.
-    assert tracker.assign(_sample(second, rng), 2.0, "loopback") is None
-    assert len(tracker.clusters) == 1
-    # 2 s meio parecidos com a voz 1 (entre o provisório e o limiar) ficam com ela sem mover o centróide.
+    # 2 s meio parecidos com a voz 1 (entre o provisório e o limiar), sem nada
+    # acumulado: ficam com ela sem mover o centróide.
     before = tracker.clusters[base.cluster].seconds
-    orthogonal = _unit(second - float(second @ first) * first)
+    orthogonal = _unit(stray - float(stray @ first) * first)
     close = tracker.assign(_unit(0.45 * first + 0.893 * orthogonal), 2.0, "loopback")
     assert close is not None and close.cluster == base.cluster
     assert tracker.clusters[base.cluster].seconds == before
-    # Com fala suficiente, a segunda voz nasce.
-    other = tracker.assign(_sample(second, rng), 3.0, "loopback")
-    assert other is not None and other.cluster != base.cluster
+    # 2 s de uma voz distinta: ainda não é "Voz 2"; herda do vizinho.
+    assert tracker.assign(_sample(second, rng), 2.0, "loopback", at_ms=10_000) is None
+    assert len(tracker.clusters) == 1
+    # Mais 1 s da mesma voz: a soma passa de 2,5 s e a voz nasce — quem entra
+    # na reunião falando em frases curtas ganha a própria voz.
+    born = tracker.assign(_sample(second, rng), 1.0, "loopback", at_ms=14_000)
+    assert born is not None and born.created and born.cluster != base.cluster
+    assert len(tracker.clusters) == 2
+    assert tracker.pending is None
+    later = tracker.assign(_sample(second, rng), 3.0, "loopback", at_ms=20_000)
+    assert later is not None and later.cluster == born.cluster
+
+
+def test_tracker_pending_voice_forgets_old_pieces() -> None:
+    first, second = _voices(2, seed=21)
+    rng = np.random.default_rng(22)
+    tracker = SpeakerTracker()
+    assert tracker.assign(_sample(first, rng), 4.0, "loopback") is not None
+    assert tracker.assign(_sample(second, rng), 2.0, "loopback", at_ms=10_000) is None
+    # Um minuto depois o acumulado não vale mais: 1 s sozinho não funda voz.
+    assert tracker.assign(_sample(second, rng), 1.0, "loopback", at_ms=90_000) is None
+    assert len(tracker.clusters) == 1
 
 
 def test_spectral_dissolves_tiny_islands() -> None:
@@ -180,6 +197,18 @@ def test_spectral_finds_three_voices_and_one_voice() -> None:
 
     single = [_sample(centers[0], rng, 0.5) for _ in range(25)]
     assert len(set(spectral_labels(single))) == 1
+
+
+def test_spectral_with_forced_speaker_count() -> None:
+    centers = _voices(3, seed=7)
+    rng = np.random.default_rng(9)
+    points = [_sample(center, rng, 0.9) for center in centers for _ in range(30)]
+    held = spectral_labels(points, speakers=2)
+    assert len(set(held)) == 2
+    # Dois dos três blocos continuam inteiros; só um foi repartido ou fundido.
+    whole = sum(1 for block in range(3) if len(set(held[block * 30 : (block + 1) * 30])) == 1)
+    assert whole >= 2
+    assert len(set(spectral_labels(points, speakers=1))) == 1
 
 
 def test_agglomerate_merges_only_close_points() -> None:

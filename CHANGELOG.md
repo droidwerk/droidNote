@@ -16,6 +16,8 @@ notes on GitHub are built from them.
 - OpenAI minutes, chat and mind map now use `gpt-6-luna` by default (US$ 0.10 / 0.50 per million tokens, cheaper than the old `gpt-4o-mini`), with `gpt-5.6-luna` and `gpt-5.6-terra` as the other choices. `gpt-4o-mini`, `gpt-4.1-mini` and `gpt-4o` (OpenAI shuts them down on 2027-01-14) are gone from the list; a saved `gpt-4o-mini` or `gpt-4.1-mini` becomes `gpt-6-luna` and a saved `gpt-4o` becomes `gpt-5.6-terra` on the next start. Requests ask for no reasoning (`reasoning_effort: none`) so the minutes come back as fast and as cheap as before, and a generation parameter the model rejects is dropped and the request retried instead of failing the minutes.
 
 ### Fixed
+- Voices no longer vanish, swap names or merge mid-meeting. The periodic regrouping estimated a different number of voices on every pass (3, 5, 3, 5…) and rewrote every label each time; now a new count only takes effect once it repeats on two consecutive passes, two voices that belong to different people are never merged (a group that mixes them is split again), and a named voice absorbed by an unnamed one keeps its name.
+- Someone who joins a call speaking in short sentences gets their own voice. Short pieces that match nobody now add up until they found a voice (2.5 s), instead of being glued to the most similar existing voice for the rest of the meeting.
 - `install.ps1` run from a terminal inside a packaged app (the Claude desktop app is one) now installs through a small `install.cmd` opened by Explorer instead of a scheduled task, so DroidNote lands in your real profile with its Start menu and *Settings › Apps* entries.
 
 ## [2.2.7] — 2026-10-30

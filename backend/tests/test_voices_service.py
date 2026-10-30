@@ -8,7 +8,8 @@ from httpx import AsyncClient
 
 from app.application.bus import EventBus
 from app.application.summarize import render_transcript, voice_label
-from app.application.voices import VoiceService, summarize_voices
+from app.application.voices import LiveVoices, VoiceService, _split_named, summarize_voices
+from app.infrastructure.voice.tracker import SpeakerTracker
 from app.domain.models import Session, TranscriptSegment
 from app.infrastructure.persistence.sqlite import SqliteStore, new_id
 from tests.conftest import auth
@@ -70,13 +71,93 @@ async def test_live_labels_split_voices_and_refine_keeps_them(voices) -> None:
     await _record(service, store, session_id, [(0.0, "oi"), (0.1, "tudo bem"), (0.0, "sim"), (0.1, "ótimo")])
     segments = await store.list_segments(session_id)
     clusters = [item.speaker_cluster for item in segments]
-    assert clusters[0] == clusters[2] and clusters[1] == clusters[3] and clusters[0] != clusters[1]
+    # Janelas de 2 s: a segunda voz só nasce quando acumula fala suficiente.
+    assert clusters[0] == clusters[2] == "v1"
+    assert clusters[1] is None and clusters[3] == "v2"
 
     refined = await service.refine(session_id, final=True)
     assert [item.speaker_cluster for item in refined] == ["v1", "v2", "v1", "v2"]
     summary = summarize_voices(refined)
     assert [voice.cluster for voice in summary] == ["v1", "v2"]
     assert summary[0].segments == 2
+
+
+@pytest.mark.asyncio
+async def test_refine_holds_voice_count_until_it_repeats() -> None:
+    rng = np.random.default_rng(31)
+    centers = [c / np.linalg.norm(c) for c in rng.normal(size=(3, 64))]
+    units = np.stack(
+        [(c + rng.normal(scale=0.9 / 8, size=64)) for c in centers for _ in range(30)]
+    ).astype(np.float32)
+    units /= np.linalg.norm(units, axis=1, keepdims=True)
+    three = [index // 30 for index in range(90)]
+    live = LiveVoices(session_id="s", mode="meeting", self_person_id=None, call=True, tracker=SpeakerTracker())
+
+    first = await VoiceService._settle_count(live, units, three, False)
+    assert len(set(first)) == 3 and live.accepted_count == 3
+    # Uma rodada propõe 2 vozes: fica em espera, a sessão segue com 3.
+    two = [0 if index < 60 else 1 for index in range(90)]
+    held = await VoiceService._settle_count(live, units, two, False)
+    assert len(set(held)) == 3 and live.accepted_count == 3 and live.candidate_count == 2
+    # Voltou a 3: o candidato cai.
+    again = await VoiceService._settle_count(live, units, three, False)
+    assert len(set(again)) == 3 and live.candidate_count is None
+    # 2 vozes em duas rodadas seguidas: aceito.
+    await VoiceService._settle_count(live, units, two, False)
+    settled = await VoiceService._settle_count(live, units, two, False)
+    assert len(set(settled)) == 2 and live.accepted_count == 2
+
+
+def test_split_named_never_merges_two_named_voices() -> None:
+    rng = np.random.default_rng(41)
+    ana_voice, bruno_voice = (c / np.linalg.norm(c) for c in rng.normal(size=(2, 64)))
+    units = np.stack(
+        [ana_voice + rng.normal(scale=0.05, size=64) for _ in range(6)]
+        + [bruno_voice + rng.normal(scale=0.05, size=64) for _ in range(6)]
+    ).astype(np.float32)
+    units /= np.linalg.norm(units, axis=1, keepdims=True)
+    owners = [f"a{i}" for i in range(6)] + [f"b{i}" for i in range(6)]
+    by_id = {}
+    for index, owner in enumerate(owners):
+        by_id[owner] = TranscriptSegment(
+            id=owner,
+            session_id="s",
+            start_ms=index * 3_000,
+            end_ms=index * 3_000 + 3_000,
+            text="x",
+            source="loopback",
+            speaker_cluster="v1" if owner.startswith("a") else "v2",
+        )
+    links = {"v1": "ana", "v2": "bruno"}
+    merged = [0] * 12
+    split = _split_named(units, owners, merged, by_id, links)
+    assert len(set(split)) == 2
+    assert len(set(split[:6])) == 1 and len(set(split[6:])) == 1 and split[0] != split[6]
+    # Sem pessoas diferentes no grupo, nada muda.
+    assert _split_named(units, owners, merged, by_id, {"v1": "ana", "v2": "ana"}) == merged
+    # Duas "pessoas" com a mesma impressão vocal são um erro de rótulo, não duas vozes.
+    same = np.stack([ana_voice + rng.normal(scale=0.05, size=64) for _ in range(12)]).astype(np.float32)
+    same /= np.linalg.norm(same, axis=1, keepdims=True)
+    assert _split_named(same, owners, merged, by_id, links) == merged
+
+
+@pytest.mark.asyncio
+async def test_refine_keeps_a_name_when_its_voice_is_absorbed(voices) -> None:
+    service, store = voices
+    session_id = await _session(store)
+    await service.begin(session_id, mode="meeting", self_person_id=None, call=True)
+    await _record(service, store, session_id, [(0.0, "a"), (0.0, "b"), (0.0, "c")])
+    # O usuário dá nome a uma voz que o motor, por engano, tinha separado da v1.
+    marlon = await store.create_person("Marlon")
+    segments = await store.list_segments(session_id)
+    from dataclasses import replace
+
+    await store.save_segment(replace(segments[2], speaker_cluster="v9"))
+    await store.assign_cluster_person(session_id, "v9", marlon.id)
+    # O reagrupamento junta tudo numa voz só (é a mesma voz): o nome não some.
+    refined = await service.refine(session_id, final=True)
+    assert {item.speaker_cluster for item in refined} == {"v1"}
+    assert all(item.speaker_id == marlon.id for item in refined)
 
 
 @pytest.mark.asyncio
