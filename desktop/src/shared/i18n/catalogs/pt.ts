@@ -599,6 +599,10 @@ export const pt = {
     body: "O DroidNote {latest} já saiu. Você está na {current}. A instalação é por cima da atual; notas e modelos não são apagados.",
     download: "Baixar",
     later: "Agora não",
+    copyCommand: "Copiar comando",
+    commandCopied: "Comando copiado",
+    commandCopiedHint: "Cole no PowerShell e tecle Enter. O DroidNote fecha, atualiza e abre de novo.",
+    copyFail: "Não foi possível copiar o comando",
   },
   about: {
     controlTitle: "Processamento sob seu controle",

@@ -3,6 +3,9 @@ import { isNewerVersion, normalizeVersion } from "./semver";
 const RELEASES_URL = "https://api.github.com/repos/droidwerk/droidNote/releases/latest";
 const SKIPPED_KEY = "droidnote.skipped_update";
 const SETUP_NAME = "droidnote-setup.exe";
+/** Mesma linha do README e do docs/INSTALL_WITH_AI.md: atualiza por cima sem baixar o .exe à mão. */
+export const UPDATE_COMMAND =
+  "irm https://github.com/droidwerk/droidNote/releases/latest/download/install.ps1 | iex";
 
 export interface AppUpdateNotice {
   version: string;

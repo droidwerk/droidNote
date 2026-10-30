@@ -597,6 +597,10 @@ export const ru: Messages = {
     body: "Вышел DroidNote {latest}. Сейчас у вас {current}. Установка поверх текущей; заметки и модели не удаляются.",
     download: "Скачать",
     later: "Не сейчас",
+    copyCommand: "Скопировать команду",
+    commandCopied: "Команда скопирована",
+    commandCopiedHint: "Вставьте её в PowerShell и нажмите Enter. DroidNote закроется, обновится и откроется снова.",
+    copyFail: "Не удалось скопировать команду",
   },
   about: {
     controlTitle: "Обработка под вашим контролем",

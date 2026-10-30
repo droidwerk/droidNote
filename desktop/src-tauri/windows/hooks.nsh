@@ -8,6 +8,9 @@
 !macro NSIS_HOOK_POSTINSTALL
   SetOutPath "$INSTDIR"
   CreateShortCut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL
+  ; Sem o AppUserModelID o Windows não liga a janela ao atalho: fixar na barra de
+  ; tarefas e o ícone dela ficam diferentes do atalho do Menu Iniciar.
+  !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
   CreateDirectory "$APPDATA\DroidNote"
   FileOpen $0 "$APPDATA\DroidNote\install-lang.txt" w
   FileWrite $0 "$LANGUAGE"
