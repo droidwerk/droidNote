@@ -93,10 +93,15 @@ async def test_refine_holds_voice_count_until_it_repeats() -> None:
     three = [index // 30 for index in range(90)]
     live = LiveVoices(session_id="s", mode="meeting", self_person_id=None, call=True, tracker=SpeakerTracker())
 
+    # Rodadas iniciais: nada é segurado, as vozes ainda estão chegando.
+    two = [0 if index < 60 else 1 for index in range(90)]
+    assert len(set(await VoiceService._settle_count(live, units, two, False))) == 2
+    assert len(set(await VoiceService._settle_count(live, units, three, False))) == 3
+    live.refines = 4
+
     first = await VoiceService._settle_count(live, units, three, False)
     assert len(set(first)) == 3 and live.accepted_count == 3
     # Uma rodada propõe 2 vozes: fica em espera, a sessão segue com 3.
-    two = [0 if index < 60 else 1 for index in range(90)]
     held = await VoiceService._settle_count(live, units, two, False)
     assert len(set(held)) == 3 and live.accepted_count == 3 and live.candidate_count == 2
     # Voltou a 3: o candidato cai.
@@ -158,6 +163,30 @@ async def test_refine_keeps_a_name_when_its_voice_is_absorbed(voices) -> None:
     refined = await service.refine(session_id, final=True)
     assert {item.speaker_cluster for item in refined} == {"v1"}
     assert all(item.speaker_id == marlon.id for item in refined)
+
+
+@pytest.mark.asyncio
+async def test_refine_keeps_one_voice_per_person_and_forgets_automatic_links(voices) -> None:
+    service, store = voices
+    session_id = await _session(store)
+    await service.begin(session_id, mode="meeting", self_person_id=None, call=True)
+    await _record(service, store, session_id, [(0.0, "a"), (0.1, "b"), (0.0, "c"), (0.1, "d"), (0.1, "e")])
+    await service.refine(session_id, final=False)
+    ana = await store.create_person("Ana")
+    # Duas vozes vinculadas à mesma pessoa (sessão antiga ou engano): fica uma.
+    await store.assign_cluster_person(session_id, "v1", ana.id)
+    await store.assign_cluster_person(session_id, "v2", ana.id)
+    refined = await service.refine(session_id, final=True)
+    people = {item.speaker_cluster: item.speaker_id for item in refined}
+    assert list(people.values()).count(ana.id) == 1
+    links = await store.list_session_voices(session_id)
+    assert list(links.values()).count(ana.id) == 1
+    # Reconhecimento automático por impressão vocal não vira vínculo gravado.
+    other = await _session(store)
+    await service.begin(other, mode="meeting", self_person_id=None, call=True)
+    await _record(service, store, other, [(0.1, "x"), (0.0, "y"), (0.1, "z")])
+    await service.refine(other, final=True)
+    assert await store.list_session_voices(other) == {}
 
 
 @pytest.mark.asyncio

@@ -395,8 +395,9 @@ class VoiceService:
             members = [i for i, owner in enumerate(owners) if group_of.get(owner) == group]
             if members:
                 centroids[key] = normalize(units[members].sum(axis=0))
+        chosen_link = _unique_links(key_of, links, known, centroids, _talk_seconds(key_of, group_of, by_id))
         person_of = self._resolve_people(
-            key_of, group_of, by_id, links, known, centroids, live
+            key_of, group_of, by_id, chosen_link, known, centroids, live
         )
 
         rows: list[tuple[str, str | None, float | None, str | None]] = []
@@ -409,9 +410,10 @@ class VoiceService:
             )
             rows.append((segment_id, key, round(confidence, 3) if confidence is not None else None, person_of.get(key)))
         await self._store.update_segment_voices(rows)  # type: ignore[attr-defined]
-        await self._store.replace_session_voices(  # type: ignore[attr-defined]
-            session_id, {key: person_of.get(key) for key in key_of.values()}
-        )
+        # Só os nomes dados pelo usuário ficam gravados como vínculo da voz. Os
+        # reconhecidos pela impressão vocal são refeitos a cada rodada a partir
+        # dos centróides: gravá-los fazia um acerto frágil virar permanente.
+        await self._store.replace_session_voices(session_id, dict(chosen_link))  # type: ignore[attr-defined]
 
         if live is not None:
             with live.lock:
@@ -464,7 +466,11 @@ class VoiceService:
         if live is None:
             return labels
         accepted = live.accepted_count
-        if accepted is None or proposed == accepted:
+        # No começo há pouca fala por voz e as vozes ainda estão chegando: as
+        # rodadas iniciais entram sem segurar. Uma voz só também não segura
+        # nada: qualquer separação proposta vale mais do que ela.
+        settling = live.refines < len(REFINE_EARLY_S) or accepted == 1
+        if accepted is None or proposed == accepted or settling:
             live.accepted_count = proposed
             live.candidate_count = None
             return labels
@@ -494,7 +500,7 @@ class VoiceService:
             if segment.source == "mic":
                 mic_seconds[key] += (segment.end_ms - segment.start_ms) / 1000.0
         for group, key in key_of.items():
-            # 1) nome dado pelo usuário a esta voz
+            # 1) nome dado pelo usuário a esta voz (já único por pessoa)
             if links.get(key):
                 person_of[key] = links[key]
                 continue
@@ -613,7 +619,7 @@ class VoiceService:
         additions = [
             (normalize(frames[segment_id].sum(axis=0)), (members[segment_id].end_ms - members[segment_id].start_ms) / 1000.0)
             for segment_id in members
-            if segment_id in frames
+            if segment_id in frames and _reliable(members[segment_id])
         ]
         await self._enroll(person_id, additions)
 
@@ -698,6 +704,58 @@ def summarize_voices(segments: Sequence[TranscriptSegment]) -> list[SessionVoice
         for key in talk
     ]
     return sorted(voices, key=lambda item: item.first_ms)
+
+
+ENROLL_MIN_CONFIDENCE = 0.5
+ENROLL_MIN_MS = 1_000
+
+
+def _reliable(segment: TranscriptSegment) -> bool:
+    """Trecho que entra na impressão vocal: fala de verdade e bem parecida com a
+    voz. Trechos de 0,5 s ou com confiança baixa sujavam a impressão, e uma
+    impressão suja rotulava a pessoa errada nas reuniões seguintes."""
+    if segment.end_ms - segment.start_ms < ENROLL_MIN_MS:
+        return False
+    return segment.speaker_confidence is None or segment.speaker_confidence >= ENROLL_MIN_CONFIDENCE
+
+
+def _talk_seconds(
+    key_of: dict[int, str], group_of: dict[str, int], by_id: dict[str, TranscriptSegment]
+) -> dict[str, float]:
+    seconds: dict[str, float] = defaultdict(float)
+    for segment_id, group in group_of.items():
+        segment = by_id[segment_id]
+        seconds[key_of[group]] += (segment.end_ms - segment.start_ms) / 1000.0
+    return seconds
+
+
+def _unique_links(
+    key_of: dict[int, str],
+    links: dict[str, str | None],
+    known: dict[str, np.ndarray],
+    centroids: dict[str, np.ndarray],
+    seconds: dict[str, float],
+) -> dict[str, str]:
+    """Uma pessoa só pode ser uma voz. Se dois vínculos apontam a mesma pessoa
+    (sessão antiga, ou nome dado a duas vozes), fica com a voz cujo centróide
+    mais parece com a impressão guardada; sem impressão, a que mais falou."""
+    by_person: dict[str, list[str]] = defaultdict(list)
+    for key in key_of.values():
+        person = links.get(key)
+        if person:
+            by_person[person].append(key)
+    chosen: dict[str, str] = {}
+    for person, keys in by_person.items():
+        print_ = known.get(person)
+
+        def score(key: str) -> float:
+            centroid = centroids.get(key)
+            if print_ is not None and centroid is not None and print_.size == centroid.size:
+                return float(np.dot(print_, centroid)) + 1.0
+            return seconds.get(key, 0.0) / 1e6
+
+        chosen[max(keys, key=score)] = person
+    return chosen
 
 
 def _split_named(

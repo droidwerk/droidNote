@@ -32,7 +32,10 @@ PROVISIONAL_THRESHOLD = 0.35
 # passa de NEW_VOICE_MIN_S, a voz nasce. Sem isso, quem entra na reunião
 # falando em frases curtas ficava colado na voz mais parecida para sempre.
 PENDING_MAX_GAP_MS = 60_000
-MERGE_THRESHOLD = 0.45
+# Centróides de duas vozes acima disto são a mesma pessoa. Em chamadas reais duas
+# pessoas chegaram a 0,51 entre si: fundir é irreversível (o nome de uma some),
+# separar demais se resolve dando o mesmo nome às duas.
+MERGE_THRESHOLD = 0.55
 MIN_CLUSTER_UNITS = 3
 SINGLE_VOICE_FLOOR = 0.42
 PRUNE_RATIOS = (0.05, 0.1, 0.15, 0.25, 0.35)
@@ -152,17 +155,21 @@ class SpeakerTracker:
             if not short:
                 cluster.add(vector, seconds, source)
             if cluster.person_id is None and person and sim_person >= self.known_threshold:
-                cluster.person_id = person
+                self._link_known(cluster, person)
             return VoiceMatch(cluster.key, cluster.person_id, sim_cluster)
 
         if person and sim_person >= self.known_threshold:
             linked = next((item for item in self.clusters.values() if item.person_id == person), None)
-            if linked is not None:
+            if linked is None:
+                created = self._create(vector, seconds, source, at_ms, person)
+                return VoiceMatch(created.key, person, sim_person, created=True)
+            # A impressão guardada casa, mas a voz desta sessão ligada à pessoa
+            # não: ou a impressão está suja ou é outra pessoa parecida. A voz da
+            # sessão (minutos de fala) vale mais que a impressão (uma janela).
+            if float(np.dot(linked.centroid, vector)) >= PROVISIONAL_THRESHOLD:
                 if not short:
                     linked.add(vector, seconds, source)
                 return VoiceMatch(linked.key, person, sim_person)
-            created = self._create(vector, seconds, source, at_ms, person)
-            return VoiceMatch(created.key, person, sim_person, created=True)
 
         if not short and (seconds >= NEW_VOICE_MIN_S or not self.clusters):
             self.pending = None
@@ -200,6 +207,18 @@ class SpeakerTracker:
         created = self._create(pending.centroid, pending.seconds, None, pending.first_ms, None)
         created.sources = pending.sources
         return created
+
+    def _link_known(self, cluster: VoiceCluster, person: str) -> None:
+        """Liga uma voz da sessão a uma pessoa conhecida: só se nenhuma outra voz
+        já é dela e se a voz inteira (centróide), não só esta janela, casa com a
+        impressão. Uma janela parecida bastava para rotular a voz errada."""
+        if any(item.person_id == person for item in self.clusters.values()):
+            return
+        print_ = self.known.get(person)
+        if print_ is None or print_.size != cluster.total.size:
+            return
+        if float(np.dot(cluster.centroid, print_)) >= self.known_threshold:
+            cluster.person_id = person
 
     def link(self, key: str, person_id: str | None) -> None:
         cluster = self.clusters.get(key)
