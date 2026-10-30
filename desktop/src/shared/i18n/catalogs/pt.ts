@@ -984,6 +984,10 @@ export const pt = {
     done: "Limpeza feita: áudios {audio}, transcrições {transcripts}.",
     purgedNote: "A transcrição desta sessão foi apagada pela retenção. A ata e as notas continuam.",
   },
+  headphones: {
+    title: "Uso fone de ouvido",
+    hint: "Com fone, o som da reunião não volta pelo microfone e o filtro de eco fica desligado: nada da sua fala é cortado. Sem fone, deixe desmarcado para o DroidNote não transcrever o alto-falante como se fosse você.",
+  },
   gain: {
     title: "Ganho automático do microfone",
     hint: "Sobe o volume de microfone baixo antes da transcrição. O WAV gravado não muda.",

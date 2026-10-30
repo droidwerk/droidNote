@@ -982,6 +982,10 @@ export const es: Messages = {
     done: "Limpieza hecha: audios {audio}, transcripciones {transcripts}.",
     purgedNote: "La transcripción de esta sesión se borró por la retención. El acta y las notas siguen aquí.",
   },
+  headphones: {
+    title: "Uso auriculares",
+    hint: "Con auriculares el audio de la reunión no vuelve por el micrófono y el filtro de eco queda apagado: nada de lo que dices se corta. Sin auriculares, déjalo desmarcado para que el altavoz no se transcriba como si fueras tú.",
+  },
   gain: {
     title: "Ganancia automática del micrófono",
     hint: "Sube el volumen de un micrófono bajo antes de transcribir. El WAV grabado no cambia.",

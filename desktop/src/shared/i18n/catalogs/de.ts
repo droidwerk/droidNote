@@ -982,6 +982,10 @@ export const de: Messages = {
     done: "Bereinigung erledigt: Audiodateien {audio}, Transkripte {transcripts}.",
     purgedNote: "Das Transkript dieser Sitzung wurde durch die Aufbewahrungsregel gelöscht. Protokoll und Notizen bleiben erhalten.",
   },
+  headphones: {
+    title: "Ich benutze Kopfhörer",
+    hint: "Mit Kopfhörern gelangt der Besprechungston nicht ins Mikrofon, der Echofilter bleibt aus und nichts von Ihrer Sprache wird abgeschnitten. Ohne Kopfhörer abgewählt lassen, damit der Lautsprecher nicht als Sie transkribiert wird.",
+  },
   gain: {
     title: "Automatische Mikrofonverstärkung",
     hint: "Hebt ein leises Mikrofon vor der Transkription an. Die aufgenommene WAV bleibt unverändert.",

@@ -324,6 +324,7 @@ export interface Settings {
   retention_audio_days?: number;
   retention_transcript_days?: number;
   auto_gain?: boolean;
+  headphones?: boolean;
   auto_summary?: boolean;
 }
 

@@ -982,6 +982,10 @@ export const fr: Messages = {
     done: "Nettoyage terminé : fichiers audio {audio}, transcriptions {transcripts}.",
     purgedNote: "La transcription de cette session a été supprimée par la conservation. Le compte rendu et les notes restent.",
   },
+  headphones: {
+    title: "J'utilise un casque",
+    hint: "Avec un casque, le son de la réunion ne revient pas par le micro et le filtre d'écho est désactivé : rien de ce que vous dites n'est coupé. Sans casque, laissez décoché pour que le haut-parleur ne soit pas transcrit comme vous.",
+  },
   gain: {
     title: "Gain automatique du micro",
     hint: "Remonte un micro trop faible avant la transcription. Le WAV enregistré reste inchangé.",

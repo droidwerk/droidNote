@@ -552,6 +552,8 @@ class SetupService:
             await self._store.set_setting("retention_transcript_days", str(payload.retention_transcript_days))
         if payload.auto_gain is not None:
             await self._store.set_setting("auto_gain", "1" if payload.auto_gain else "0")
+        if payload.headphones is not None:
+            await self._store.set_setting("headphones", "1" if payload.headphones else "0")
         if payload.auto_summary is not None:
             await self._store.set_setting("auto_summary", "1" if payload.auto_summary else "0")
         if asr_changed:
@@ -597,6 +599,7 @@ class SetupService:
             retention_audio_days=parse_days(await self._store.get_setting("retention_audio_days")),
             retention_transcript_days=parse_days(await self._store.get_setting("retention_transcript_days")),
             auto_gain=(await self._store.get_setting("auto_gain")) != "0",
+            headphones=(await self._store.get_setting("headphones")) == "1",
             auto_summary=(await self._store.get_setting("auto_summary")) != "0",
         )
 
