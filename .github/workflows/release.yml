@@ -5,6 +5,16 @@ name: Release
 on:
   push:
     branches: [main]
+    # Só documentação (ou a assinatura do CLA pelo bot) não vira versão nova.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/CODEOWNERS"
+      - ".github/dependabot.yml"
+      - ".github/pull_request_template.md"
+      - ".github/workflows/pull-requests.yml"
   workflow_dispatch:
     inputs:
       bump:
@@ -57,6 +67,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+
+      - name: Notas do changelog
+        run: |
+          python scripts/release_changelog.py --check
+          if ($LASTEXITCODE -ne 0) { Write-Output "::warning::CHANGELOG.md sem entradas em Unreleased; a release sai sem notas" }
+          exit 0
 
       - name: Testes do backend
         working-directory: backend
@@ -137,9 +153,10 @@ jobs:
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
+          python3 scripts/release_changelog.py "$VERSION" --notes out/notes.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/app/__init__.py backend/pyproject.toml desktop/package.json desktop/package-lock.json desktop/src-tauri/tauri.conf.json desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock desktop/src/pages/AboutPage.tsx
+          git add CHANGELOG.md backend/app/__init__.py backend/pyproject.toml desktop/package.json desktop/package-lock.json desktop/src-tauri/tauri.conf.json desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock desktop/src/pages/AboutPage.tsx
           git commit -m "release: DroidNote $VERSION [skip ci]"
           git tag -a "v$VERSION" -m "DroidNote $VERSION"
           git fetch origin main
@@ -152,9 +169,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
+          (cd out && sha256sum DroidNote-Setup.exe "DroidNote_${VERSION}_x64-setup.exe" > SHA256SUMS.txt)
           gh release create "v$VERSION" \
             "out/DroidNote-Setup.exe" \
             "out/DroidNote_${VERSION}_x64-setup.exe" \
+            "out/SHA256SUMS.txt" \
+            "install.ps1" \
             --title "DroidNote $VERSION" \
-            --generate-notes \
+            --notes-file out/notes.md \
             --latest

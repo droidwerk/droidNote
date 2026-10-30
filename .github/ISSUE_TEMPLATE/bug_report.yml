@@ -1,0 +1,53 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not paste recordings, transcripts of other people or API keys here. Security problems go to [SECURITY.md](https://github.com/droidwerk/droidNote/blob/main/.github/SECURITY.md), not to an issue.
+  - type: input
+    id: version
+    attributes:
+      label: DroidNote version
+      description: Preferences › About
+      placeholder: "2.2.5"
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options:
+        - Local models (Whisper + Ollama)
+        - OpenAI API
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      description: Windows version, RAM, graphics card (if any) and, for local models, the model names selected in Preferences
+      placeholder: "Windows 11, 16 GB, RTX 4060 8 GB, large-v3-turbo + gemma4:e4b"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw instead
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: The backend log is in `%APPDATA%\DroidNote\logs`. Paste only the relevant part.
+      render: text

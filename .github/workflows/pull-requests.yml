@@ -1,0 +1,40 @@
+name: Pull requests
+
+# O código deste repositório é escrito pela DroidWerk e por colaboradores convidados.
+# Pull requests de quem não é colaborador são fechados com uma nota apontando o CONTRIBUTING.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const bots = new Set(["dependabot[bot]", "github-actions[bot]"]);
+            if (bots.has(author)) return;
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: author,
+            });
+            if (["admin", "maintain", "write"].includes(data.permission)) return;
+            const issue = { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.payload.pull_request.number };
+            await github.rest.issues.createComment({
+              ...issue,
+              body: [
+                `Thanks for taking the time, @${author}.`,
+                "",
+                "DroidNote is open source, but the code in this repository is written by DroidWerk and by collaborators we invite, so we do not take unsolicited pull requests. This one is being closed automatically.",
+                "",
+                "What helps most: describe the problem or the change in an [issue](https://github.com/droidwerk/droidNote/issues/new/choose) (what, where, how you tested). When it fits, we apply it with credit to you, or invite you as a collaborator so you can open the pull request yourself. Details in [CONTRIBUTING.md](https://github.com/droidwerk/droidNote/blob/main/.github/CONTRIBUTING.md).",
+              ].join("\n"),
+            });
+            await github.rest.issues.update({ ...issue, state: "closed" });

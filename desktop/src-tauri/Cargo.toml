@@ -1,5 +1,6 @@
 [package]
 name = "droidnote"
+license = "AGPL-3.0-only"
 version = "2.2.5"
 description = "DroidNote desktop shell"
 authors = ["Droidwerk"]

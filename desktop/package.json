@@ -2,6 +2,7 @@
   "name": "droidnote-desktop",
   "private": true,
   "version": "2.2.5",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",

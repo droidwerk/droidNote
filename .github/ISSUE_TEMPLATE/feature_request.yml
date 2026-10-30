@@ -1,0 +1,36 @@
+name: Feature request
+description: An idea for DroidNote
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, not the solution. "After a lecture I want to…" beats "add a button that…".
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: How you imagine it working. Sketches and examples are welcome. If you already wrote the code in a fork, link it here; pull requests are by invitation.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Capture and transcription
+        - Who spoke (voices)
+        - Minutes and notes
+        - Tasks and memory across meetings
+        - Mind map
+        - Chat and documents
+        - Export and integrations
+        - Settings and setup
+        - Other
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Fit with the product
+      options:
+        - label: This works with everything staying on the user's PC (or is clearly opt-in if it does not)

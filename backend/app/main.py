@@ -181,6 +181,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         container.documents = DocumentService(store, resolved.data_dir / "tmp")
         retention = RetentionService(store, lambda session_id: session_recording_path(resolved, session_id))
         container.retention = retention
+        try:
+            await container.setup.apply_unattended()
+        except Exception:
+            log.exception("unattended setup failed")
 
         async def _retention_loop() -> None:
             # Primeira passada logo depois de abrir; depois a cada 6 horas.
