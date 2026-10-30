@@ -11,6 +11,10 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.2.7] — 2026-10-30
+
+_No notes were written for this release._
+
 ## [2.2.6] — 2026-10-30
 
 ### Added
@@ -120,7 +124,8 @@ notes on GitHub are built from them.
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.6...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.7...HEAD
+[2.2.7]: https://github.com/droidwerk/droidNote/compare/v2.2.6...v2.2.7
 [2.2.6]: https://github.com/droidwerk/droidNote/compare/v2.2.5...v2.2.6
 [2.2.5]: https://github.com/droidwerk/droidNote/compare/v2.2.4...v2.2.5
 [2.2.4]: https://github.com/droidwerk/droidNote/compare/v2.2.3...v2.2.4
