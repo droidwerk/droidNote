@@ -196,7 +196,7 @@ export function LivePage({
       setSelfPersonId(item.self_person_id ?? "");
       setEngineLabel(
         item.provider === "openai"
-          ? t("engine.openaiLabel", { model: item.llm_cloud_model ?? "gpt-4o-mini" })
+          ? t("engine.openaiLabel", { model: item.llm_cloud_model ?? "gpt-6-luna" })
           : t("engine.localLabel", { model: item.ollama_model }),
       );
     });

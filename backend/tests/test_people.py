@@ -24,7 +24,8 @@ async def test_settings_persist_language_and_provider(client: AsyncClient) -> No
     body = saved.json()
     assert body["language"] == "pt"
     assert body["provider"] == "openai"
-    assert body["asr_cloud_model"] == "gpt-4o-mini-transcribe"
+    # Modelo descontinuado da OpenAI vindo de uma versão antiga: sai gravado como o atual.
+    assert body["asr_cloud_model"] == "gpt-transcribe"
     assert body["has_api_key"] is True
     assert body["api_key_hint"] == "-key"
     assert "asr_api_key" not in body

@@ -66,8 +66,8 @@ Você escolhe no primeiro uso e pode mudar em Preferências.
 | | Modelos locais | API OpenAI |
 | --- | --- | --- |
 | Áudio e texto | Ficam neste computador | Janelas de áudio e o texto da ata vão para a OpenAI |
-| Transcrição | Whisper `large-v3-turbo` em placa NVIDIA (6 GB+), `small` na CPU | `gpt-4o-mini-transcribe` (padrão), `gpt-4o-transcribe`, `gpt-4o-transcribe-diarize`, `whisper-1` |
-| Ata, chat, mapa | Gemma 4 ou Qwen 3.6 pelo [Ollama](https://ollama.com), no tamanho que a sua RAM e placa de vídeo aguentam | `gpt-4o-mini` (padrão), `gpt-4.1-mini`, `gpt-4o` |
+| Transcrição | Whisper `large-v3-turbo` em placa NVIDIA (6 GB+), `small` na CPU | `gpt-transcribe` |
+| Ata, chat, mapa | Gemma 4 ou Qwen 3.6 pelo [Ollama](https://ollama.com), no tamanho que a sua RAM e placa de vídeo aguentam | `gpt-6-luna` (padrão), `gpt-5.6-luna`, `gpt-5.6-terra` |
 | Custo | Grátis; um download de alguns GB, uma vez | Sua chave, paga por uso — uma reunião de 1 hora custa centavos |
 | Precisão | Boa; nomes próprios e fala cruzada são mais difíceis | A melhor |
 

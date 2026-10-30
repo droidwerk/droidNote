@@ -14,22 +14,42 @@ from app.infrastructure.asr.whisper_engine import build_asr_prompt, filter_trans
 log = get_logger("asr.openai")
 
 OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
-# Preços por minuto de áudio (tabela da OpenAI): mini US$ 0,003; os demais US$ 0,006.
+# Preço por minuto de áudio (tabela da OpenAI): gpt-transcribe US$ 0,0045.
 # A interface traduz nome e explicação (models.* e modelHelp.*); aqui fica o nome curto de reserva.
+DEFAULT_CLOUD_ASR_MODEL = "gpt-transcribe"
 CLOUD_ASR_MODELS: tuple[tuple[str, str], ...] = (
-    ("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe — recomendado"),
-    ("gpt-4o-mini-transcribe-2025-12-15", "GPT-4o mini Transcribe (dez/2025)"),
-    ("gpt-4o-transcribe", "GPT-4o Transcribe"),
-    ("gpt-4o-transcribe-diarize", "GPT-4o Transcribe Diarize"),
-    ("whisper-1", "Whisper 1"),
+    (DEFAULT_CLOUD_ASR_MODEL, "GPT Transcribe — recomendado"),
 )
 CLOUD_MODELS = CLOUD_ASR_MODELS
+# Modelos que a OpenAI descontinuou (desligam em 26/02/2027). Quem ainda tem um deles salvo
+# passa para o gpt-transcribe sem precisar mexer em nada. Os modelos de tempo real
+# (gpt-live-transcribe, gpt-realtime-whisper) só existem em sessões Realtime por WebSocket;
+# o DroidNote manda janelas de áudio pelo endpoint de arquivos, então não entram aqui.
+LEGACY_CLOUD_ASR_MODELS: dict[str, str] = {
+    "gpt-4o-transcribe": DEFAULT_CLOUD_ASR_MODEL,
+    "gpt-4o-mini-transcribe": DEFAULT_CLOUD_ASR_MODEL,
+    "gpt-4o-mini-transcribe-2025-12-15": DEFAULT_CLOUD_ASR_MODEL,
+    "gpt-4o-transcribe-diarize": DEFAULT_CLOUD_ASR_MODEL,
+    "whisper-1": DEFAULT_CLOUD_ASR_MODEL,
+}
+
+
+def normalize_cloud_asr_model(value: str | None) -> str:
+    """Nome do modelo como fica salvo: vazio ou descontinuado vira o padrão atual."""
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return DEFAULT_CLOUD_ASR_MODEL
+    if cleaned in LEGACY_CLOUD_ASR_MODELS:
+        return LEGACY_CLOUD_ASR_MODELS[cleaned]
+    if cleaned.startswith("gpt-4o-") and "transcribe" in cleaned:
+        return DEFAULT_CLOUD_ASR_MODEL
+    return cleaned
 
 
 class OpenAIWhisperEngine:
-    def __init__(self, api_key: str = "", model: str = "whisper-1") -> None:
+    def __init__(self, api_key: str = "", model: str = DEFAULT_CLOUD_ASR_MODEL) -> None:
         self.api_key = api_key
-        self.model = model
+        self.model = normalize_cloud_asr_model(model)
         self._device = "api"
 
     def is_ready(self) -> bool:
@@ -63,15 +83,12 @@ class OpenAIWhisperEngine:
         self.load()
         locked = whisper_language_arg(language)
         wav = samples_to_wav_bytes(samples, sample_rate)
-        data: dict[str, str] = {"model": self.model}
+        data: dict[str, object] = {"model": self.model}
         prompt = build_asr_prompt(locked)
         if prompt:
             data["prompt"] = prompt
         if locked:
-            data["language"] = locked
-        if "diarize" in self.model:
-            # O modelo com diarização só responde neste formato; o texto vem por segmento.
-            data["response_format"] = "diarized_json"
+            data.update(_language_fields(self.model, locked))
         with httpx.Client(timeout=60.0, verify=ssl_verify()) as client:
             response = client.post(
                 OPENAI_TRANSCRIBE_URL,
@@ -90,7 +107,7 @@ class OpenAIWhisperEngine:
                 str(item.get("text") or "").strip() for item in payload["segments"] if isinstance(item, dict)
             )
         text = filter_transcript(raw_text, locked)
-        return text, locked or None
+        return text, locked or _detected_language(payload)
 
     def transcribe_words(
         self,
@@ -99,108 +116,12 @@ class OpenAIWhisperEngine:
         *,
         language: str | None = None,
     ) -> tuple[list[tuple[float, float, str]], str | None]:
-        """Palavras com tempo. Só o whisper-1 devolve timestamps; os modelos
-        gpt-4o-* devolvem o texto da janela inteira como um trecho só."""
+        """Trechos com tempo. O gpt-transcribe devolve o texto da janela inteira sem
+        marcação de tempo nem de falante, então a janela volta como um trecho só;
+        quem falou em cada pedaço continua vindo do motor de voz local do DroidNote."""
         duration = len(samples) / float(sample_rate or 16_000)
-        if "diarize" in self.model:
-            return self._transcribe_diarized(samples, sample_rate, language=language)
-        if self.model != "whisper-1":
-            text, detected = self.transcribe_window(samples, sample_rate, language=language)
-            return ([(0.0, duration, text)] if text else []), detected
-        self.load()
-        locked = whisper_language_arg(language)
-        wav = samples_to_wav_bytes(samples, sample_rate)
-        data: dict[str, object] = {
-            "model": self.model,
-            "response_format": "verbose_json",
-            "timestamp_granularities[]": ["word", "segment"],
-        }
-        if locked:
-            data["language"] = locked
-        with httpx.Client(timeout=60.0, verify=ssl_verify()) as client:
-            response = client.post(
-                OPENAI_TRANSCRIBE_URL,
-                headers={"Authorization": f"Bearer {self.api_key.strip()}"},
-                data=data,
-                files={"file": ("audio.wav", wav, "audio/wav")},
-            )
-        if response.status_code >= 400:
-            log.warning("openai transcribe failed status=%s", response.status_code)
-            raise RuntimeError(_error_detail(response))
-        payload = response.json()
-        detected = locked or _language_code(payload.get("language"))
-        words: list[tuple[float, float, str]] = []
-        for segment in payload.get("segments") or []:
-            text = filter_transcript(str(segment.get("text") or ""), locked)
-            if not text:
-                continue
-            start = float(segment.get("start") or 0.0)
-            end = float(segment.get("end") or start)
-            inside = [
-                item
-                for item in payload.get("words") or []
-                if start - 0.05 <= float(item.get("start") or 0.0) < end + 0.05
-            ]
-            if inside:
-                for item in inside:
-                    token = str(item.get("word") or "").strip()
-                    if token:
-                        w_start = float(item.get("start") or start)
-                        words.append((w_start, max(float(item.get("end") or w_start), w_start), token))
-            else:
-                words.append((start, max(end, start), text))
-        if not words:
-            text = filter_transcript(str(payload.get("text") or ""), locked)
-            if text:
-                words.append((0.0, duration, text))
-        return words, detected
-
-    def _transcribe_diarized(
-        self,
-        samples: Sequence[float],
-        sample_rate: int,
-        *,
-        language: str | None = None,
-    ) -> tuple[list[tuple[float, float, str]], str | None]:
-        """Modelo com diarização: cada trecho de um falante volta com início e fim dentro da janela.
-
-        Só os cortes entram no fluxo — como "palavras" com tempo — para o motor de voz do DroidNote
-        separar a janela por quem falou. O rótulo "speaker A/B" da OpenAI é descartado: quem diz
-        quem é cada voz (e dá nome a ela) continua sendo a impressão vocal guardada neste PC.
-        """
-        self.load()
-        locked = whisper_language_arg(language)
-        wav = samples_to_wav_bytes(samples, sample_rate)
-        duration = len(samples) / float(sample_rate or 16_000)
-        data: dict[str, str] = {"model": self.model, "response_format": "diarized_json"}
-        if locked:
-            data["language"] = locked
-        with httpx.Client(timeout=60.0, verify=ssl_verify()) as client:
-            response = client.post(
-                OPENAI_TRANSCRIBE_URL,
-                headers={"Authorization": f"Bearer {self.api_key.strip()}"},
-                data=data,
-                files={"file": ("audio.wav", wav, "audio/wav")},
-            )
-        if response.status_code >= 400:
-            log.warning("openai transcribe failed status=%s", response.status_code)
-            raise RuntimeError(_error_detail(response))
-        payload = response.json()
-        pieces: list[tuple[float, float, str]] = []
-        for segment in payload.get("segments") or []:
-            if not isinstance(segment, dict):
-                continue
-            text = filter_transcript(str(segment.get("text") or ""), locked)
-            if not text:
-                continue
-            start = max(0.0, float(segment.get("start") or 0.0))
-            end = max(start, min(duration, float(segment.get("end") or start)))
-            pieces.append((start, end, text))
-        if not pieces:
-            text = filter_transcript(str(payload.get("text") or ""), locked)
-            if text:
-                pieces.append((0.0, duration, text))
-        return pieces, locked or None
+        text, detected = self.transcribe_window(samples, sample_rate, language=language)
+        return ([(0.0, duration, text)] if text else []), detected
 
     def test_key(self, api_key: str | None = None) -> tuple[bool, str]:
         key = (api_key if api_key is not None else self.api_key).strip()
@@ -217,6 +138,28 @@ class OpenAIWhisperEngine:
         if response.status_code == 200:
             return True, "Chave válida."
         return False, _error_detail(response)
+
+
+def _language_fields(model: str, locked: str) -> dict[str, object]:
+    """gpt-transcribe recebe `languages[]` (lista de códigos ISO 639-1) e recusa o `language`
+    antigo junto; os outros modelos só conhecem `language`."""
+    if model.startswith("gpt-transcribe"):
+        return {"languages[]": [locked]}
+    return {"language": locked}
+
+
+def _detected_language(payload: object) -> str | None:
+    """gpt-transcribe responde `languages: [{"code": "pt"}]`; lista vazia = não reconheceu."""
+    if not isinstance(payload, dict):
+        return None
+    languages = payload.get("languages")
+    if isinstance(languages, list):
+        for item in languages:
+            code = item.get("code") if isinstance(item, dict) else item
+            resolved = _language_code(code)
+            if resolved:
+                return resolved
+    return _language_code(payload.get("language"))
 
 
 def samples_to_wav_bytes(samples: Sequence[float], sample_rate: int) -> bytes:

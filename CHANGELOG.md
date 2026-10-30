@@ -11,6 +11,13 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Changed
+- OpenAI transcription now uses `gpt-transcribe`, the current speech-to-text model (US$ 0.0045/min), with the language sent as a `languages[]` hint and the detected language read back from the response. The deprecated `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-mini-transcribe-2025-12-15`, `gpt-4o-transcribe-diarize` and `whisper-1` (OpenAI shuts them down on 2027-02-26) are gone from the list; a saved preference that still names one of them switches to `gpt-transcribe` on the next start, with nothing to do. Who said what keeps coming from the local voice engine, as before. The realtime models (`gpt-live-transcribe`, `gpt-realtime-whisper`) only exist in OpenAI's realtime sessions, which the app does not use.
+- OpenAI minutes, chat and mind map now use `gpt-6-luna` by default (US$ 0.10 / 0.50 per million tokens, cheaper than the old `gpt-4o-mini`), with `gpt-5.6-luna` and `gpt-5.6-terra` as the other choices. `gpt-4o-mini`, `gpt-4.1-mini` and `gpt-4o` (OpenAI shuts them down on 2027-01-14) are gone from the list; a saved `gpt-4o-mini` or `gpt-4.1-mini` becomes `gpt-6-luna` and a saved `gpt-4o` becomes `gpt-5.6-terra` on the next start. Requests ask for no reasoning (`reasoning_effort: none`) so the minutes come back as fast and as cheap as before, and a generation parameter the model rejects is dropped and the request retried instead of failing the minutes.
+
+### Fixed
+- `install.ps1` run from a terminal inside a packaged app (the Claude desktop app is one) now installs through a small `install.cmd` opened by Explorer instead of a scheduled task, so DroidNote lands in your real profile with its Start menu and *Settings › Apps* entries.
+
 ## [2.2.6] — 2026-10-30
 
 ### Added

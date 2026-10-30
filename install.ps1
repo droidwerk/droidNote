@@ -19,8 +19,8 @@
     When it runs inside a packaged (MSIX) app, such as the Claude desktop app, Windows keeps
     whatever that app's child processes write to %LOCALAPPDATA%, %APPDATA% and HKCU\Software in
     a private copy for the app. An install made from there runs, but has no Start menu entry and
-    no Settings > Apps entry. So in that case steps 1-5 run through a one-time scheduled task of
-    the current user, outside the package, and this window shows their output.
+    no Settings > Apps entry. So in that case steps 3-5 run from a small visible .cmd file next to
+    the downloaded installer, opened through Explorer the same way a double click would.
 
     Options, as environment variables set before the command:
       DROIDNOTE_NO_LAUNCH=1   install but do not open the app
@@ -64,61 +64,69 @@ function Get-PackageFamily {
     }
 }
 
-function Install-OutsidePackage([string] $Family) {
+function Get-FirstStartNote([string] $Version) {
+    $language = $env:DROIDNOTE_LANGUAGE
+    if (-not $language) { try { $language = (Get-Culture).TwoLetterISOLanguageName } catch { $language = "en" } }
+    $agent = $env:DROIDNOTE_AGENT
+    if (-not $agent) { $agent = "install.ps1" }
+    return @{
+        provider   = "neste_pc"
+        language   = $language.ToLower()
+        agent      = $agent
+        version    = $Version
+        created_at = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Compress
+}
+
+# Inside a package, Explorer starts the .cmd outside it, so the installer and the note reach the
+# real profile. The .cmd and the installer live in Downloads, which the package does not redirect.
+function Install-OutsidePackage([string] $Family, [string] $Work, [string] $Installer, [string] $Version) {
     Step "This terminal runs inside the app package $Family"
-    Step "Installing through a one-time scheduled task, so DroidNote gets its Start menu entry and appears in Settings > Apps"
+    Step "Installing through Explorer, so DroidNote gets its Start menu entry and appears in Settings > Apps"
 
-    # The task's output goes to a file in the real %TEMP%: this side reads through to it,
-    # while anything written from here could land in the package's private copy.
-    $id = [guid]::NewGuid().ToString("N")
-    $log = Join-Path $env:TEMP "droidnote-install-$id.log"
-    $vars = ""
-    foreach ($name in "DROIDNOTE_AGENT", "DROIDNOTE_LANGUAGE", "DROIDNOTE_NO_LAUNCH") {
-        $value = [Environment]::GetEnvironmentVariable($name)
-        if ($value) { $vars += "`$env:$name = '" + $value.Replace("'", "''") + "'; " }
-    }
-    $quotedLog = "'" + $log.Replace("'", "''") + "'"
-    $command = "try { & { $vars irm '$Base/install.ps1' | iex } *> $quotedLog; exit 0 } catch { `$_ | Out-File -Append $quotedLog; exit 1 }"
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-
-    $task = "DroidNote install $id"
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand $encoded"
-    $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-    try {
-        Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings | Out-Null
-    } catch {
-        Fail "could not create the scheduled task ($($_.Exception.Message)). Run the same command in a PowerShell window opened from the Start menu."
-    }
-
-    $result = $null
-    $shown = 0
-    try {
-        Start-ScheduledTask -TaskName $task
-        $deadline = (Get-Date).AddHours(1)
-        do {
-            Start-Sleep -Seconds 2
-            # 267011: has not run yet. 267009: running.
-            $result = (Get-ScheduledTaskInfo -TaskName $task).LastTaskResult
-            $lines = @(Get-Content $log -ErrorAction SilentlyContinue)
-            # The last line may still be half written.
-            for (; $shown -lt $lines.Count - 1; $shown++) { Write-Host $lines[$shown] }
-        } while (($result -eq 267011 -or $result -eq 267009) -and (Get-Date) -lt $deadline)
-        $lines = @(Get-Content $log -ErrorAction SilentlyContinue)
-        for (; $shown -lt $lines.Count; $shown++) { Write-Host $lines[$shown] }
-    } finally {
-        Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
-        Remove-Item -Force $log -ErrorAction SilentlyContinue
-    }
-    if ($result -ne 0) { Fail "the install outside the app package ended with code $result (see the lines above)." }
-
-    # A previous install from inside this package only exists in its private copy. The
-    # program files can go; the data folder (%APPDATA%) is left alone.
+    # A previous install from inside this package only exists in its private copy and would hide
+    # the real one from this side. The program files can go; the data folder (%APPDATA%) stays.
     $ghost = Join-Path $env:LOCALAPPDATA "Packages\$Family\LocalCache\Local\DroidNote"
     if (Test-Path $ghost) {
         Remove-Item -Recurse -Force $ghost -ErrorAction SilentlyContinue
         Step "Removed the earlier copy that was installed inside $Family"
     }
+
+    [IO.File]::WriteAllText((Join-Path $Work "unattended.json"), (Get-FirstStartNote $Version), (New-Object Text.UTF8Encoding $false))
+    $started = Join-Path $Work "started.txt"
+    $done = Join-Path $Work "done.txt"
+    $cmd = Join-Path $Work "install.cmd"
+    # Redirections go first: "echo 0> file" would read "0>" as a handle number and write nothing.
+    $lines = @(
+        "@echo off",
+        "if exist `"%~dp0started.txt`" exit /b",
+        ">`"%~dp0started.txt`" echo 1",
+        "title DroidNote install",
+        "echo Installing DroidNote, this window closes by itself.",
+        "`"%~dp0$InstallerName`" /S",
+        "set code=%errorlevel%",
+        "if not `"%code%`"==`"0`" goto end",
+        "if not exist `"%APPDATA%\DroidNote`" mkdir `"%APPDATA%\DroidNote`"",
+        "copy /y `"%~dp0unattended.json`" `"%APPDATA%\DroidNote\unattended.json`" >nul",
+        ":end",
+        ">`"%~dp0done.txt`" echo %code%"
+    )
+    [IO.File]::WriteAllText($cmd, ($lines -join "`r`n") + "`r`n", (New-Object Text.ASCIIEncoding))
+
+    Step "Installing (silent, no administrator rights)"
+    # Explorer sometimes drops the first request; the .cmd ignores a second start.
+    for ($try = 0; $try -lt 3 -and -not (Test-Path $started); $try++) {
+        Start-Process -FilePath "explorer.exe" -ArgumentList "`"$cmd`""
+        for ($wait = 0; $wait -lt 15 -and -not (Test-Path $started); $wait++) { Start-Sleep -Seconds 1 }
+    }
+    if (-not (Test-Path $started)) { Fail "Windows did not start the install window. Run $InstallerName from https://github.com/$Repo/releases/latest by hand." }
+    $deadline = (Get-Date).AddMinutes(30)
+    while (-not (Test-Path $done) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+    if (-not (Test-Path $done)) { Fail "the install window did not finish within 30 minutes. Run $InstallerName from https://github.com/$Repo/releases/latest by hand." }
+    Start-Sleep -Milliseconds 500
+    $code = "$(Get-Content $done -Raw)".Trim()
+    if ($code -ne "0") { Fail "the installer exited with code $code." }
+    if (-not (Test-Path $AppExe)) { Fail "the installer finished but $AppExe is missing." }
 }
 
 Write-Host ""
@@ -131,35 +139,42 @@ if (-not [Environment]::Is64BitOperatingSystem) { Fail "DroidNote needs 64-bit W
 
 $Family = Get-PackageFamily
 if ($Family) {
-    Install-OutsidePackage $Family
+    # %TEMP% is under %LOCALAPPDATA%, so a process outside the package would not see it.
+    $downloads = Join-Path $env:USERPROFILE "Downloads"
+    if (-not (Test-Path $downloads)) { $downloads = $env:USERPROFILE }
+    $Work = Join-Path $downloads ("droidnote-install-" + [guid]::NewGuid().ToString("N"))
 } else {
-    $Temp = Join-Path $env:TEMP ("droidnote-install-" + [guid]::NewGuid().ToString("N"))
-    New-Item -ItemType Directory -Force -Path $Temp | Out-Null
-    $Installer = Join-Path $Temp $InstallerName
-    $Sums = Join-Path $Temp $SumsName
+    $Work = Join-Path $env:TEMP ("droidnote-install-" + [guid]::NewGuid().ToString("N"))
+}
+New-Item -ItemType Directory -Force -Path $Work | Out-Null
+$Installer = Join-Path $Work $InstallerName
+$Sums = Join-Path $Work $SumsName
 
+try {
+    $version = "latest"
     try {
-        $version = "latest"
-        try {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "DroidNote-install" } -TimeoutSec 20
-            if ($release.tag_name) { $version = [string] $release.tag_name }
-        } catch { }
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "DroidNote-install" } -TimeoutSec 20
+        if ($release.tag_name) { $version = [string] $release.tag_name }
+    } catch { }
 
-        Step "Downloading DroidNote $version"
-        Invoke-WebRequest -Uri "$Base/$InstallerName" -OutFile $Installer -UseBasicParsing
-        Invoke-WebRequest -Uri "$Base/$SumsName" -OutFile $Sums -UseBasicParsing
+    Step "Downloading DroidNote $version"
+    Invoke-WebRequest -Uri "$Base/$InstallerName" -OutFile $Installer -UseBasicParsing
+    Invoke-WebRequest -Uri "$Base/$SumsName" -OutFile $Sums -UseBasicParsing
 
-        Step "Checking the installer's SHA-256"
-        $expected = $null
-        foreach ($line in Get-Content $Sums) {
-            $parts = $line.Trim() -split "\s+"
-            if ($parts.Length -ge 2 -and $parts[-1].TrimStart("*") -eq $InstallerName) { $expected = $parts[0].ToLower() }
-        }
-        if (-not $expected) { Fail "SHA256SUMS.txt in the release has no entry for $InstallerName." }
-        $actual = (Get-FileHash -Algorithm SHA256 $Installer).Hash.ToLower()
-        if ($actual -ne $expected) { Fail "the downloaded installer does not match the published checksum. Nothing was run." }
-        Unblock-File -Path $Installer
+    Step "Checking the installer's SHA-256"
+    $expected = $null
+    foreach ($line in Get-Content $Sums) {
+        $parts = $line.Trim() -split "\s+"
+        if ($parts.Length -ge 2 -and $parts[-1].TrimStart("*") -eq $InstallerName) { $expected = $parts[0].ToLower() }
+    }
+    if (-not $expected) { Fail "SHA256SUMS.txt in the release has no entry for $InstallerName." }
+    $actual = (Get-FileHash -Algorithm SHA256 $Installer).Hash.ToLower()
+    if ($actual -ne $expected) { Fail "the downloaded installer does not match the published checksum. Nothing was run." }
+    Unblock-File -Path $Installer
 
+    if ($Family) {
+        Install-OutsidePackage $Family $Work $Installer $version
+    } else {
         Step "Installing (silent, no administrator rights)"
         $process = Start-Process -FilePath $Installer -ArgumentList "/S" -Wait -PassThru
         if ($process.ExitCode -ne 0) { Fail "the installer exited with code $($process.ExitCode)." }
@@ -167,34 +182,25 @@ if ($Family) {
 
         Step "Preparing the first start"
         New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-        $language = $env:DROIDNOTE_LANGUAGE
-        if (-not $language) { try { $language = (Get-Culture).TwoLetterISOLanguageName } catch { $language = "en" } }
-        $agent = $env:DROIDNOTE_AGENT
-        if (-not $agent) { $agent = "install.ps1" }
-        $marker = @{
-            provider   = "neste_pc"
-            language   = $language.ToLower()
-            agent      = $agent
-            version    = $version
-            created_at = (Get-Date).ToString("o")
-        } | ConvertTo-Json -Compress
-        [IO.File]::WriteAllText((Join-Path $DataDir "unattended.json"), $marker, (New-Object Text.UTF8Encoding $false))
+        [IO.File]::WriteAllText((Join-Path $DataDir "unattended.json"), (Get-FirstStartNote $version), (New-Object Text.UTF8Encoding $false))
     }
-    finally {
-        Remove-Item -Recurse -Force $Temp -ErrorAction SilentlyContinue
-    }
+}
+finally {
+    Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue
+}
 
-    Write-Host ""
-    Write-Host "DroidNote installed." -ForegroundColor Green
-    Write-Host "  App:  $AppExe"
-    Write-Host "  Data: $DataDir"
-    Write-Host ""
-    Write-Host "On first start DroidNote prepares the local models (Whisper and a language model, a few GB)."
-    Write-Host "Everything stays on this PC. To use the OpenAI API instead, change it in Preferences."
-    Write-Host "Find it in the Start menu and on the desktop. Uninstall from Settings > Apps > DroidNote."
+Write-Host ""
+Write-Host "DroidNote installed." -ForegroundColor Green
+Write-Host "  App:  $AppExe"
+Write-Host "  Data: $DataDir"
+Write-Host ""
+Write-Host "On first start DroidNote prepares the local models (Whisper and a language model, a few GB)."
+Write-Host "Everything stays on this PC. To use the OpenAI API instead, change it in Preferences."
+Write-Host "Find it in the Start menu and on the desktop. Uninstall from Settings > Apps > DroidNote."
 
-    if ($env:DROIDNOTE_NO_LAUNCH -ne "1") {
-        Step "Opening DroidNote"
-        Start-Process -FilePath $AppExe | Out-Null
-    }
+if ($env:DROIDNOTE_NO_LAUNCH -ne "1") {
+    Step "Opening DroidNote"
+    # Inside a package the app itself would also keep its data in the private copy.
+    if ($Family) { Start-Process -FilePath "explorer.exe" -ArgumentList "`"$AppExe`"" }
+    else { Start-Process -FilePath $AppExe | Out-Null }
 }

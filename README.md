@@ -66,8 +66,8 @@ You choose on first run and can change it in Preferences.
 | | Local models | OpenAI API |
 | --- | --- | --- |
 | Audio and text | Stay on this computer | Audio windows and minutes text are sent to OpenAI |
-| Transcription | Whisper `large-v3-turbo` on an NVIDIA GPU (6 GB+), `small` on CPU | `gpt-4o-mini-transcribe` (default), `gpt-4o-transcribe`, `gpt-4o-transcribe-diarize`, `whisper-1` |
-| Minutes, chat, mind map | Gemma 4 or Qwen 3.6 through [Ollama](https://ollama.com), sized to your RAM and graphics card | `gpt-4o-mini` (default), `gpt-4.1-mini`, `gpt-4o` |
+| Transcription | Whisper `large-v3-turbo` on an NVIDIA GPU (6 GB+), `small` on CPU | `gpt-transcribe` |
+| Minutes, chat, mind map | Gemma 4 or Qwen 3.6 through [Ollama](https://ollama.com), sized to your RAM and graphics card | `gpt-6-luna` (default), `gpt-5.6-luna`, `gpt-5.6-terra` |
 | Cost | Free; a one-time download of a few GB | Your own key, paid per use — a one-hour meeting costs cents |
 | Accuracy | Good; names and overlapping speech are harder | Best |
 
