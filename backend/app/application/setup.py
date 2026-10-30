@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from app.application.retention import parse_days
@@ -36,6 +37,8 @@ from app.infrastructure.llm.ollama_manager import OLLAMA_CATALOG, find_installed
 from app.infrastructure.llm.openai_chat import CLOUD_LLM_MODELS
 from app.infrastructure.llm.router import LlmRouter, normalize_provider
 from app.schemas.api import BootstrapIn, SettingsIn, SettingsOut
+
+UNATTENDED_FILE = "unattended.json"
 
 log = get_logger("setup")
 
@@ -214,6 +217,53 @@ class SetupService:
         await self._store.set_setting("disclaimer_kind", cleaned)
         if cleaned == "openai":
             await self._store.set_setting("openai_disclaimer_accepted", "1")
+
+    async def apply_unattended(self) -> bool:
+        """First run without the wizard, when an installer script left ``unattended.json``.
+
+        The file is written by ``install.ps1`` (used by people and by AI agents such as
+        Claude Code). It is consumed once: accept the local-processing notice, pick the
+        models the hardware recommends and start the same bootstrap the wizard would.
+        The wizard then opens straight on the progress screen.
+        """
+        marker = self._settings.data_dir / UNATTENDED_FILE
+        if not marker.exists():
+            return False
+        try:
+            raw = json.loads(marker.read_text(encoding="utf-8") or "{}")
+        except (OSError, ValueError):
+            raw = {}
+        payload = raw if isinstance(raw, dict) else {}
+        try:
+            marker.unlink()
+        except OSError:
+            log.warning("unattended marker could not be removed: %s", marker)
+        already_done = (await self._store.get_setting("setup_complete")) == "1"
+        accepted = (await self._store.get_setting("disclaimer_accepted")) == "1"
+        if already_done or accepted:
+            log.info("unattended setup skipped: this PC was already set up")
+            return False
+        language = str(payload.get("language") or "").strip().lower()[:2]
+        if language:
+            try:
+                await self.apply_settings(SettingsIn(ui_language=language, language=language))
+            except Exception:
+                log.info("unattended setup: language %r not applied", language)
+        ram = max(available_ram_gb(), total_ram_gb() * 0.7)
+        note_model = suggest_note_model(ram, vram=vram_gb())
+        whisper_model = suggest_whisper_model(ram, vram=vram_gb())
+        await self.accept_disclaimer("local")
+        await self._store.set_setting("unattended_source", str(payload.get("agent") or "install.ps1")[:60])
+        await self.start_bootstrap(
+            BootstrapIn(
+                provider="neste_pc",
+                ollama_model=note_model,
+                whisper_model=whisper_model,
+                save_recordings=True,
+            )
+        )
+        log.info("unattended setup started: %s + %s", whisper_model, note_model)
+        return True
 
     async def start_bootstrap(self, payload: BootstrapIn | None = None) -> None:
         if payload is not None:

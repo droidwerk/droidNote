@@ -1,0 +1,59 @@
+{
+  "$comment": "Single source for the 'install with your AI agent' buttons (README and droidwerk.com.br). Replace {prompt} in a command with the prompt below.",
+  "product": "DroidNote",
+  "platform": "Windows 10/11 x64",
+  "install_script": "https://github.com/droidwerk/droidNote/releases/latest/download/install.ps1",
+  "guide": "https://github.com/droidwerk/droidNote/blob/main/docs/INSTALL_WITH_AI.md",
+  "shell_command": "irm https://github.com/droidwerk/droidNote/releases/latest/download/install.ps1 | iex",
+  "prompt": "Install DroidNote on this Windows PC by following https://github.com/droidwerk/droidNote/blob/main/docs/INSTALL_WITH_AI.md and tell me when the app is open.",
+  "agents": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "vendor": "Anthropic",
+      "command": "claude \"{prompt}\"",
+      "agent_env": "DROIDNOTE_AGENT=claude-code",
+      "get_it": "https://claude.com/claude-code"
+    },
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "vendor": "OpenAI",
+      "command": "codex \"{prompt}\"",
+      "agent_env": "DROIDNOTE_AGENT=codex",
+      "get_it": "https://developers.openai.com/codex/cli"
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "vendor": "Google",
+      "command": "gemini -i \"{prompt}\"",
+      "agent_env": "DROIDNOTE_AGENT=gemini-cli",
+      "get_it": "https://geminicli.com"
+    },
+    {
+      "id": "copilot-cli",
+      "name": "Copilot CLI",
+      "vendor": "GitHub",
+      "command": "copilot -p \"{prompt}\"",
+      "agent_env": "DROIDNOTE_AGENT=copilot-cli",
+      "get_it": "https://docs.github.com/copilot/how-tos/copilot-cli"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor CLI",
+      "vendor": "Cursor",
+      "command": "cursor-agent \"{prompt}\"",
+      "agent_env": "DROIDNOTE_AGENT=cursor",
+      "get_it": "https://cursor.com/cli"
+    },
+    {
+      "id": "powershell",
+      "name": "No agent (PowerShell)",
+      "vendor": "",
+      "command": "irm https://github.com/droidwerk/droidNote/releases/latest/download/install.ps1 | iex",
+      "agent_env": "",
+      "get_it": ""
+    }
+  ]
+}

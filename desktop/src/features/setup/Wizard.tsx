@@ -47,6 +47,20 @@ export function Wizard({ onDone }: WizardProps) {
     });
   }, []);
 
+  // Instalação sem assistente (install.ps1 / agente de IA): o motor já aceitou o aviso e
+  // já está baixando; abre direto na tela de progresso em vez de pedir tudo de novo.
+  useEffect(() => {
+    void api.setupStatus().then((next) => {
+      if (!next.disclaimer_accepted || next.setup_complete) return;
+      const active = (item: { status: string }) => item.status === "downloading" || item.status === "installing" || item.status === "ready";
+      if (!active(next.whisper) && !active(next.llm)) return;
+      bootstrapStarted.current = true;
+      setProvider(next.provider === "openai" ? "openai" : "neste_pc");
+      setStatus(next);
+      setStep("install");
+    }).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (step !== "install" && step !== "ready") return undefined;
     let timer: number | undefined;

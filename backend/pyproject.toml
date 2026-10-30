@@ -1,9 +1,10 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "droidnote"
+license = "AGPL-3.0-only"
 version = "2.2.5"
 description = "Assistente local de gravações — transcrição e resumo 100% no dispositivo."
 requires-python = ">=3.11"
