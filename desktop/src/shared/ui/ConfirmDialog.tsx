@@ -21,6 +21,8 @@ export interface ConfirmOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: ConfirmTone;
+  /** Terceiro botão, à esquerda: roda a ação sem fechar o diálogo. */
+  extraAction?: { label: string; onClick: () => void };
 }
 
 interface ConfirmRequest extends ConfirmOptions {
@@ -64,7 +66,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (element) => !element.hasAttribute("disabled"),
       );
-    const cancel = dialog.querySelector<HTMLElement>(".confirm-actions .button-ghost");
+    const cancel = dialog.querySelector<HTMLElement>(".confirm-actions .button-ghost:not(.confirm-extra)");
     (cancel ?? focusables()[0])?.focus();
 
     const onKey = (event: KeyboardEvent) => {
@@ -118,6 +120,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               {request.description ? <p id={descriptionId}>{request.description}</p> : null}
             </div>
             <div className="confirm-actions">
+              {request.extraAction ? (
+                <Button className="confirm-extra" onClick={request.extraAction.onClick}>
+                  {request.extraAction.label}
+                </Button>
+              ) : null}
               <Button onClick={() => settle(false)}>
                 {request.cancelLabel ?? t("common.cancel")}
               </Button>

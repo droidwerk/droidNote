@@ -23,7 +23,7 @@ You can write the prompt in your own language; the agents understand it. The com
 
 1. The script downloads the latest `DroidNote-Setup.exe` and `SHA256SUMS.txt` from the [GitHub release](https://github.com/droidwerk/droidNote/releases/latest).
 2. It checks the installer's SHA-256 against the published sum and refuses to run it if they differ.
-3. It installs silently for the current user into `%LOCALAPPDATA%\DroidNote`.
+3. It installs silently for the current user into `%LOCALAPPDATA%\DroidNote`, with the same Start menu and desktop shortcuts and the same *Settings › Apps* entry as the manual Setup. If the agent's terminal runs inside a packaged app (the Claude desktop app is one), Windows would keep that install in the app's private storage, without Start menu or uninstall entry; the script notices this and runs the install through a one-time scheduled task of your user instead, then deletes the task.
 4. It leaves `%APPDATA%\DroidNote\unattended.json`, a note the app reads once on first start: skip the setup wizard, choose the models this PC's memory and graphics card can run, and start preparing them. The app shows the progress on screen.
 5. It opens DroidNote.
 

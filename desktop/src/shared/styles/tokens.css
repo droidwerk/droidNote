@@ -1222,6 +1222,10 @@ textarea::placeholder {
   margin-top: 20px;
 }
 
+.confirm-extra {
+  margin-right: auto;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

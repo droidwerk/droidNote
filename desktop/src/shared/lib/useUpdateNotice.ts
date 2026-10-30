@@ -2,12 +2,15 @@ import { useEffect } from "react";
 
 import { useT } from "../i18n";
 import { useConfirm } from "../ui/ConfirmDialog";
-import { findAppUpdate, rememberSkippedUpdate } from "./appUpdate";
+import { useToast } from "../ui/Toast";
+import { findAppUpdate, rememberSkippedUpdate, UPDATE_COMMAND } from "./appUpdate";
+import { copyToClipboard } from "./format";
 import { openExternal } from "./openExternal";
 
 export function useUpdateNotice(enabled: boolean): void {
   const t = useT();
   const confirm = useConfirm();
+  const toast = useToast();
 
   useEffect(() => {
     if (!enabled) return;
@@ -27,6 +30,18 @@ export function useUpdateNotice(enabled: boolean): void {
         description: t("update.body", { latest: notice.version, current: notice.current }),
         confirmLabel: t("update.download"),
         cancelLabel: t("update.later"),
+        extraAction: {
+          label: t("update.copyCommand"),
+          onClick: () => {
+            void copyToClipboard(UPDATE_COMMAND).then((ok) =>
+              toast.push({
+                tone: ok ? "success" : "error",
+                title: ok ? t("update.commandCopied") : t("update.copyFail"),
+                description: ok ? t("update.commandCopiedHint") : undefined,
+              }),
+            );
+          },
+        },
       });
       if (cancelled) return;
       if (accepted) {
@@ -38,5 +53,5 @@ export function useUpdateNotice(enabled: boolean): void {
     return () => {
       cancelled = true;
     };
-  }, [enabled, confirm, t]);
+  }, [enabled, confirm, t, toast]);
 }

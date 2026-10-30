@@ -597,6 +597,10 @@ export const fr: Messages = {
     body: "DroidNote {latest} est sorti. Vous êtes en {current}. L’installation se fait par-dessus l’actuelle ; notes et modèles sont conservés.",
     download: "Télécharger",
     later: "Pas maintenant",
+    copyCommand: "Copier la commande",
+    commandCopied: "Commande copiée",
+    commandCopiedHint: "Collez-la dans PowerShell et appuyez sur Entrée. DroidNote se ferme, se met à jour et se rouvre.",
+    copyFail: "Impossible de copier la commande",
   },
   about: {
     controlTitle: "Traitement sous votre contrôle",
