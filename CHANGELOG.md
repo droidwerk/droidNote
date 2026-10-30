@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.2.6] — 2026-10-30
+
 ### Added
 - Install without clicks: `install.ps1` downloads the latest release, verifies its SHA-256 and installs silently; the first start skips the wizard and prepares the recommended local models. One-line commands for Claude Code, Codex, Gemini, Copilot and Cursor in the README, with a machine-readable list for the website.
 - Repository: AGPL-3.0 license with trademark and third-party notices, English and Portuguese READMEs with screenshots, this changelog (now the source of the release notes), contributing, support and security guides, issue and pull request templates, roadmap and release docs.
@@ -118,7 +120,8 @@ notes on GitHub are built from them.
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.5...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.6...HEAD
+[2.2.6]: https://github.com/droidwerk/droidNote/compare/v2.2.5...v2.2.6
 [2.2.5]: https://github.com/droidwerk/droidNote/compare/v2.2.4...v2.2.5
 [2.2.4]: https://github.com/droidwerk/droidNote/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/droidwerk/droidNote/compare/v2.2.2...v2.2.3
