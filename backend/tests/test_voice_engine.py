@@ -132,6 +132,44 @@ def test_tracker_recognizes_saved_voiceprint() -> None:
     assert other is not None and other.person_id is None
 
 
+def test_tracker_links_a_known_person_to_one_voice_only() -> None:
+    ana, other = _voices(2, seed=31)
+    rng = np.random.default_rng(32)
+    tracker = SpeakerTracker({"ana": ana})
+    first = tracker.assign(_sample(ana, rng), 4.0, "loopback")
+    assert first is not None and first.person_id == "ana"
+    # Outra voz, bem diferente da Ana: ganha voz própria, sem nome.
+    second = tracker.assign(_sample(other, rng), 4.0, "loopback")
+    assert second is not None and second.cluster != first.cluster and second.person_id is None
+    # Uma janela dessa segunda voz que por acaso parece com a impressão da Ana
+    # não liga a voz inteira à Ana: a Ana já é a voz 1, e o centróide da voz 2
+    # não parece com ela.
+    lookalike = _unit(0.7 * ana + 0.714 * _unit(other - float(other @ ana) * ana))
+    assert float(lookalike @ ana) >= 0.58
+    tracker.clusters[second.cluster].total = tracker.clusters[second.cluster].total * 20.0
+    match = tracker.assign(lookalike, 2.0, "loopback")
+    assert tracker.clusters[second.cluster].person_id is None
+    assert tracker.clusters[first.cluster].person_id == "ana"
+    assert match is None or match.cluster in (first.cluster, second.cluster)
+
+
+def test_tracker_print_match_does_not_glue_a_strange_voice_to_the_person() -> None:
+    ana, other = _voices(2, seed=41)
+    rng = np.random.default_rng(42)
+    tracker = SpeakerTracker({"ana": ana})
+    first = tracker.assign(_sample(ana, rng), 6.0, "loopback")
+    assert first is not None and first.person_id == "ana"
+    # Impressão guardada "suja": casa com uma voz que não parece com a voz da
+    # Ana nesta sessão. Esse trecho não entra na voz da Ana.
+    tracker.known["ana"] = _unit(0.3 * ana + 0.954 * _unit(other - float(other @ ana) * ana))
+    stranger = _sample(other, rng)
+    assert float(stranger @ tracker.known["ana"]) >= 0.58
+    before = tracker.clusters[first.cluster].seconds
+    match = tracker.assign(stranger, 4.0, "loopback")
+    assert tracker.clusters[first.cluster].seconds == before
+    assert match is not None and match.cluster != first.cluster
+
+
 def test_tracker_short_piece_never_creates_a_voice() -> None:
     (voice,) = _voices(1, seed=6)
     tracker = SpeakerTracker()
