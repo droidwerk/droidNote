@@ -17,6 +17,10 @@ notes on GitHub are built from them.
 ### Fixed
 - Voice recognition no longer labels two different voices as the same person, nor two people as one voice. A saved voiceprint used to link a whole voice to a person on the strength of a single matching window, and the link was then written back as if you had named the voice; now a person can be one voice per meeting, the link needs the whole voice to match the voiceprint, automatic matches are recomputed on every pass instead of being stored, and only the names you give are kept. Two voices are also no longer merged when their voiceprints are as close as 0.45 (real calls had two people at 0.51); the threshold is 0.55. Voiceprints learn only from clear, confident speech (at least 1 s and 0.5 confidence), so a wrong label no longer pollutes a person's voiceprint for the next meeting.
 
+## [2.2.9] — 2026-10-30
+
+_No notes were written for this release._
+
 ## [2.2.8] — 2026-10-30
 
 ### Changed
@@ -141,7 +145,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.8...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.9...HEAD
+[2.2.9]: https://github.com/droidwerk/droidNote/compare/v2.2.8...v2.2.9
 [2.2.8]: https://github.com/droidwerk/droidNote/compare/v2.2.7...v2.2.8
 [2.2.7]: https://github.com/droidwerk/droidNote/compare/v2.2.6...v2.2.7
 [2.2.6]: https://github.com/droidwerk/droidNote/compare/v2.2.5...v2.2.6
