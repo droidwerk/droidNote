@@ -49,6 +49,7 @@ interface SessionPageProps {
 }
 
 type ExportFormat = "markdown" | "pdf" | "docx" | "json";
+type ExportParts = "all" | "notes" | "transcript";
 type SideTab = "doc" | "notes" | "context" | "mindmap" | "memory" | "voices";
 
 const EXPORT_OPTIONS: { format: ExportFormat; label: string; ext: string; filter: string }[] = [
@@ -237,14 +238,15 @@ export function SessionPage({
     }
   };
 
-  const exportFile = async (format: ExportFormat) => {
+  const exportFile = async (format: ExportFormat, parts: ExportParts = "all") => {
     const option = EXPORT_OPTIONS.find((item) => item.format === format);
     if (!option) return;
     setExportOpen(false);
     setExportBusy(true);
     try {
-      const blob = await api.exportSession(sessionId, format);
-      const suggestedName = `${detail.session.title}.${option.ext}`;
+      const blob = await api.exportSession(sessionId, format, parts);
+      const suffix = parts === "notes" ? ` - ${t("session.exportNotes")}` : parts === "transcript" ? ` - ${t("session.exportTranscript")}` : "";
+      const suggestedName = `${detail.session.title}${suffix}.${option.ext}`;
       const result = await saveBlob(blob, suggestedName, [{ name: option.filter, extensions: [option.ext] }]);
       if (result.status === "cancelled") return;
       if (result.status === "error") {
@@ -370,13 +372,25 @@ export function SessionPage({
               {exportBusy ? t("session.exporting") : t("session.export")}
             </Button>
             {exportOpen && !exportBusy ? (
-              <div className="export-menu-list" role="menu">
-                {EXPORT_OPTIONS.map((option) => (
-                  <button key={option.format} type="button" role="menuitem" onClick={() => void exportFile(option.format)}>
-                    {option.label}
-                    <small>.{option.ext}</small>
-                  </button>
+              <div className="export-menu-list is-grouped" role="menu">
+                {(["notes", "transcript"] as const).map((parts) => (
+                  <div key={parts} className="export-menu-group">
+                    <span>{parts === "notes" ? t("session.exportNotes") : t("session.exportTranscript")}</span>
+                    {EXPORT_OPTIONS.filter((option) => option.format !== "json").map((option) => (
+                      <button key={`${parts}-${option.format}`} type="button" role="menuitem" onClick={() => void exportFile(option.format, parts)}>
+                        {option.label}
+                        <small>.{option.ext}</small>
+                      </button>
+                    ))}
+                  </div>
                 ))}
+                <div className="export-menu-group">
+                  <span>{t("session.exportAll")}</span>
+                  <button type="button" role="menuitem" onClick={() => void exportFile("json")}>
+                    JSON
+                    <small>.json</small>
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>

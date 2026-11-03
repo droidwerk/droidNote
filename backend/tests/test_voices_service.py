@@ -153,16 +153,16 @@ async def test_refine_keeps_a_name_when_its_voice_is_absorbed(voices) -> None:
     await service.begin(session_id, mode="meeting", self_person_id=None, call=True)
     await _record(service, store, session_id, [(0.0, "a"), (0.0, "b"), (0.0, "c")])
     # O usuário dá nome a uma voz que o motor, por engano, tinha separado da v1.
-    marlon = await store.create_person("Marlon")
+    mateus = await store.create_person("Mateus")
     segments = await store.list_segments(session_id)
     from dataclasses import replace
 
     await store.save_segment(replace(segments[2], speaker_cluster="v9"))
-    await store.assign_cluster_person(session_id, "v9", marlon.id)
+    await store.assign_cluster_person(session_id, "v9", mateus.id)
     # O reagrupamento junta tudo numa voz só (é a mesma voz): o nome não some.
     refined = await service.refine(session_id, final=True)
     assert {item.speaker_cluster for item in refined} == {"v1"}
-    assert all(item.speaker_id == marlon.id for item in refined)
+    assert all(item.speaker_id == mateus.id for item in refined)
 
 
 @pytest.mark.asyncio

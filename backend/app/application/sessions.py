@@ -49,13 +49,14 @@ class SessionService:
         await self._store.save_summary(updated)
         return updated
 
-    async def export_markdown(self, session_id: str, locale: str | None = None) -> str:
+    async def export_markdown(self, session_id: str, locale: str | None = None, parts: str = "all") -> str:
+        """`parts`: all (nota + transcrição), notes (só a nota) ou transcript (só a transcrição)."""
         from app.application.summarize import voice_label
         from app.core.i18n import ui_message
 
         session = await self.get(session_id)
-        segments = await self._store.list_segments(session_id)
-        summary = await self._store.get_summary(session_id)
+        segments = await self._store.list_segments(session_id) if parts != "notes" else []
+        summary = await self._store.get_summary(session_id) if parts != "transcript" else None
         lines = [
             f"# {session.title}",
             "",
@@ -65,7 +66,11 @@ class SessionService:
             lines.append(f"- {ui_message(locale, 'export_end')}: {session.ended_at.isoformat()}")
         if session.language:
             lines.append(f"- {ui_message(locale, 'export_language')}: {session.language}")
-        lines.extend(["", f"## {ui_message(locale, 'export_transcript')}", ""])
+        if parts == "notes" and summary and summary.notes_markdown.strip():
+            lines.extend(["", summary.notes_markdown.strip()])
+            return "\n".join(lines) + "\n"
+        if parts != "notes":
+            lines.extend(["", f"## {ui_message(locale, 'export_transcript')}", ""])
         people = {item.id: item.name for item in await self._store.list_people()}
         for segment in segments:
             stamp = _fmt_ms(segment.start_ms)

@@ -134,7 +134,56 @@ How to use the context:
 - The user may attach documents (PDF, Word, spreadsheets). Their excerpts come labelled "[document] name · p. N". Treat them as first-class sources: answer from them, cite the file name and page or sheet, and cross-check them against the conversations when both are relevant (for example, a contract versus what was agreed in the meeting).
 - Never invent quotes, decisions, names or facts that are not in the excerpts. Never cite an excerpt that does not exist.
 - Be direct. No filler.
+
+Citations:
+- Every excerpt in the context starts with a number in brackets, like [3]. When a sentence of yours relies on an excerpt, end it with that number in brackets: "...the professor defined value as alignment [3]." Use only numbers that exist in the context. Several excerpts: [2][5].
+
+Formatting:
+- Markdown. Tables for comparisons, lists for steps. Math and formulas in LaTeX between $...$ (inline) or $$...$$ (block).
+- When a numeric comparison would be clearer as a picture (grades, counts, values over time), add one fenced block with the language `chart` containing JSON like {{"type":"bar","title":"...","labels":["A","B"],"series":[{{"name":"...","values":[1,2]}}]}} ("type" is "bar" or "line"; up to 4 series). Only with numbers that come from the sources or from the user; never invent values.
 """
+
+CHAT_STYLE_RULES = {
+    "fast": """
+Reply mode: quick. Answer in at most five short lines, or a single short list. No preamble, no recap. If the sources do not cover it, say so in one line.
+""",
+    "study": """
+Reply mode: study. Start from the intuition and a concrete example before any formal definition; define each technical term the first time it appears; keep the lecture's own wording for definitions and formulas; point out common mistakes; end with a three-line recap and two or three practice questions (answers after a line "---").
+""",
+    "solve": """
+Reply mode: problem solver. The user left a technical meeting with a bug, a task or a technical problem to solve, and will hand the work to a coding agent ({target}). Gather from the context (transcripts, notes, attached documents and links) everything relevant to the problem the user names: symptoms, where it happens, what was already tried, constraints, decisions, owners and deadlines.
+Structure the answer exactly as below, with the section titles translated into the reply language:
+1. **Problem** - one paragraph.
+2. **What we know** - facts, each with its citation [n].
+3. **Likely causes** - hypotheses, most likely first, with what would confirm each.
+4. **Plan** - ordered steps.
+5. **Open questions** - what must be confirmed with the team before coding.
+6. A fenced code block that starts with exactly ```prompt (this tag matters: the app turns it into a copy button) containing a complete, self-contained prompt for {target}, written in the reply language: context of the system, the goal, how to reproduce, constraints, acceptance criteria, and the files or areas to look at when they were mentioned. Unknown details go in angle brackets like <nome do repositório> so the user fills them in. Never invent code paths, names or facts.
+""",
+}
+
+SOLVE_TARGETS = {
+    "generic": "a coding agent (Claude Code, Codex, Cursor or similar)",
+    "claude": "Claude Code",
+    "codex": "OpenAI Codex",
+    "cursor": "Cursor",
+}
+
+GROUNDED_RULES = """
+Sources only: answer strictly from the retrieved excerpts, notes, documents and links. When they do not cover the question, say exactly that and stop; do not fill the gap with general knowledge.
+"""
+
+
+def chat_style_rules(style: str | None, solve_target: str | None = None) -> str:
+    """Instruções extras do modo de resposta escolhido no chat (vazio no modo normal)."""
+    rules = CHAT_STYLE_RULES.get(style or "", "")
+    if style == "solve":
+        rules = rules.replace("{target}", SOLVE_TARGETS.get(solve_target or "generic", SOLVE_TARGETS["generic"]))
+    return rules
+
+
+def chat_grounded_rules(grounded: bool) -> str:
+    return GROUNDED_RULES if grounded else ""
 
 
 def chat_system(ui_language: str | None) -> str:

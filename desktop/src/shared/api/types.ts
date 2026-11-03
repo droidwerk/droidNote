@@ -418,6 +418,13 @@ export interface ChatDocument {
   session_id?: string | null;
 }
 
+export interface ChatImage {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
 export interface ChatMessage {
   id: string;
   chat_id: string;
@@ -425,6 +432,31 @@ export interface ChatMessage {
   content: string;
   created_at: string;
   citations: ChatCitation[];
+  images?: ChatImage[];
+  /** Modo em que a resposta foi gerada (normal, fast, study, solve). */
+  style?: ChatStyle | null;
+}
+
+/** Modo da resposta escolhido no chat. */
+export type ChatStyle = "normal" | "fast" | "study" | "solve";
+
+/** Para qual agente de código o modo Resolver escreve o prompt pronto. */
+export type SolveTarget = "generic" | "claude" | "codex" | "cursor";
+
+/** Quais gravações a pergunta enxerga; tudo vazio = automático. */
+export interface ChatScope {
+  days?: number | null;
+  person_id?: string | null;
+  tag_id?: string | null;
+  session_ids?: string[];
+}
+
+/** Imagem pronta para enviar: já reduzida pela tela, em base64 sem prefixo. */
+export interface ChatImageDraft {
+  name: string;
+  mime: "image/jpeg" | "image/png" | "image/webp";
+  data: string;
+  preview: string;
 }
 
 export interface ChatThread {

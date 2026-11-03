@@ -23,7 +23,7 @@ async def test_start_capture_rejects_when_asr_not_ready(client: AsyncClient, app
 @pytest.mark.asyncio
 async def test_start_and_stop_capture(client: AsyncClient, app) -> None:
     started = await client.post("/capture/start", headers=auth(), json={"mic_only": True})
-    assert started.status_code == 200
+    assert started.status_code == 200, started.text
     body = started.json()
     assert body["recording"] is True
     assert body["session_id"]
@@ -118,6 +118,25 @@ async def test_single_participant_stamps_speaker(client: AsyncClient, app) -> No
     segments = await _wait_segments(app, session_id)
     assert segments[0].speaker_id == ana["id"]
     assert segments[0].text == "olá mundo"
+
+
+@pytest.mark.asyncio
+async def test_single_participant_does_not_replace_chosen_self(client: AsyncClient, app) -> None:
+    """Com "você no microfone" escolhido, uma sala com uma só pessoa é a outra
+    pessoa da conversa: o microfone continua sendo de quem grava."""
+    ana = (await client.post("/people", headers=auth(), json={"name": "Ana"})).json()
+    bruno = (await client.post("/people", headers=auth(), json={"name": "Bruno"})).json()
+    await app.state.container.store.set_setting("self_person_id", ana["id"])
+    started = await client.post(
+        "/capture/start",
+        headers=auth(),
+        json={"mic_only": True, "participant_ids": [bruno["id"]]},
+    )
+    assert started.status_code == 200
+    session_id = started.json()["session_id"]
+    _push_window(app)
+    segments = await _wait_segments(app, session_id)
+    assert segments[0].speaker_id == ana["id"]
 
 
 @pytest.mark.asyncio

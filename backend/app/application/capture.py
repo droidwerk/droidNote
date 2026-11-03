@@ -97,6 +97,9 @@ class CaptureService:
         # alguém pela impressão vocal antes de ela virar participante.
         self._names: dict[str, str] = {}
         self._self_person_id: str | None = None
+        # Quem está no microfone foi escolhido pelo usuário (ajuste salvo ou
+        # trecho rotulado): a lista "Na sala" não pode trocar essa pessoa.
+        self._self_pinned = False
         self._last_text: dict[str, str] = {}
         self._covered_until: dict[str, int] = {}
         self._writer: SessionWavWriter | None = None
@@ -159,6 +162,7 @@ class CaptureService:
         self._names = {item.id: item.name for item in await self._store.list_people()}
         saved_self = await self._store.get_setting("self_person_id")
         self._self_person_id = saved_self or None
+        self._self_pinned = bool(saved_self)
         self._last_text = {}
         self._covered_until = {}
         await self.set_participants(session.id, participant_ids or [])
@@ -296,11 +300,16 @@ class CaptureService:
         people = await self._store.list_people_by_ids(person_ids)
         await self._store.set_session_participants(session_id, [item.id for item in people])
         self._people = people
-        if not self._self_person_id and len(people) == 1:
-            self._self_person_id = people[0].id
-        elif self._self_person_id and self._self_person_id not in {item.id for item in people}:
+        # Sem "você" escolhido, uma sala com uma só pessoa diz quem está no
+        # microfone. Com "você" escolhido, a sala é só quem mais participa.
+        if not self._self_pinned:
+            before = self._self_person_id
             if len(people) == 1:
                 self._self_person_id = people[0].id
+            elif self._self_person_id not in {item.id for item in people}:
+                self._self_person_id = None
+            if self._self_person_id != before and self._voices is not None:
+                self._voices.set_self(session_id, self._self_person_id)
         return [item.name for item in people]
 
     def note_speaker(self, speaker_id: str | None, source: str | None = None) -> None:
@@ -308,9 +317,11 @@ class CaptureService:
             return
         if source in (None, "mic") and speaker_id:
             self._self_person_id = speaker_id
+            self._self_pinned = True
 
     def set_self_person(self, person_id: str | None) -> None:
         self._self_person_id = person_id or None
+        self._self_pinned = bool(person_id)
         if self._voices is not None and self.state.session_id:
             self._voices.set_self(self.state.session_id, self._self_person_id)
 

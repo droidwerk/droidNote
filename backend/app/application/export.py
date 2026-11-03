@@ -133,6 +133,7 @@ def export_pdf(
     people: list[Person],
     locale: str | None = None,
     participants: list[Person] | None = None,
+    parts: str = "all",
 ) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -142,6 +143,8 @@ def export_pdf(
 
     body_font, bold_font, mono_font = _register_pdf_fonts()
     names = {item.id: item.name for item in people}
+    if parts == "transcript":
+        summary = None
     st = {
         "title": ParagraphStyle("DnTitle", fontName=bold_font, fontSize=20, leading=24, textColor=colors.HexColor(ACCENT), spaceAfter=4),
         "meta": ParagraphStyle("DnMeta", fontName=body_font, fontSize=9, leading=12, textColor=colors.HexColor(MUTED), spaceAfter=2),
@@ -183,16 +186,19 @@ def export_pdf(
                 story.append(Paragraph(inline(block.text), style, bulletText="•"))
             else:
                 story.append(Paragraph(inline(block.text), st["p"]))
-    story.append(Spacer(1, 6))
-    story.append(Paragraph(_escape(ui_message(locale, "export_transcript")), st["h2"]))
-    story.append(rule())
-    if not segments:
+    if parts != "notes":
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(_escape(ui_message(locale, "export_transcript")), st["h2"]))
+        story.append(rule())
+        if not segments:
+            story.append(Paragraph("—", st["p"]))
+        for segment in segments:
+            speaker = _speaker_name(segment, names)
+            who = f'<font name="{bold_font}">{_escape(speaker)}</font> ' if speaker else ""
+            stamp = f'<font name="{mono_font}" size="8" color="{MUTED}">{_clock(segment.start_ms)}</font>  '
+            story.append(Paragraph(f"{stamp}{who}{_escape(segment.text)}", st["line"]))
+    elif not blocks:
         story.append(Paragraph("—", st["p"]))
-    for segment in segments:
-        speaker = _speaker_name(segment, names)
-        who = f'<font name="{bold_font}">{_escape(speaker)}</font> ' if speaker else ""
-        stamp = f'<font name="{mono_font}" size="8" color="{MUTED}">{_clock(segment.start_ms)}</font>  '
-        story.append(Paragraph(f"{stamp}{who}{_escape(segment.text)}", st["line"]))
 
     buffer = BytesIO()
     footer_text = f"DroidNote · {session.title}"
@@ -237,6 +243,7 @@ def export_docx(
     people: list[Person],
     locale: str | None = None,
     participants: list[Person] | None = None,
+    parts: str = "all",
 ) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -246,6 +253,8 @@ def export_docx(
 
     accent, ink, soft, muted = RGBColor(0xFF, 0x44, 0x00), RGBColor(0x0C, 0x0C, 0x0E), RGBColor(0x34, 0x34, 0x3A), RGBColor(0x6B, 0x6B, 0x73)
     names = {item.id: item.name for item in people}
+    if parts == "transcript":
+        summary = None
     document = Document()
     normal = document.styles["Normal"]
     normal.font.name = "Segoe UI"
@@ -342,28 +351,238 @@ def export_docx(
             paragraph.paragraph_format.space_after = Pt(5)
             runs(paragraph, block.text)
 
-    heading(ui_message(locale, "export_transcript"), 2)
-    if not segments:
-        document.add_paragraph("—")
-    for segment in segments:
-        paragraph = document.add_paragraph()
-        paragraph.paragraph_format.space_after = Pt(3)
-        stamp_run(paragraph, _clock(segment.start_ms))
-        speaker = _speaker_name(segment, names)
-        if speaker:
-            run = paragraph.add_run(f"{speaker}  ")
-            run.bold = True
+    if parts != "notes":
+        heading(ui_message(locale, "export_transcript"), 2)
+        if not segments:
+            document.add_paragraph("—")
+        for segment in segments:
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(3)
+            stamp_run(paragraph, _clock(segment.start_ms))
+            speaker = _speaker_name(segment, names)
+            if speaker:
+                run = paragraph.add_run(f"{speaker}  ")
+                run.bold = True
+                run.font.size = Pt(10)
+                run.font.color.rgb = soft
+            run = paragraph.add_run(segment.text)
             run.font.size = Pt(10)
-            run.font.color.rgb = soft
-        run = paragraph.add_run(segment.text)
-        run.font.size = Pt(10)
-        run.font.color.rgb = ink
+            run.font.color.rgb = ink
     footer = document.sections[0].footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     footer_run = footer.add_run(f"DroidNote · {session.title}")
     footer_run.font.size = Pt(8)
     footer_run.font.color.rgb = muted
 
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+# ------------------------------------------------- documento solto (resposta do chat)
+
+
+def _strip_fences(markdown: str) -> str:
+    """Blocos ``` viram texto corrido; um bloco `chart` vira a tabela dos valores."""
+    import json
+
+    out: list[str] = []
+    fence: list[str] | None = None
+    lang = ""
+    for raw in markdown.replace("\r\n", "\n").split("\n"):
+        stripped = raw.strip()
+        if fence is None:
+            if stripped.startswith("```"):
+                fence, lang = [], stripped[3:].strip().lower()
+            else:
+                out.append(raw)
+            continue
+        if stripped.startswith("```"):
+            body = "\n".join(fence)
+            if lang == "chart":
+                try:
+                    spec = json.loads(body)
+                    labels = [str(item) for item in spec.get("labels") or []]
+                    series = spec.get("series") or []
+                    if spec.get("title"):
+                        out.append(f"**{spec['title']}**")
+                    for row in series:
+                        values = row.get("values") or []
+                        pairs = ", ".join(f"{label}: {value}" for label, value in zip(labels, values))
+                        out.append(f"- {row.get('name') or ''}: {pairs}")
+                except (ValueError, AttributeError, TypeError):
+                    out.extend(fence)
+            else:
+                out.extend(line if line.strip() else "" for line in fence)
+            fence = None
+            continue
+        fence.append(raw)
+    if fence:
+        out.extend(fence)
+    return "\n".join(out)
+
+
+def _table_rows(markdown: str) -> str:
+    """Tabela Markdown vira lista (uma linha por item) nos arquivos, que não têm tabela."""
+    lines = markdown.split("\n")
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        nxt = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if line.startswith("|") and re.match(r"^\|?\s*:?-{2,}", nxt):
+            header = [cell.strip() for cell in line.strip("|").split("|")]
+            index += 2
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+                first = cells[0] if cells else ""
+                rest = "; ".join(f"{head}: {cell}" for head, cell in zip(header[1:], cells[1:]) if cell)
+                out.append(f"- **{first}** — {rest}" if rest else f"- **{first}**")
+                index += 1
+            out.append("")
+            continue
+        out.append(lines[index])
+        index += 1
+    return "\n".join(out)
+
+
+def _document_blocks(markdown: str) -> list[Block]:
+    return [block for block in parse_markdown(_table_rows(_strip_fences(markdown))) if block.kind != "title"]
+
+
+def export_markdown_pdf(title: str, markdown: str, *, subtitle: str = "", locale: str | None = None) -> bytes:
+    """Markdown solto (uma resposta do chat) em PDF com a mesma cara da ata."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate
+
+    del locale
+    body_font, bold_font, mono_font = _register_pdf_fonts()
+    st = {
+        "title": ParagraphStyle("DnTitle", fontName=bold_font, fontSize=20, leading=24, textColor=colors.HexColor(ACCENT), spaceAfter=4),
+        "meta": ParagraphStyle("DnMeta", fontName=body_font, fontSize=9, leading=12, textColor=colors.HexColor(MUTED), spaceAfter=2),
+        "h2": ParagraphStyle("DnH2", fontName=bold_font, fontSize=13, leading=16, textColor=colors.HexColor(INK), spaceBefore=14, spaceAfter=2),
+        "h3": ParagraphStyle("DnH3", fontName=bold_font, fontSize=10.5, leading=14, textColor=colors.HexColor(SOFT), spaceBefore=8, spaceAfter=2),
+        "p": ParagraphStyle("DnBody", fontName=body_font, fontSize=10, leading=14.5, textColor=colors.HexColor(INK), spaceAfter=5),
+        "li": ParagraphStyle("DnLi", fontName=body_font, fontSize=10, leading=14.5, textColor=colors.HexColor(INK), leftIndent=12, bulletIndent=2, spaceAfter=2),
+    }
+    story: list = [Paragraph(_escape(title), st["title"])]
+    if subtitle:
+        story.append(Paragraph(_escape(subtitle), st["meta"]))
+    story.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor(ACCENT), spaceBefore=4, spaceAfter=10))
+    for block in _document_blocks(markdown):
+        if block.kind == "h2":
+            story.append(Paragraph(_escape(block.text), st["h2"]))
+            story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor(LINE), spaceBefore=1, spaceAfter=6))
+        elif block.kind == "h3":
+            story.append(Paragraph(_escape(block.text), st["h3"]))
+        elif block.kind == "li":
+            style = ParagraphStyle(f"li{block.level}", parent=st["li"], leftIndent=12 + 12 * block.level, bulletIndent=2 + 12 * block.level)
+            story.append(Paragraph(_pdf_inline(block.text, mono_font, bold_font), style, bulletText="•"))
+        else:
+            story.append(Paragraph(_pdf_inline(block.text, mono_font, bold_font), st["p"]))
+    buffer = BytesIO()
+    footer_text = f"DroidNote · {title}"
+
+    def on_page(canvas, doc) -> None:
+        canvas.saveState()
+        canvas.setFont(body_font, 8)
+        canvas.setFillColor(colors.HexColor(MUTED))
+        canvas.drawString(18 * mm, 10 * mm, footer_text[:110])
+        canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, str(doc.page))
+        canvas.restoreState()
+
+    document = SimpleDocTemplate(
+        buffer, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=18 * mm, title=title
+    )
+    document.build(story, onFirstPage=on_page, onLaterPages=on_page)
+    return buffer.getvalue()
+
+
+def export_markdown_docx(title: str, markdown: str, *, subtitle: str = "", locale: str | None = None) -> bytes:
+    """Markdown solto (uma resposta do chat) em Word com a mesma cara da ata."""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt, RGBColor
+
+    del locale
+    accent, ink, soft, muted = RGBColor(0xFF, 0x44, 0x00), RGBColor(0x0C, 0x0C, 0x0E), RGBColor(0x34, 0x34, 0x3A), RGBColor(0x6B, 0x6B, 0x73)
+    document = Document()
+    normal = document.styles["Normal"]
+    normal.font.name = "Segoe UI"
+    normal.font.size = Pt(10.5)
+    normal.element.rPr.rFonts.set(qn("w:eastAsia"), "Segoe UI")
+    for section in document.sections:
+        section.left_margin = section.right_margin = Pt(54)
+        section.top_margin = section.bottom_margin = Pt(50)
+
+    def bottom_border(paragraph, color: str, size: int) -> None:
+        p_pr = paragraph._p.get_or_add_pPr()
+        border = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), str(size))
+        bottom.set(qn("w:space"), "2")
+        bottom.set(qn("w:color"), color)
+        border.append(bottom)
+        p_pr.append(border)
+
+    def runs(paragraph, text: str) -> None:
+        for piece in _INLINE.split(text):
+            if not piece:
+                continue
+            if piece.startswith("**") and piece.endswith("**"):
+                run = paragraph.add_run(piece[2:-2])
+                run.bold = True
+                run.font.color.rgb = ink
+            elif piece.startswith("`") and piece.endswith("`"):
+                run = paragraph.add_run(f" {piece[1:-1]} ")
+                run.font.name = "Consolas"
+                run.font.size = Pt(8.5)
+                run.font.color.rgb = muted
+            else:
+                run = paragraph.add_run(piece)
+                run.font.color.rgb = ink
+
+    head = document.add_paragraph()
+    run = head.add_run(title)
+    run.bold = True
+    run.font.size = Pt(20)
+    run.font.color.rgb = accent
+    meta = document.add_paragraph()
+    meta_run = meta.add_run(subtitle)
+    meta_run.font.size = Pt(9)
+    meta_run.font.color.rgb = muted
+    bottom_border(meta, "FF4400", 12)
+    for block in _document_blocks(markdown):
+        if block.kind in {"h2", "h3"}:
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.space_before = Pt(12 if block.kind == "h2" else 8)
+            paragraph.paragraph_format.space_after = Pt(3)
+            run = paragraph.add_run(block.text)
+            run.bold = True
+            run.font.size = Pt(13 if block.kind == "h2" else 10.5)
+            run.font.color.rgb = ink if block.kind == "h2" else soft
+            if block.kind == "h2":
+                bottom_border(paragraph, "D9D9DE", 6)
+        elif block.kind == "li":
+            paragraph = document.add_paragraph(style="List Bullet")
+            paragraph.paragraph_format.left_indent = Pt(18 + 14 * block.level)
+            paragraph.paragraph_format.space_after = Pt(2)
+            runs(paragraph, block.text)
+        else:
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(5)
+            runs(paragraph, block.text)
+    footer = document.sections[0].footer.paragraphs[0]
+    footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    footer_run = footer.add_run(f"DroidNote · {title}")
+    footer_run.font.size = Pt(8)
+    footer_run.font.color.rgb = muted
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()

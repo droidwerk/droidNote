@@ -48,9 +48,13 @@ npm run tauri dev
 
 ```powershell
 cd backend
-python -m pip install -e ".[dev]"
-python -m pytest
+uv sync --frozen --extra dev
+uv run python -m pytest
 ```
+
+As versões dos pacotes vêm do `uv.lock`. Para subir uma dependência, mude o
+`pyproject.toml` e rode `uv lock`; o lock novo entra no commit junto. O
+`pip-audit` vale ser rodado dentro do ambiente do uv: `uv run pip-audit`.
 
 ## Build do instalador
 

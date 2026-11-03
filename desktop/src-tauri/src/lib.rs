@@ -7,7 +7,8 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tauri_plugin_dialog::DialogExt;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
@@ -37,9 +38,38 @@ fn get_backend(state: tauri::State<AppState>) -> Result<BackendInfo, String> {
         .ok_or_else(|| "Backend ainda não está pronto".into())
 }
 
+#[derive(Clone, Deserialize)]
+pub struct SaveFilter {
+    pub name: String,
+    pub extensions: Vec<String>,
+}
+
+/// Exportação: o diálogo "Salvar" roda aqui no Rust e só o caminho que o usuário
+/// escolheu é gravado. A interface nunca manda um caminho, então nada no webview
+/// consegue escrever em outro lugar do disco. Devolve o caminho gravado, ou None
+/// quando a pessoa cancelou.
 #[tauri::command]
-fn write_export_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
-    std::fs::write(&path, bytes).map_err(|err| err.to_string())
+async fn save_export_file(
+    app: tauri::AppHandle,
+    name: String,
+    filters: Vec<SaveFilter>,
+    bytes: Vec<u8>,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = app.dialog().file().set_file_name(&name);
+        for filter in &filters {
+            let extensions: Vec<&str> = filter.extensions.iter().map(String::as_str).collect();
+            builder = builder.add_filter(&filter.name, &extensions);
+        }
+        let Some(chosen) = builder.blocking_save_file() else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|err| err.to_string())?;
+        std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
+        Ok(Some(path.to_string_lossy().to_string()))
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 fn external_backend() -> Option<BackendInfo> {
@@ -285,7 +315,7 @@ pub fn run() {
             backend: Mutex::new(None),
             backend_pid: Mutex::new(None),
         })
-        .invoke_handler(tauri::generate_handler![get_backend, write_export_file])
+        .invoke_handler(tauri::generate_handler![get_backend, save_export_file])
         .setup(|app| {
             let resource_dir = app.path().resource_dir().ok();
             let info = match external_backend() {

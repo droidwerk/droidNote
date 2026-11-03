@@ -62,6 +62,46 @@ class DocumentService:
         await self._store.save_document(document, chunks)
         return document
 
+    async def ingest_url(
+        self,
+        url: str,
+        *,
+        chat_id: str | None = None,
+        fetch=None,
+        transcribe=None,
+    ) -> ChatDocument:
+        """Página da web ou vídeo do YouTube como documento do chat.
+
+        `transcribe` (palavras com tempo a partir do áudio, o contrato de
+        AsrPort.transcribe_words) só entra quando o vídeo não tem legenda.
+        """
+        from app.infrastructure.documents.web import read_url
+
+        if chat_id and len(await self._store.list_documents(chat_id=chat_id)) >= MAX_PER_CHAT:
+            raise DocumentError("too_many")
+        name, kind, pieces, pages = await asyncio.to_thread(read_url, url, fetch, transcribe)
+        if not pieces:
+            raise DocumentError("empty")
+        document_id = new_id()
+        chunks = [
+            DocumentChunk(document_id=document_id, ord=index, text=piece.text, page=piece.page)
+            for index, piece in enumerate(pieces)
+        ]
+        document = ChatDocument(
+            id=document_id,
+            chat_id=chat_id,
+            session_id=None,
+            name=name or url[:160],
+            kind=kind,
+            size=sum(len(chunk.text) for chunk in chunks),
+            pages=pages,
+            chunks=len(chunks),
+            chars=sum(len(chunk.text) for chunk in chunks),
+            created_at=datetime.now(tz=UTC),
+        )
+        await self._store.save_document(document, chunks)
+        return document
+
     async def list(self, chat_id: str) -> list[ChatDocument]:
         return await self._store.list_documents(chat_id=chat_id)
 

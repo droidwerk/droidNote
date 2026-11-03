@@ -119,15 +119,21 @@ class FakeLlm:
         )
         self.model = "qwen2.5:3b"
         self.last_system: str | None = None
+        self.last_prompt: str = ""
+        self.last_images: list[bytes] = []
+        self.text_reply: str | None = None
+        self.vision = True
 
     async def generate_json(self, prompt: str, *, system: str | None = None) -> str:
         del prompt
         self.last_system = system
         return self.payload
 
-    async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
+    async def generate_text(self, prompt: str, *, system: str | None = None, images=None) -> str:
         self.last_system = system
-        return f"Sobre: {prompt[:80]}"
+        self.last_prompt = prompt
+        self.last_images = list(images or [])
+        return self.text_reply or f"Sobre: {prompt[:80]}"
 
     async def generate_text_stream(
         self,
@@ -135,7 +141,11 @@ class FakeLlm:
         on_token,
         *,
         system: str | None = None,
+        images=None,
     ) -> str:
-        text = await self.generate_text(prompt, system=system)
+        text = await self.generate_text(prompt, system=system, images=images)
         on_token(text)
         return text
+
+    async def supports_images(self) -> bool:
+        return self.vision

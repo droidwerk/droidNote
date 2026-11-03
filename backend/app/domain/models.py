@@ -178,6 +178,18 @@ class DocumentChunk:
 
 
 @dataclass(frozen=True)
+class ChatImage:
+    """Foto do quadro ou print do slide anexado a uma pergunta (bytes ficam no banco)."""
+
+    id: str
+    message_id: str
+    chat_id: str
+    name: str
+    mime: str
+    size: int
+
+
+@dataclass(frozen=True)
 class ChatMessage:
     id: str
     chat_id: str
@@ -185,6 +197,9 @@ class ChatMessage:
     content: str
     created_at: datetime
     citations: list[ChatCitation] = field(default_factory=list)
+    images: list[ChatImage] = field(default_factory=list)
+    # Modo em que a resposta foi gerada (normal, fast, study, solve); None nas perguntas.
+    style: str | None = None
 
 
 @dataclass(frozen=True)

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import httpx
@@ -63,6 +64,24 @@ class OllamaManager:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.component = SetupComponentStatus()
+        # Modelo -> le imagens? ("vision" em /api/show). Consultado uma vez por modelo.
+        self._vision: dict[str, bool] = {}
+
+    async def supports_images(self) -> bool:
+        """True quando o modelo atual enxerga imagens (Ollama lista "vision" nas capacidades)."""
+        cached = self._vision.get(self.model)
+        if cached is not None:
+            return cached
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(f"{self.base_url}/api/show", json={"model": self.model})
+                response.raise_for_status()
+                capabilities = response.json().get("capabilities") or []
+        except (httpx.HTTPError, ValueError):
+            return False
+        found = "vision" in [str(item).lower() for item in capabilities]
+        self._vision[self.model] = found
+        return found
 
     def set_model(self, model: str) -> None:
         self.model = model
@@ -207,6 +226,7 @@ class OllamaManager:
         stream: bool,
         format_json: bool = True,
         system: str | None = None,
+        images: Sequence[bytes] | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {
             "model": self.model,
@@ -225,6 +245,8 @@ class OllamaManager:
         }
         if format_json:
             payload["format"] = "json"
+        if images:
+            payload["images"] = [base64.b64encode(item).decode("ascii") for item in images]
         payload["think"] = False
         return payload
 
@@ -242,11 +264,13 @@ class OllamaManager:
     ) -> str:
         return await self._stream(prompt, on_token, format_json=True, system=system)
 
-    async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
+    async def generate_text(
+        self, prompt: str, *, system: str | None = None, images: Sequence[bytes] | None = None
+    ) -> str:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 f"{self.base_url}/api/generate",
-                json=self.build_payload(prompt, stream=False, format_json=False, system=system),
+                json=self.build_payload(prompt, stream=False, format_json=False, system=system, images=images),
             )
             response.raise_for_status()
             return str(response.json().get("response") or "")
@@ -257,8 +281,9 @@ class OllamaManager:
         on_token: Callable[[str], None],
         *,
         system: str | None = None,
+        images: Sequence[bytes] | None = None,
     ) -> str:
-        return await self._stream(prompt, on_token, format_json=False, system=system)
+        return await self._stream(prompt, on_token, format_json=False, system=system, images=images)
 
     async def _stream(
         self,
@@ -267,6 +292,7 @@ class OllamaManager:
         *,
         format_json: bool,
         system: str | None,
+        images: Sequence[bytes] | None = None,
     ) -> str:
         chunks: list[str] = []
         # O primeiro token pode demorar minutos (carregar o modelo e ler a transcrição inteira na CPU);
@@ -277,7 +303,7 @@ class OllamaManager:
                 "POST",
                 f"{self.base_url}/api/generate",
                 json=self.build_payload(
-                    prompt, stream=True, format_json=format_json, system=system
+                    prompt, stream=True, format_json=format_json, system=system, images=images
                 ),
             ) as response:
                 response.raise_for_status()

@@ -33,7 +33,11 @@ function Get-NeutralBuildRoot([string]$Target) {
 $BuildRoot = Get-NeutralBuildRoot $Root
 $Backend = Join-Path $BuildRoot "backend"
 $Desktop = Join-Path $BuildRoot "desktop"
-$SidecarSrc = Join-Path $Backend "dist\droidnote-backend"
+# Saída do PyInstaller fora do repositório: dentro do OneDrive a sincronização segura
+# arquivos recém-criados e o --clean do PyInstaller falha com "acesso negado".
+$PyiOut = Join-Path $env:LOCALAPPDATA "DroidNote-build"
+$PyiOut = Join-Path $PyiOut "backend"
+$SidecarSrc = Join-Path $PyiOut "dist\droidnote-backend"
 $SidecarDestDir = Join-Path $Desktop "src-tauri\resources\droidnote-backend"
 
 function Sign-IfConfigured([string]$Path) {
@@ -88,7 +92,17 @@ if (Test-Path $LooseApp) {
     Write-Host "Removido DroidNote.exe solto (não é o entregável)."
 }
 
-python "$PSScriptRoot\generate_icons.py"
+# Backend: o uv instala exatamente o que está no uv.lock (sem "versão mais nova do dia").
+$uv = Get-Command uv -ErrorAction SilentlyContinue
+if (-not $uv) {
+    throw "uv não encontrado no PATH. Instale com: python -m pip install uv (ou https://docs.astral.sh/uv/)."
+}
+Push-Location $Backend
+uv sync --frozen --extra dev
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "uv sync falhou (código $LASTEXITCODE)." }
+Pop-Location
+
+uv run --project "$Backend" python "$PSScriptRoot\generate_icons.py"
 
 # Motor de voz (WeSpeaker ResNet34-LM, 26 MB) vai dentro do sidecar: quem instala
 # já identifica falantes sem esperar download. O hash é o mesmo que o app confere.
@@ -106,9 +120,14 @@ if (-not (Test-Path $VoiceModel) -or ((Get-FileHash -Algorithm SHA256 $VoiceMode
     }
 }
 
+foreach ($stale in @((Join-Path $PyiOut "build"), (Join-Path $PyiOut "dist"))) {
+    for ($attempt = 1; $attempt -le 5 -and (Test-Path -LiteralPath $stale); $attempt++) {
+        try { Remove-Item -Recurse -Force -LiteralPath $stale -ErrorAction Stop } catch { Start-Sleep -Seconds 2 }
+    }
+}
+New-Item -ItemType Directory -Force -Path $PyiOut | Out-Null
 Push-Location $Backend
-python -m pip install -e ".[dev]"
-python -m PyInstaller --noconfirm --clean sidecar.spec
+uv run --frozen python -m PyInstaller --noconfirm --clean --workpath (Join-Path $PyiOut "build") --distpath (Join-Path $PyiOut "dist") sidecar.spec
 if ($LASTEXITCODE -ne 0) {
     Pop-Location
     throw "PyInstaller falhou (código $LASTEXITCODE). O sidecar antigo não pode ir para o instalador."

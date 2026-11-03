@@ -34,6 +34,19 @@ hidden += [
     "multipart",
 ]
 
+# Links do YouTube no chat: o yt-dlp carrega os extratores por nome.
+try:
+    hidden += collect_submodules("yt_dlp")
+except Exception:
+    pass
+
+# Exportação em PDF: o reportlab importa o Pillow e carrega submódulos por nome.
+try:
+    hidden += collect_submodules("reportlab") + collect_submodules("PIL")
+    datas += collect_data_files("reportlab")
+except Exception:
+    pass
+
 # Motor de voz embutido (baixado e conferido por installer/build-windows.ps1).
 import os
 
@@ -74,8 +87,6 @@ a = Analysis(
         "parso",
         "prompt_toolkit",
         "tornado",
-        "PIL",
-        "Pillow",
         "zmq",
         "pytest",
         "pygments",

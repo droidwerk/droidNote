@@ -55,13 +55,22 @@ $env:DROIDNOTE_EXTERNAL_BACKEND = "1"
 $devData = Join-Path $env:APPDATA "DroidNote-dev"
 $env:DROIDNOTE_DATA_DIR = $devData
 
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    throw "uv não encontrado no PATH. Instale com: python -m pip install uv"
+}
+Write-Host "Sincronizando pacotes do backend (uv sync --frozen)..."
+Push-Location -LiteralPath $Backend
+uv sync --frozen --extra dev
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "uv sync falhou. Veja a mensagem acima." }
+Pop-Location
+
 Write-Host "Subindo backend com reload em $Url ..."
 $backendCmd = @"
 `$env:DROIDNOTE_TOKEN='$Token'
 `$env:DROIDNOTE_PORT='$Port'
 `$env:DROIDNOTE_DATA_DIR='$devData'
 Set-Location -LiteralPath '$Backend'
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port $Port --reload-dir app --timeout-graceful-shutdown 2
+uv run --frozen python -m uvicorn app.main:app --reload --host 127.0.0.1 --port $Port --reload-dir app --timeout-graceful-shutdown 2
 "@
 Start-Process powershell -ArgumentList @("-NoExit", "-Command", $backendCmd) | Out-Null
 

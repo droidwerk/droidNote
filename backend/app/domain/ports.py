@@ -65,7 +65,9 @@ class LlmPort(Protocol):
         system: str | None = None,
     ) -> str: ...
 
-    async def generate_text(self, prompt: str, *, system: str | None = None) -> str: ...
+    async def generate_text(
+        self, prompt: str, *, system: str | None = None, images: Sequence[bytes] | None = None
+    ) -> str: ...
 
     async def generate_text_stream(
         self,
@@ -73,6 +75,7 @@ class LlmPort(Protocol):
         on_token: Callable[[str], None],
         *,
         system: str | None = None,
+        images: Sequence[bytes] | None = None,
     ) -> str: ...
 
 

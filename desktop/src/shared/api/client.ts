@@ -4,7 +4,10 @@ import type {
   CaptureState,
   ChatDetail,
   ChatMessage,
+  ChatScope,
+  ChatStyle,
   ChatThread,
+  SolveTarget,
   Device,
   ModelsCatalog,
   Person,
@@ -265,6 +268,8 @@ export const api = {
     return request<ChatDocument>("/documents", { method: "POST", body: form });
   },
   documents: (chatId: string) => request<ChatDocument[]>(`/documents?chat_id=${encodeURIComponent(chatId)}`),
+  attachUrl: (url: string, chatId?: string | null) =>
+    request<ChatDocument>("/documents/url", { method: "POST", body: JSON.stringify({ url, chat_id: chatId ?? null }) }),
   deleteDocument: (id: string) => request<void>(`/documents/${id}`, { method: "DELETE" }),
   tasks: (status: TaskStatus = "all") => request<TaskItem[]>(`/tasks?status=${status}`),
   createTask: (payload: { text: string; owner?: string | null; due?: string | null; session_id?: string | null }) =>
@@ -310,8 +315,8 @@ export const api = {
       body: JSON.stringify({ notes_markdown }),
     }),
   sessionAudio: (id: string) => download(`/sessions/${id}/audio`),
-  exportSession: (id: string, format: "markdown" | "json" | "pdf" | "docx") =>
-    download(`/sessions/${id}/export?format=${format}`),
+  exportSession: (id: string, format: "markdown" | "json" | "pdf" | "docx", parts: "all" | "notes" | "transcript" = "all") =>
+    download(`/sessions/${id}/export?format=${format}&parts=${parts}`),
   exportMarkdown: async (id: string): Promise<string> => {
     const blob = await download(`/sessions/${id}/export?format=markdown`);
     return blob.text();
@@ -319,6 +324,9 @@ export const api = {
   chats: () => request<ChatThread[]>("/chat"),
   chat: (id: string) => request<ChatDetail>(`/chat/${id}`),
   deleteChat: (id: string) => request<void>(`/chat/${id}`, { method: "DELETE" }),
+  chatImage: (id: string) => download(`/chat/images/${id}`),
+  exportChatMessage: (chatId: string, messageId: string, format: "markdown" | "pdf" | "docx") =>
+    download(`/chat/${chatId}/messages/${messageId}/export?format=${format}`),
 };
 
 export async function askChat(
@@ -329,6 +337,11 @@ export async function askChat(
     segment_ids?: string[];
     document_ids?: string[];
     ui_language?: string;
+    style?: ChatStyle;
+    grounded?: boolean;
+    solve_target?: SolveTarget;
+    scope?: ChatScope | null;
+    images?: { name: string; mime: string; data: string }[];
   },
   onToken: (token: string) => void,
 ): Promise<{ chat: ChatThread; message: ChatMessage }> {
