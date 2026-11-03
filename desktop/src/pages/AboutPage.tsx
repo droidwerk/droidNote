@@ -11,7 +11,7 @@ interface AboutPageProps {
 
 export function AboutPage({ onOpenPrivacy }: AboutPageProps) {
   const t = useT();
-  const [version, setVersion] = useState("2.2.10");
+  const [version, setVersion] = useState("2.3.0");
 
   useEffect(() => {
     void import("@tauri-apps/api/app")
