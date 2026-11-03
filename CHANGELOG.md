@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-11-03
+
 ### Added
 - Chat answers render Markdown properly: tables, headings, lists, links, and math with LaTeX (`$...$` inline, `$$...$$` blocks) through KaTeX, all offline.
 - Chat citations: every excerpt the assistant used is numbered, a `[n]` in the answer is a chip that opens the recording at that exact moment, and the sources footer lists one entry per recording or document instead of one per excerpt.
@@ -168,7 +170,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.2.10...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/droidwerk/droidNote/compare/v2.2.10...v2.3.0
 [2.2.10]: https://github.com/droidwerk/droidNote/compare/v2.2.9...v2.2.10
 [2.2.9]: https://github.com/droidwerk/droidNote/compare/v2.2.8...v2.2.9
 [2.2.8]: https://github.com/droidwerk/droidNote/compare/v2.2.7...v2.2.8
