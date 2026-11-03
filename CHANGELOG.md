@@ -11,6 +11,27 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Added
+- Chat answers render Markdown properly: tables, headings, lists, links, and math with LaTeX (`$...$` inline, `$$...$$` blocks) through KaTeX, all offline.
+- Chat citations: every excerpt the assistant used is numbered, a `[n]` in the answer is a chip that opens the recording at that exact moment, and the sources footer lists one entry per recording or document instead of one per excerpt.
+- Chat modes behind a gear button: Normal, Quick (short answer, half the context, faster on a local model), Study (from the intuition up, with recap and practice questions) and Solve (a technical problem gathered from meetings, documents and links, ending in a ready-to-paste prompt for Claude Code, Codex, Cursor or any coding agent, with a "Copy prompt" action). A "sources only" switch keeps the model from using general knowledge, and a scope picker limits the question to the focused recording, the last 7 or 30 days, or the recordings with a given person or tag.
+- Slash commands in the question box (`/summary`, `/tasks`, `/decisions`, `/glossary`, `/flashcards`, `/exercises`, `/one-page`, `/exam`); the four study ones also appear as chips when a recording is focused.
+- Save an answer: as a note of the recording, as tasks (one per list item), or as PDF, Word or Markdown with the DroidNote look.
+- Charts: when numbers from the sources call for it, the assistant emits a `chart` block and the chat draws a bar or line chart (with a values table), no external library.
+- Images in the chat: a photo of the board or a slide screenshot goes with the question (picked, dropped or pasted), downscaled on the device, read by a vision-capable model (Gemma 4 locally, or OpenAI) and kept with the message. A model without vision gets a clear message.
+- Links as sources: attach a web page (its text) or a YouTube video (its captions, or a local Whisper transcription of the audio when there are none, via yt-dlp). A URL pasted alone into the empty question box is attached directly.
+- Export a recording as the note only or the transcript only, in Markdown, PDF or Word, besides the full JSON.
+
+### Changed
+- Backend packages are installed from `backend/uv.lock` with uv (`uv sync --frozen`) in the installer build, the release workflow and `dev.ps1`, so every build ships the same versions. Pillow, urllib3, certifi and filelock minimums raised past their open CVEs.
+- The web reader identifies itself as DroidNote with its version and project address instead of imitating a browser (Wikipedia and others refuse the latter).
+
+### Fixed
+- The "In the room" list starts empty on every new recording and a finished recording no longer lends its participants to the next one; a chosen "You on the microphone" is never replaced by a single participant, so the microphone stops being attributed to the other person in a two-person call.
+- PDF export failed with "Failed to fetch": the packaged backend excluded Pillow, which reportlab imports. Pillow and reportlab are now bundled, and a server error reaches the app as a readable message with CORS headers instead of a network failure.
+- Markdown styles in the chat never loaded because a stray script had been pasted into `assist.css`.
+- Security: the link reader refuses loopback, link-local and credentialed URLs; the export "Save" dialog and the file write now run in Rust, so the interface never supplies a disk path and the webview lost its dialog permission; chat links open in the system browser; the content policy allows the chat's image thumbnails.
+
 ## [2.2.10] — 2026-10-30
 
 ### Added

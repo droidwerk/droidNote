@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +12,7 @@ import aiosqlite
 
 from app.core.secrets import DPAPI_PREFIX, SECRET_SETTING_KEYS, protect_setting, unprotect_setting
 from app.domain.models import (
+    ChatImage,
     ActionItem,
     Chat,
     ChatCitation,
@@ -129,6 +131,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     citations_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     FOREIGN KEY (chat_id) REFERENCES chats(id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_images (
+    id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    data BLOB NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS segment_voices (
@@ -286,6 +299,7 @@ class SqliteStore:
             await _ensure_column(db, "segments", "speaker_confidence", "REAL")
             await _ensure_column(db, "segments", "speaker_locked", "INTEGER NOT NULL DEFAULT 0")
             await _ensure_column(db, "documents", "session_id", "TEXT")
+            await _ensure_column(db, "chat_messages", "style", "TEXT")
             await db.executescript(INDEXES)
             await db.execute("PRAGMA journal_mode=WAL")
             try:
@@ -794,6 +808,7 @@ class SqliteStore:
     async def delete_chat(self, chat_id: str) -> None:
         async with aiosqlite.connect(self._path) as db:
             await db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+            await db.execute("DELETE FROM chat_images WHERE chat_id = ?", (chat_id,))
             await db.execute(
                 "DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE chat_id = ?)",
                 (chat_id,),
@@ -810,14 +825,80 @@ class SqliteStore:
                 (chat_id,),
             )
             rows = await cur.fetchall()
-            return [_row_to_chat_message(row) for row in rows]
+            messages = [_row_to_chat_message(row) for row in rows]
+            cur = await db.execute(
+                "SELECT id, message_id, chat_id, name, mime, size FROM chat_images WHERE chat_id = ? ORDER BY created_at ASC",
+                (chat_id,),
+            )
+            by_message: dict[str, list[ChatImage]] = {}
+            for row in await cur.fetchall():
+                by_message.setdefault(row["message_id"], []).append(
+                    ChatImage(
+                        id=row["id"],
+                        message_id=row["message_id"],
+                        chat_id=row["chat_id"],
+                        name=row["name"],
+                        mime=row["mime"],
+                        size=int(row["size"] or 0),
+                    )
+                )
+            return [
+                replace(item, images=by_message[item.id]) if item.id in by_message else item
+                for item in messages
+            ]
+
+    async def get_chat_message(self, chat_id: str, message_id: str) -> ChatMessage | None:
+        for item in await self.list_chat_messages(chat_id):
+            if item.id == message_id:
+                return item
+        return None
+
+    async def save_chat_images(self, images: list[tuple[ChatImage, bytes]]) -> None:
+        if not images:
+            return
+        now = _dump_dt(datetime.now(tz=UTC))
+        async with aiosqlite.connect(self._path) as db:
+            await db.executemany(
+                "INSERT INTO chat_images (id, message_id, chat_id, name, mime, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(img.id, img.message_id, img.chat_id, img.name, img.mime, len(data), data, now) for img, data in images],
+            )
+            await db.commit()
+
+    async def get_chat_image(self, image_id: str) -> tuple[ChatImage, bytes] | None:
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM chat_images WHERE id = ?", (image_id,))
+            row = await cur.fetchone()
+            if row is None:
+                return None
+            image = ChatImage(
+                id=row["id"],
+                message_id=row["message_id"],
+                chat_id=row["chat_id"],
+                name=row["name"],
+                mime=row["mime"],
+                size=int(row["size"] or 0),
+            )
+            return image, bytes(row["data"])
+
+    async def list_session_ids_for_person(self, person_id: str) -> list[str]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                "SELECT session_id FROM session_participants WHERE person_id = ?", (person_id,)
+            )
+            return [str(row[0]) for row in await cur.fetchall()]
+
+    async def list_session_ids_for_tag(self, tag_id: str) -> list[str]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute("SELECT session_id FROM session_tags WHERE tag_id = ?", (tag_id,))
+            return [str(row[0]) for row in await cur.fetchall()]
 
     async def add_chat_message(self, message: ChatMessage) -> None:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
-                INSERT INTO chat_messages (id, chat_id, role, content, citations_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_messages (id, chat_id, role, content, citations_json, created_at, style)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.id,
@@ -841,6 +922,7 @@ class SqliteStore:
                         ensure_ascii=False,
                     ),
                     _dump_dt(message.created_at),
+                    message.style,
                 ),
             )
             await db.commit()
@@ -1507,6 +1589,7 @@ def _row_to_chat(row: aiosqlite.Row) -> Chat:
 
 
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
+    keys = row.keys()
     raw = json.loads(row["citations_json"] or "[]")
     citations: list[ChatCitation] = []
     if isinstance(raw, list):
@@ -1537,6 +1620,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         content=row["content"],
         created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
         citations=citations,
+        style=(row["style"] if "style" in keys else None) or None,
     )
 
 

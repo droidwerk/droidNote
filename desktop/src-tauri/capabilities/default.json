@@ -12,7 +12,6 @@
     "core:window:allow-set-focus",
     "core:tray:default",
     "shell:allow-open",
-    "dialog:allow-save",
     "core:webview:allow-create-webview-window",
     "core:window:allow-close",
     "core:window:allow-start-dragging",

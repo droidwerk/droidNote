@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.domain.models import (
+    ChatImage,
     Chat,
     ChatCitation,
     ChatDocument,
@@ -687,6 +688,23 @@ class ModelsCatalogOut(BaseModel):
     ollama_online: bool = False
 
 
+class ChatScopeIn(BaseModel):
+    """Quais gravações a pergunta enxerga; tudo vazio = automático."""
+
+    days: int | None = Field(default=None, ge=1, le=3660)
+    person_id: str | None = None
+    tag_id: str | None = None
+    session_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ChatImageIn(BaseModel):
+    """Foto do quadro ou print do slide, já reduzida pela tela, em base64."""
+
+    name: str = Field(default="imagem", max_length=160)
+    mime: Literal["image/jpeg", "image/png", "image/webp"] = "image/jpeg"
+    data: str = Field(min_length=8, max_length=6_000_000)
+
+
 class ChatAskIn(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
     chat_id: str | None = None
@@ -696,6 +714,25 @@ class ChatAskIn(BaseModel):
     # Idioma da interface: manda no idioma da resposta, independente do idioma
     # da transcrição. Vem do cliente para não depender de settings desatualizado.
     ui_language: str | None = None
+    # Modo da resposta: normal, rápido (curto e com menos contexto), estudar, resolver (problema técnico).
+    style: Literal["normal", "fast", "study", "solve"] = "normal"
+    # Só o que foi gravado e anexado: sem conhecimento geral quando as fontes não cobrem.
+    grounded: bool = False
+    # Modo resolver: para qual agente de código o prompt pronto é escrito.
+    solve_target: Literal["generic", "claude", "codex", "cursor"] = "generic"
+    scope: ChatScopeIn | None = None
+    images: list[ChatImageIn] = Field(default_factory=list, max_length=3)
+
+
+class ChatImageOut(BaseModel):
+    id: str
+    name: str
+    mime: str
+    size: int
+
+    @classmethod
+    def from_domain(cls, item: ChatImage) -> ChatImageOut:
+        return cls(id=item.id, name=item.name, mime=item.mime, size=item.size)
 
 
 class ChatCitationOut(BaseModel):
@@ -720,6 +757,11 @@ class ChatCitationOut(BaseModel):
             document_name=item.document_name,
             page=item.page,
         )
+
+
+class DocumentUrlIn(BaseModel):
+    url: str = Field(min_length=4, max_length=2_000)
+    chat_id: str | None = None
 
 
 class DocumentOut(BaseModel):
@@ -757,6 +799,8 @@ class ChatMessageOut(BaseModel):
     content: str
     created_at: datetime
     citations: list[ChatCitationOut] = Field(default_factory=list)
+    images: list[ChatImageOut] = Field(default_factory=list)
+    style: str | None = None
 
     @classmethod
     def from_domain(cls, message: ChatMessage) -> ChatMessageOut:
@@ -767,6 +811,8 @@ class ChatMessageOut(BaseModel):
             content=message.content,
             created_at=message.created_at,
             citations=[ChatCitationOut.from_domain(item) for item in message.citations],
+            images=[ChatImageOut.from_domain(item) for item in message.images],
+            style=message.style,
         )
 
 

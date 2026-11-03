@@ -44,16 +44,16 @@ export async function saveBlob(
   }
 
   try {
-    const dialog = await import("@tauri-apps/plugin-dialog");
-    const path = await dialog.save({
-      defaultPath: suggestedName,
-      filters: filters.length ? filters : undefined,
-    });
-    if (!path) return { status: "cancelled" };
-
+    // O diálogo "Salvar" e a gravação acontecem no Rust: a interface só manda o
+    // conteúdo e o nome sugerido, nunca um caminho do disco.
     const buffer = new Uint8Array(await blob.arrayBuffer());
     const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("write_export_file", { path, bytes: Array.from(buffer) });
+    const path = await invoke<string | null>("save_export_file", {
+      name: suggestedName,
+      filters,
+      bytes: Array.from(buffer),
+    });
+    if (!path) return { status: "cancelled" };
     return { status: "saved", path };
   } catch (error) {
     return {

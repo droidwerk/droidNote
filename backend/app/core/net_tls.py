@@ -48,10 +48,13 @@ def install_system_trust(data_dir: Path) -> Path | None:
     try:
         bundle.parent.mkdir(parents=True, exist_ok=True)
         if not bundle.is_file() or bundle.read_text(encoding="utf-8") != body:
-            bundle.write_text(body, encoding="utf-8")
-    except OSError:
-        log.exception("could not write tls bundle path=%s", bundle)
-        return None
+            _write_atomic(bundle, body)
+    except OSError as exc:
+        if not bundle.is_file():
+            log.exception("could not write tls bundle path=%s", bundle)
+            return None
+        # Outro processo do app está com o arquivo aberto: o bundle anterior serve.
+        log.warning("tls bundle kept as is path=%s error=%s", bundle, exc)
 
     for key in ENV_KEYS:
         os.environ[key] = str(bundle)
@@ -59,14 +62,43 @@ def install_system_trust(data_dir: Path) -> Path | None:
     return bundle
 
 
-def ssl_verify() -> str | bool:
+def _write_atomic(path: Path, body: str) -> None:
+    """Grava num arquivo ao lado e troca de uma vez: quem lê o bundle nesse
+    instante (outro processo do app, um teste) nunca vê um PEM pela metade."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(body, encoding="utf-8")
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+_context_cache: tuple[tuple[str, int, int], ssl.SSLContext] | None = None
+
+
+def ssl_verify() -> ssl.SSLContext | bool:
     """Valor de `verify=` para clientes httpx.
 
     O httpx não lê essas variáveis de ambiente, então o bundle do PC entra
-    explicitamente; sem bundle, fica o padrão da biblioteca.
+    explicitamente, já carregado num contexto (reaproveitado enquanto o arquivo
+    não muda). Sem bundle, ou com um que não carrega, fica o padrão da biblioteca.
     """
+    global _context_cache
     bundle = _user_bundle()
-    return str(bundle) if bundle else True
+    if bundle is None:
+        return True
+    try:
+        stat = bundle.stat()
+        key = (str(bundle), stat.st_mtime_ns, stat.st_size)
+        if _context_cache is not None and _context_cache[0] == key:
+            return _context_cache[1]
+        context = ssl.create_default_context(cafile=str(bundle))
+    except (OSError, ssl.SSLError, ValueError) as exc:
+        log.warning("tls bundle unreadable, using library default path=%s error=%s", bundle, exc)
+        return True
+    _context_cache = (key, context)
+    return context
 
 
 def _user_bundle() -> Path | None:
@@ -99,6 +131,8 @@ def _system_certificates() -> list[str]:
         return []
     out: list[str] = []
     seen: set[bytes] = set()
+    # Ordem fixa: o Windows devolve o repositório em ordem variável e o bundle
+    # seria reescrito a cada abertura do app sem ter mudado de verdade.
     for store in _WINDOWS_STORES:
         try:
             entries = enumerate_store(store)
@@ -114,4 +148,4 @@ def _system_certificates() -> list[str]:
                 out.append(ssl.DER_cert_to_PEM_cert(der))
             except Exception:
                 continue
-    return out
+    return sorted(out)

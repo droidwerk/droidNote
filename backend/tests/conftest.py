@@ -30,6 +30,12 @@ TOKEN = "test-token-droidnote"
 @pytest.fixture
 def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv("DROIDNOTE_TOKEN", TOKEN)
+    # TLS só com o certifi: o app não grava nem lê o trust-bundle.pem da pasta
+    # real do DroidNote (um app aberto reescrevendo esse arquivo derrubava o teste).
+    import certifi
+
+    for key in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        monkeypatch.setenv(key, certifi.where())
     get_settings.cache_clear()
     return Settings(
         host="127.0.0.1",
@@ -73,6 +79,15 @@ async def app(settings: Settings):
     if capture.is_recording():
         await capture.stop()
     await capture.wait_all_drains()
+    # Tasks de fundo (worker de janelas, flush que o stop abandona) ainda podem
+    # estar no meio de um acesso ao banco: esperar evita a thread do aiosqlite
+    # tentar falar com um loop já fechado no próximo teste.
+    pending = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+    if pending:
+        await asyncio.wait(pending, timeout=15)
+        for task in pending:
+            if not task.done():
+                task.cancel()
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-import type { ChatDocument } from "../../shared/api/types";
+import type { ChatDocument, ChatImageDraft } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
 import { Icon } from "../../shared/ui/Icon";
 
@@ -10,19 +10,23 @@ const KIND_LABEL: Record<string, string> = {
   excel: "XLSX",
   csv: "CSV",
   text: "TXT",
+  web: "WEB",
+  youtube: "YT",
 };
 
 interface DocumentTrayProps {
   documents: ChatDocument[];
   uploading: string[];
+  images?: ChatImageDraft[];
   disabled?: boolean;
   onRemove: (document: ChatDocument) => void;
+  onRemoveImage?: (index: number) => void;
 }
 
-/** Documentos anexados ao chat, logo acima do campo de pergunta. */
-export function DocumentTray({ documents, uploading, disabled = false, onRemove }: DocumentTrayProps) {
+/** Documentos e imagens anexados ao chat, logo acima do campo de pergunta. */
+export function DocumentTray({ documents, uploading, images = [], disabled = false, onRemove, onRemoveImage }: DocumentTrayProps) {
   const t = useT();
-  if (!documents.length && !uploading.length) return null;
+  if (!documents.length && !uploading.length && !images.length) return null;
   return (
     <ul className="doc-tray" aria-label={t("chat.docsAttached")}>
       {documents.map((doc) => (
@@ -36,6 +40,21 @@ export function DocumentTray({ documents, uploading, disabled = false, onRemove 
             aria-label={t("chat.docRemove", { name: doc.name })}
             title={t("chat.docRemove", { name: doc.name })}
             onClick={() => onRemove(doc)}
+          >
+            <Icon name="close" size={12} />
+          </button>
+        </li>
+      ))}
+      {images.map((image, index) => (
+        <li key={`img-${index}`} className="doc-chip doc-image" title={t("chat.imageHint")}>
+          <img src={image.preview} alt="" />
+          <span className="doc-name">{image.name}</span>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={t("chat.docRemove", { name: image.name })}
+            title={t("chat.docRemove", { name: image.name })}
+            onClick={() => onRemoveImage?.(index)}
           >
             <Icon name="close" size={12} />
           </button>

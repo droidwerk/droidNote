@@ -528,6 +528,8 @@ export function App() {
         setCapture(state);
         setMonitor(null);
         setLastMonitorAt(null);
+        // Quem estava nesta reunião fica gravado nela; a próxima começa com a sala vazia.
+        setParticipantIds([]);
         await loadSessions();
         return;
       }

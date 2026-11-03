@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import base64
+from collections.abc import Callable, Sequence
 
 import httpx
 
@@ -107,8 +108,10 @@ class OpenAIChatEngine:
             on_token(text)
         return text
 
-    async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
-        return await self._complete(prompt, system=system or SYSTEM_PROMPT, json_mode=False)
+    async def generate_text(
+        self, prompt: str, *, system: str | None = None, images: Sequence[bytes] | None = None
+    ) -> str:
+        return await self._complete(prompt, system=system or SYSTEM_PROMPT, json_mode=False, images=images)
 
     async def generate_text_stream(
         self,
@@ -116,18 +119,30 @@ class OpenAIChatEngine:
         on_token: Callable[[str], None],
         *,
         system: str | None = None,
+        images: Sequence[bytes] | None = None,
     ) -> str:
-        text = await self.generate_text(prompt, system=system)
+        text = await self.generate_text(prompt, system=system, images=images)
         if text:
             on_token(text)
         return text
 
-    def build_body(self, prompt: str, *, system: str, json_mode: bool) -> dict[str, object]:
+    async def supports_images(self) -> bool:
+        return True
+
+    def build_body(
+        self, prompt: str, *, system: str, json_mode: bool, images: Sequence[bytes] | None = None
+    ) -> dict[str, object]:
+        user_content: object = prompt
+        if images:
+            # Foto do quadro ou print do slide junto da pergunta (formato multimodal da API).
+            user_content = [{"type": "text", "text": prompt}] + [
+                {"type": "image_url", "image_url": {"url": _data_url(item)}} for item in images
+            ]
         body: dict[str, object] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": user_content},
             ],
             **request_tuning(self.model),
         }
@@ -135,10 +150,12 @@ class OpenAIChatEngine:
             body["response_format"] = {"type": "json_object"}
         return body
 
-    async def _complete(self, prompt: str, *, system: str, json_mode: bool) -> str:
+    async def _complete(
+        self, prompt: str, *, system: str, json_mode: bool, images: Sequence[bytes] | None = None
+    ) -> str:
         if not self.is_ready():
             raise RuntimeError("Informe a chave da API OpenAI nas preferências.")
-        body = self.build_body(prompt, system=system, json_mode=json_mode)
+        body = self.build_body(prompt, system=system, json_mode=json_mode, images=images)
         async with httpx.AsyncClient(timeout=180.0, verify=ssl_verify()) as client:
             for _attempt in range(len(_TUNING_PARAMS) + 1):
                 response = await client.post(
@@ -165,6 +182,11 @@ class OpenAIChatEngine:
             return ""
         message = choices[0].get("message") or {}
         return str(message.get("content") or "")
+
+
+def _data_url(data: bytes) -> str:
+    mime = "image/png" if data[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 def _rejected_param(detail: str, body: dict[str, object]) -> str | None:

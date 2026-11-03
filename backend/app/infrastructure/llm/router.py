@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from app.domain.models import SetupComponentStatus
 from app.infrastructure.llm.ollama_manager import OllamaManager
@@ -55,8 +55,10 @@ class LlmRouter:
     ) -> str:
         return await self._engine().generate_json_stream(prompt, on_token, system=system)
 
-    async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
-        return await self._engine().generate_text(prompt, system=system)
+    async def generate_text(
+        self, prompt: str, *, system: str | None = None, images: Sequence[bytes] | None = None
+    ) -> str:
+        return await self._engine().generate_text(prompt, system=system, images=images)
 
     async def generate_text_stream(
         self,
@@ -64,8 +66,12 @@ class LlmRouter:
         on_token: Callable[[str], None],
         *,
         system: str | None = None,
+        images: Sequence[bytes] | None = None,
     ) -> str:
-        return await self._engine().generate_text_stream(prompt, on_token, system=system)
+        return await self._engine().generate_text_stream(prompt, on_token, system=system, images=images)
+
+    async def supports_images(self) -> bool:
+        return await self._engine().supports_images()
 
     async def status_component(self) -> SetupComponentStatus:
         return await self._engine().status_component()

@@ -145,3 +145,31 @@ async def test_pdf_and_docx_exports_render_minutes_markdown(client, app) -> None
     assert "filename=" in pdf.headers["content-disposition"]
     docx = await client.get(f"/sessions/{session.id}/export?format=docx", headers=auth())
     assert docx.status_code == 200 and docx.content[:2] == b"PK"
+
+
+@pytest.mark.asyncio
+async def test_export_parts_notes_or_transcript(client, app) -> None:
+    """`parts=notes` traz só a nota; `parts=transcript` só a transcrição."""
+    from datetime import UTC, datetime
+
+    from app.domain.models import Session, Summary, TranscriptSegment
+    from app.infrastructure.persistence.sqlite import new_id
+
+    store = app.state.container.store
+    session = Session(id=new_id(), title="Reunião de partes", started_at=datetime.now(tz=UTC), ended_at=None, status="stopped")
+    await store.create_session(session)
+    await store.add_segment(TranscriptSegment(id=new_id(), session_id=session.id, start_ms=0, end_ms=1000, text="fala gravada xyz"))
+    await store.save_summary(
+        Summary(
+            id=new_id(), session_id=session.id, highlights=["ponto"], decisions=[], action_items=[], raw_text="{}",
+            created_at=datetime.now(tz=UTC), overview="visão geral abc", notes_markdown="## Nota\n\n- ponto abc",
+        )
+    )
+    notes = await client.get(f"/sessions/{session.id}/export?format=markdown&parts=notes", headers=auth())
+    assert notes.status_code == 200 and "ponto abc" in notes.text and "fala gravada" not in notes.text
+    transcript = await client.get(f"/sessions/{session.id}/export?format=markdown&parts=transcript", headers=auth())
+    assert "fala gravada" in transcript.text and "ponto abc" not in transcript.text
+    for fmt, magic in (("pdf", b"%PDF"), ("docx", b"PK")):
+        for parts in ("notes", "transcript"):
+            response = await client.get(f"/sessions/{session.id}/export?format={fmt}&parts={parts}", headers=auth())
+            assert response.status_code == 200 and response.content.startswith(magic), (fmt, parts)

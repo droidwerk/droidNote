@@ -11,6 +11,8 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app import __version__
 from app.api.v1.deps import AppContainer
@@ -280,6 +282,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    # Fica por dentro do CORS: uma falha inesperada vira 500 com detalhe legível
+    # e com os cabeçalhos CORS. Sem isso o app só vê "Failed to fetch".
+    app.add_middleware(ServerErrorAsJson)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
@@ -289,6 +294,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(api_router)
     return app
+
+
+class ServerErrorAsJson:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def sender(message: dict) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, sender)
+        except Exception as exc:
+            if started:
+                raise
+            log.exception("unhandled error path=%s", scope.get("path"))
+            detail = f"{type(exc).__name__}: {exc}".strip(": ")
+            response = JSONResponse({"detail": detail}, status_code=500)
+            await response(scope, receive, send)
 
 
 app = create_app()

@@ -93,6 +93,11 @@ class SetupService:
         self._task: asyncio.Task[None] | None = None
         self._preload_task: asyncio.Task[None] | None = None
 
+    @property
+    def asr(self) -> AsrPort:
+        """Motor de voz em uso (local ou nuvem), para quem transcreve fora da gravação."""
+        return self._asr
+
     def _whisper_component(self) -> SetupComponentStatus:
         if self._asr.is_ready():
             return SetupComponentStatus(

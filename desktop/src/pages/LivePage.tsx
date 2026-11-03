@@ -218,9 +218,13 @@ export function LivePage({
       return;
     }
     void reload().then((item) => {
-      if (item?.participants?.length) onParticipantIdsChange(item.participants.map((person) => person.id));
+      // A lista "Na sala" é a da gravação em curso. Uma conversa já encerrada
+      // não empresta os participantes dela para a próxima gravação.
+      if (capture.recording && item?.participants?.length) {
+        onParticipantIdsChange(item.participants.map((person) => person.id));
+      }
     });
-  }, [sessionId, reload, onParticipantIdsChange]);
+  }, [sessionId, reload, onParticipantIdsChange, capture.recording]);
 
   const lastSummaryRevision = useRef(summaryRevision);
   useEffect(() => {
@@ -482,7 +486,7 @@ export function LivePage({
               } else {
                 setSegmentPatches((current) => ({ ...current, [updated.id]: updated }));
               }
-              if (updated.speaker_id && !participantIds.includes(updated.speaker_id)) {
+              if (capture.recording && updated.speaker_id && !participantIds.includes(updated.speaker_id)) {
                 await persistParticipants([...participantIds, updated.speaker_id]);
               }
             }}

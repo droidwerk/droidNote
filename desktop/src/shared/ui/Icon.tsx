@@ -29,6 +29,8 @@ export type IconName =
   | "tasks"
   | "calendar"
   | "shield"
+  | "gear"
+  | "link"
   | "edit"
   | "attach"
   | "expand"
@@ -49,6 +51,18 @@ const PATHS: Record<IconName, ReactElement> = {
     <>
       <path d="M4.5 5.5h15v10h-8l-4.5 3.5v-3.5h-2.5z" />
       <path d="M8 9.5h8M8 12.5h5" />
+    </>
+  ),
+  gear: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4 18 18M6 18l1.6-1.6M16.4 7.6 18 6" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7L11.5 6.8" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5" />
     </>
   ),
   settings: (

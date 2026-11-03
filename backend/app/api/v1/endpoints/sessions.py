@@ -682,6 +682,7 @@ async def export_session(
     session_id: str,
     request: Request,
     format: str = Query(default="markdown", pattern="^(markdown|json|pdf|docx)$"),
+    parts: str = Query(default="all", pattern="^(all|notes|transcript)$"),
 ):
     container = get_container(request.app)
     try:
@@ -691,7 +692,7 @@ async def export_session(
     filename_base = _download_name(session.title, session.id, "")
     locale = container.settings.ui_language
     if format == "markdown":
-        content = await container.sessions.export_markdown(session_id, locale)
+        content = await container.sessions.export_markdown(session_id, locale, parts=parts)
         return PlainTextResponse(
             content,
             media_type="text/markdown; charset=utf-8",
@@ -703,13 +704,13 @@ async def export_session(
         people = await container.store.list_people()
         participants = await container.store.list_session_participants(session_id)
         if format == "pdf":
-            payload = export_pdf(session, segments, summary, people, locale, participants)
+            payload = export_pdf(session, segments, summary, people, locale, participants, parts=parts)
             return Response(
                 content=payload,
                 media_type="application/pdf",
                 headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'},
             )
-        payload = export_docx(session, segments, summary, people, locale, participants)
+        payload = export_docx(session, segments, summary, people, locale, participants, parts=parts)
         return Response(
             content=payload,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
