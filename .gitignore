@@ -122,3 +122,6 @@ $RECYCLE.BIN/
 scratch/
 tmp/
 marketing/
+
+# Mapa do projeto (graphify), memória local
+graphify-out/
