@@ -1,7 +1,7 @@
 """Contexto: antes de uma reunião, o que ficou pendente e o que foi decidido da última vez.
 
 Reunião "parecida" é a que tem o mesmo título (sem datas, horas e nome do app)
-ou as mesmas pessoas. Tudo vem do banco local; o calendário ICS só diz o que vem aí.
+ou as mesmas pessoas. Se a reunião está numa pasta, só valem as da mesma pasta. Tudo vem do banco local; o calendário ICS só diz o que vem aí.
 """
 
 from __future__ import annotations
@@ -102,11 +102,13 @@ class BriefService:
         if session is None:
             raise KeyError(session_id)
         people = await self._store.list_session_participants(session_id)
+        folders = await self._store.list_session_tags(session_id)
         return await self.build(
             session.title,
             person_ids={item.id for item in people},
             exclude=session_id,
             before=session.started_at,
+            folder_ids={item.id for item in folders},
         )
 
     async def for_title(self, title: str, people: Sequence[str] = ()) -> Brief:
@@ -129,6 +131,7 @@ class BriefService:
         exclude: str | None = None,
         before: datetime | None = None,
         group_size: int | None = None,
+        folder_ids: set[str] | frozenset[str] = frozenset(),
     ) -> Brief:
         self_id = await self._store.get_setting("self_person_id") or ""
         wanted = {pid for pid in person_ids if pid != self_id}
@@ -136,10 +139,15 @@ class BriefService:
         size = len(wanted) if group_size is None else group_size
         names = {item.id: item.name for item in await self._store.list_people()}
         candidates: list[tuple[float, str, Session]] = []
-        for session in await self._store.list_sessions():
+        sessions = await self._store.list_sessions()
+        # Pasta manda: com pasta, só entra quem divide ao menos uma pasta com esta reunião.
+        tagged = await self._store.tags_by_session_ids([item.id for item in sessions]) if folder_ids else {}
+        for session in sessions:
             if session.id == exclude or session.status == "recording":
                 continue
             if before is not None and session.started_at >= before:
+                continue
+            if folder_ids and not folder_ids & {tag.id for tag in tagged.get(session.id, [])}:
                 continue
             similarity = title_similarity(title, session.title)
             overlap = 0
@@ -148,9 +156,11 @@ class BriefService:
                 overlap = len(wanted & (theirs - {self_id}))
             by_title = similarity >= TITLE_MATCH
             by_people = overlap >= 2 or (overlap >= 1 and size == 1)
-            if not (by_title or by_people):
+            if not (folder_ids or by_title or by_people):
                 continue
-            reason = "both" if by_title and by_people else "title" if by_title else "people"
+            reason = (
+                "folder" if folder_ids else "both" if by_title and by_people else "title" if by_title else "people"
+            )
             candidates.append((similarity + 0.25 * min(overlap, 3), reason, session))
         # Entre as parecidas, a mais recente conta mais que a mais parecida; mas uma
         # gravação sem ata nem tarefas não diz nada e vai para o fim da fila.

@@ -200,6 +200,8 @@ class ChatMessage:
     images: list[ChatImage] = field(default_factory=list)
     # Modo em que a resposta foi gerada (normal, fast, study, solve); None nas perguntas.
     style: str | None = None
+    # Resposta parcial: o usuário parou (ou a conexão caiu) antes do fim.
+    interrupted: bool = False
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,8 @@ class Chat:
     created_at: datetime
     updated_at: datetime
     focus_session_id: str | None = None
+    # Conversas escolhidas na última pergunta (chips da tela); vazio = todas.
+    scope_session_ids: tuple[str, ...] = ()
 
 
 @dataclass

@@ -4,13 +4,15 @@ import { api } from "../shared/api/client";
 import type { Session, Tag } from "../shared/api/types";
 import { useI18n } from "../shared/i18n";
 import { bcp47 } from "../shared/i18n/locales";
-import { formatClock } from "../shared/lib/format";
+import { formatClock, withoutTrailingDate } from "../shared/lib/format";
 import { useFlag } from "../shared/lib/useFlag";
 import { InfoTip } from "../shared/ui/InfoTip";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Icon } from "../shared/ui/Icon";
+import { Button } from "../shared/ui/primitives";
 import { useToast } from "../shared/ui/Toast";
 import { modeIcon } from "../features/command/CommandPalette";
+import { TourButton } from "../features/onboarding/Tour";
 
 const DRAG_TYPE = "application/x-droidnote-session";
 
@@ -23,10 +25,12 @@ interface LibraryPageProps {
   liveSessionId: string | null;
   onOpenSession: (sessionId: string) => void;
   onChanged: () => Promise<void> | void;
+  /** Leva para Ao vivo: o estado vazio do primeiro uso oferece gravar. */
+  onGoLive?: () => void;
 }
 
 /** Conversas: pastas à esquerda, lista à direita, seleção para mover ou apagar várias de uma vez. */
-export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, onChanged }: LibraryPageProps) {
+export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, onChanged, onGoLive }: LibraryPageProps) {
   const { t, locale } = useI18n();
   const confirm = useConfirm();
   const toast = useToast();
@@ -180,10 +184,13 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
         <div className="page-head-copy">
           <h1>{t("library.title")}</h1>
         </div>
+        <div className="page-actions">
+          <TourButton chapter="conversas" />
+        </div>
       </header>
 
       <div className={foldersCollapsed ? "library-body is-folders-collapsed" : "library-body"}>
-        <nav className="library-folders" aria-label={t("folders.title")}>
+        <nav data-tour="folders" className="library-folders" aria-label={t("folders.title")}>
           <button
             type="button"
             className="rail-toggle library-rail-toggle"
@@ -310,7 +317,7 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
         </nav>
 
         <section className="library-main">
-          <div className="library-toolbar">
+          <div data-tour="library-search" className="library-toolbar">
             {selected.size ? (
               <div className="library-bulk" role="toolbar">
                 <strong>{t("library.selected", { count: selected.size })}</strong>
@@ -367,7 +374,17 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
             )}
           </div>
 
-          {visible.length === 0 ? (
+          {sessions.length === 0 ? (
+            <div className="library-empty">
+              <strong>{t("library.firstEmpty")}</strong>
+              {onGoLive ? (
+                <Button variant="primary" onClick={onGoLive}>
+                  <Icon name="mic" size={15} />
+                  {t("library.firstRecord")}
+                </Button>
+              ) : null}
+            </div>
+          ) : visible.length === 0 ? (
             <div className="library-empty">
               <strong>{query ? t("library.noMatch") : t("library.emptyFolder")}</strong>
               {!query && filter !== "all" ? <small>{t("library.emptyFolderHint")}</small> : null}
@@ -375,7 +392,7 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
           ) : (
             <div className="library-table" role="table">
               <div className="library-row library-row-head" role="row">
-                <label className="library-check" role="columnheader">
+                <label data-tour="library-select" className="library-check" role="columnheader">
                   <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label={t("library.selectAll")} />
                 </label>
                 <span role="columnheader">{t("library.colTitle")}</span>
@@ -383,13 +400,14 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
                 <span role="columnheader">{t("library.colDate")}</span>
                 <span role="columnheader" className="is-num">{t("library.colLength")}</span>
               </div>
-              {visible.map((session) => {
+              {visible.map((session, index) => {
                 const checked = selected.has(session.id);
                 const live = session.id === liveSessionId;
                 return (
                   <div
                     key={session.id}
                     role="row"
+                    data-tour={index === 0 ? "library-first" : undefined}
                     className={checked ? "library-row is-checked" : "library-row"}
                     draggable
                     onDragStart={(event) => {
@@ -403,7 +421,7 @@ export function LibraryPage({ sessions, folders, liveSessionId, onOpenSession, o
                     </label>
                     <button type="button" className="library-title" onClick={() => onOpenSession(session.id)}>
                       <Icon name={modeIcon(session.capture_mode)} size={14} />
-                      <span>{session.title}</span>
+                      <span title={session.title}>{withoutTrailingDate(session.title)}</span>
                       {live ? <em className="library-live">{t("status.live")}</em> : null}
                     </button>
                     <span className="library-tags">

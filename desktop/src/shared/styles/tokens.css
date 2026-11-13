@@ -84,11 +84,15 @@
   --text: #f4f4f5;
   --text-soft: #cfcfd4;
   --muted: #8b8b95;
-  --faint: #5c5c66;
+  --faint: #83838d; /* 5.0:1 on --surface-2, 4.7:1 on --surface-3 */
 
   --accent: #ff4400;
   --accent-hi: #ff6a2b;
+  --accent-text: #ff6a2b; /* links: 6.2:1 on --surface-3 */
   --accent-ink: #ffffff;
+  /* Filled controls with text: brand orange is 3.4:1 under white, this is 5.3:1. */
+  --accent-fill: #c73600;
+  --accent-fill-hi: #b83200;
   --accent-soft: rgba(255, 68, 0, 0.12);
   --accent-line: rgba(255, 68, 0, 0.38);
   --accent-glow: 0 10px 28px -12px rgba(255, 68, 0, 0.7);
@@ -151,11 +155,14 @@
   --text: #0c0c0e;
   --text-soft: #34343a;
   --muted: #6b6b73;
-  --faint: #a2a2a9;
+  --faint: #6c6c74; /* 4.7:1 on --bg, 4.5:1 on --surface-3 */
 
   --accent: #e63d00;
   --accent-hi: #ff4400;
+  --accent-text: #c73600; /* links: 4.8:1 on --bg, 4.6:1 on --surface-3 */
   --accent-ink: #ffffff;
+  --accent-fill: #c73600;
+  --accent-fill-hi: #b83200;
   --accent-soft: rgba(230, 61, 0, 0.09);
   --accent-line: rgba(230, 61, 0, 0.35);
   --accent-glow: 0 10px 24px -14px rgba(230, 61, 0, 0.6);
@@ -205,12 +212,15 @@
   --line-bright: rgba(92, 64, 38, 0.38);
   --text: #261d14;
   --text-soft: #4a3d30;
-  --muted: #7a6a58;
-  --faint: #ab9b86;
+  --muted: #66574a; /* 5.8:1 on --bg, 5.5:1 on --surface-3; darker than --faint */
+  --faint: #72625a; /* 4.9:1 on --bg, 4.6:1 on --surface-3 */
 
   --accent: #c2450f;
   --accent-hi: #db5518;
+  --accent-text: #a8390a; /* links: 5.4:1 on --bg, 5.2:1 on --surface-3 */
   --accent-ink: #fbf7ec;
+  --accent-fill: #a8390a; /* 6.0:1 under --accent-ink */
+  --accent-fill-hi: #9e3608;
   --accent-soft: rgba(194, 69, 15, 0.1);
   --accent-line: rgba(194, 69, 15, 0.34);
   --accent-glow: 0 10px 24px -14px rgba(194, 69, 15, 0.5);
@@ -323,8 +333,26 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-line);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Borderless fields inside a framed box: the box carries the ring. */
+.search-field:has(:focus-visible),
+.chat-composer:has(:focus-visible),
+.chat-link-row:has(:focus-visible),
+.task-composer:has(:focus-visible),
+.user-notes-composer:has(:focus-visible),
+.palette-input:has(:focus-visible),
+.folder-select:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.note-editor:has(.ProseMirror:focus-visible),
+.model-select-menu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 kbd {
@@ -502,16 +530,17 @@ mark,
 
 .button-primary,
 .button-record {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: transparent;
   color: var(--accent-ink);
-  background-image: linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 55%);
+  /* 10% white at the top keeps the worst point at 4.6:1. */
+  background-image: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.15), var(--accent-glow);
 }
 
 .button-primary:hover:not(:disabled),
 .button-record:hover:not(:disabled) {
-  background-color: var(--accent-hi);
+  background-color: var(--accent-fill-hi);
   border-color: transparent;
 }
 
@@ -553,7 +582,7 @@ mark,
   border: 0;
   padding: 0;
   background: none;
-  color: var(--accent-hi);
+  color: var(--accent-text);
   font-weight: 500;
   text-decoration: underline;
   text-decoration-color: var(--accent-line);
@@ -573,7 +602,6 @@ textarea.segment-textarea {
   border: 1px solid var(--line-strong);
   background: var(--surface-2);
   color: var(--text);
-  outline: none;
   transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
 }
 
@@ -628,7 +656,6 @@ textarea::placeholder {
 .title-input:focus {
   border-color: var(--accent-line);
   background: var(--surface);
-  outline: none;
 }
 
 .field {
@@ -690,7 +717,7 @@ textarea::placeholder {
 }
 
 .check-control input:focus-visible + .check-box {
-  outline: 2px solid var(--accent-line);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -755,7 +782,6 @@ textarea::placeholder {
   border-radius: var(--r-pill);
   border: 1px dashed var(--line-strong);
   background: transparent;
-  outline: none;
   font-size: 12.5px;
 }
 
@@ -899,6 +925,29 @@ textarea::placeholder {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
+/* Abas do painel lateral: a única regra delas. O texto some quando o painel fica estreito. */
+.side-panel {
+  container-type: inline-size;
+}
+
+.side-panel > .tabs {
+  flex-wrap: wrap;
+}
+
+.side-panel > .tabs button {
+  flex: 1 1 auto;
+  gap: 5px;
+  height: 34px;
+  padding: 0 9px;
+  font-size: 13px;
+}
+
+@container (max-width: 420px) {
+  .side-panel > .tabs .tab-label {
+    display: none;
+  }
+}
+
 .tab-count {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -906,6 +955,11 @@ textarea::placeholder {
   border-radius: var(--r-pill);
   background: var(--accent-soft);
   color: var(--accent-hi);
+}
+
+.tab-count.is-neutral {
+  background: var(--hover);
+  color: var(--text-soft);
 }
 
 /* Menus flutuantes */
@@ -1047,8 +1101,8 @@ textarea::placeholder {
 }
 
 .model-select-meta {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--muted);
 }
 

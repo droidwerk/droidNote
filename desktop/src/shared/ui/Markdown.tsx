@@ -35,7 +35,8 @@ type Block =
   | { kind: "table"; header: string[]; align: Align[]; rows: string[][] }
   | { kind: "list"; ordered: boolean; items: { text: string; level: number }[] };
 
-const STAMP = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
+/** "[01:29 José Lessa]" ou "[6:58]": os colchetes vão junto com a marca; o resto fica como texto. */
+const BRACKET_STAMP = /\[(\d{1,2}:\d{2}(?::\d{2})?)([^\]\[\n]{0,60})\]|\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
 // Ordem importa: fórmula e código antes de negrito/itálico, para "$a*b$" não virar itálico.
 const INLINE =
   /(\$\$[^$]+\$\$|\\\([\s\S]+?\\\)|\$(?!\s)[^$\n]*?[^\s$]\$(?!\d)|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g;
@@ -260,10 +261,16 @@ function stamps(text: string, renderStamp?: (stamp: string) => ReactNode): React
   if (!renderStamp) return text;
   const parts: ReactNode[] = [];
   let last = 0;
-  for (const match of text.matchAll(STAMP)) {
+  for (const match of text.matchAll(BRACKET_STAMP)) {
     if (match.index === undefined) continue;
     parts.push(text.slice(last, match.index));
-    parts.push(<Fragment key={match.index}>{renderStamp(match[1] ?? "")}</Fragment>);
+    const rest = (match[2] ?? "").trim();
+    parts.push(
+      <Fragment key={match.index}>
+        {renderStamp(match[1] ?? match[3] ?? "")}
+        {rest ? ` ${rest}` : null}
+      </Fragment>,
+    );
     last = match.index + match[0].length;
   }
   if (!parts.length) return text;

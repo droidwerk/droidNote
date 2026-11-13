@@ -4,12 +4,11 @@ import droidnoteOnDark from "../../assets/logo-droidnote.png";
 import droidnoteOnLight from "../../assets/logo-droidnote-on-light.png";
 import droidwerkOnDark from "../../assets/logo-droidwerk.png";
 import droidwerkOnLight from "../../assets/logo-droidwerk-on-light.png";
-import { useT } from "../i18n";
+import { useI18n } from "../i18n";
 import { openExternal } from "../lib/openExternal";
+import { siteUrl } from "../lib/whatsNew";
 
 export type BrandSize = "sidebar" | "wizard" | "splash";
-
-const DROIDWERK_SITE = "https://www.droidwerk.com.br/";
 
 interface BrandLockupProps {
   size: BrandSize;
@@ -51,14 +50,14 @@ interface SiteCreditProps {
 }
 
 export function SiteCredit({ className }: SiteCreditProps) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [failed, setFailed] = useState(false);
 
   return (
     <button
       type="button"
       className={className ? `site-credit ${className}` : "site-credit"}
-      onClick={() => void openExternal(DROIDWERK_SITE)}
+      onClick={() => void openExternal(siteUrl(locale))}
       aria-label={t("boot.openSite")}
     >
       {failed ? (

@@ -68,7 +68,7 @@ export function FolderSelect({ sessionId, tags, catalog, onChange }: FolderSelec
   }
 
   return (
-    <label className="folder-select" title={t("folders.moveTo")}>
+    <label className="folder-select" title={catalog.find((folder) => folder.id === current)?.name ?? t("folders.moveTo")}>
       <Icon name="folder" size={14} />
       <select
         value={current}

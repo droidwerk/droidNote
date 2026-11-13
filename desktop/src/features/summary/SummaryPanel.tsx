@@ -6,6 +6,7 @@ import { tr, useT } from "../../shared/i18n";
 import { copyToClipboard } from "../../shared/lib/format";
 import { AiThinking } from "../../shared/ui/AiThinking";
 import { InfoTip } from "../../shared/ui/InfoTip";
+import { useConfirm } from "../../shared/ui/ConfirmDialog";
 import { Button } from "../../shared/ui/primitives";
 import { NoteEditor } from "./NoteEditor";
 
@@ -37,6 +38,7 @@ export function SummaryPanel({
   onSaveNote,
 }: SummaryPanelProps) {
   const t = useT();
+  const confirm = useConfirm();
   const [copied, setCopied] = useState(false);
   const sessionTitle = title ?? t("summary.session");
   const engine = engineLabel ?? t("engine.defaultEngine");
@@ -88,7 +90,24 @@ export function SummaryPanel({
               {saving ? t("common.saving") : t("common.save")}
             </Button>
           ) : null}
-          <Button size="sm" variant="primary" disabled={disabled || loading} onClick={() => onGenerate(templates.length ? chosen : undefined)}>
+          <Button
+            size="sm"
+            variant={summary ? "quiet" : "primary"}
+            disabled={disabled || loading}
+            onClick={async () => {
+              // Ata editada à mão: gerar de novo apaga a edição, então pergunta antes.
+              if (summary && draft.trim() !== seed.trim()) {
+                const ok = await confirm({
+                  title: t("summary.regenConfirmTitle"),
+                  description: t("summary.regenConfirmBody"),
+                  confirmLabel: t("summary.regenerating"),
+                  tone: "danger",
+                });
+                if (!ok) return;
+              }
+              onGenerate(templates.length ? chosen : undefined);
+            }}
+          >
             {loading ? t("summary.generating") : summary ? t("summary.regenerating") : t("summary.generate")}
           </Button>
         </div>
@@ -120,7 +139,7 @@ export function SummaryPanel({
 function formatAction(item: { text: string; owner?: string | null; due?: string | null }): string {
   const parts = [item.text, item.owner ?? tr("summary.noOwner")];
   if (item.due) parts.push(item.due);
-  return parts.join(" — ");
+  return parts.join(" · ");
 }
 
 export function summaryToMarkdown(title: string, summary: Summary): string {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -83,6 +84,15 @@ class ChatService:
     async def delete(self, chat_id: str) -> None:
         await self._store.delete_chat(chat_id)
 
+    async def rename(self, chat_id: str, title: str) -> Chat:
+        chat = await self._store.get_chat(chat_id)
+        if chat is None:
+            raise KeyError(chat_id)
+        # updated_at fica: renomear não muda a ordem da lista.
+        chat = replace(chat, title=title)
+        await self._store.save_chat(chat)
+        return chat
+
     async def ask(
         self,
         message: str,
@@ -98,6 +108,8 @@ class ChatService:
         images: Sequence[ChatImageIn] | None = None,
         grounded: bool = False,
         solve_target: str = "generic",
+        retry: bool = False,
+        on_chat: Callable[[Chat], None] | None = None,
     ) -> tuple[Chat, ChatMessage, list[ChatCitation]]:
         cleaned = message.strip()
         if not cleaned:
@@ -112,6 +124,9 @@ class ChatService:
                 raise ValueError(ui_message(ui_language, "chat_no_vision"))
         now = datetime.now(tz=UTC)
         chat = await self._ensure_chat(chat_id, session_id, cleaned, now, ui_language)
+        if on_chat:
+            # A tela recebe o id antes da resposta: parar ou falhar não a deixa sem a conversa.
+            on_chat(chat)
         try:
             return await self._answer(
                 chat,
@@ -127,7 +142,13 @@ class ChatService:
                 images,
                 grounded,
                 solve_target,
+                retry,
             )
+        except asyncio.CancelledError:
+            # Parar: a pergunta e o texto parcial ficam; conversa nova sem nada gravado some.
+            if not chat_id:
+                await asyncio.shield(self._drop_if_empty(chat.id))
+            raise
         except BaseException:
             if not chat_id:
                 # Conversa nova que falhou (ex.: motor desligado): a tela não recebe o id dela,
@@ -153,11 +174,20 @@ class ChatService:
         images: list[ChatImageIn],
         grounded: bool,
         solve_target: str,
+        retry: bool = False,
     ) -> tuple[Chat, ChatMessage, list[ChatCitation]]:
         attach = getattr(self._store, "attach_documents", None)
         if document_ids and callable(attach):
             await attach(chat.id, list(document_ids))
-        focus = session_id or chat.focus_session_id
+        if chat.scope_session_ids != scope.session_ids:
+            # Os chips desta pergunta ficam na conversa; reabrir mostra os mesmos.
+            chat = replace(chat, scope_session_ids=tuple(scope.session_ids))
+            await self._store.save_chat(chat)
+        # Só o pedido estreita: sem session_id e sem escopo, a pergunta enxerga todas as conversas.
+        focus = session_id or (scope.session_ids[0] if scope.session_ids else None)
+        if focus and not scope.active:
+            # Chamada escolhida e escopo automático: só ela entra na busca e no catálogo.
+            scope = ChatScope(session_ids=(focus,))
         fast = style == "fast"
         docs = await self._retrieve_documents(
             cleaned, chat.id, focus, limit=FAST_DOCUMENT_CHARS if fast else MAX_DOCUMENT_CHARS
@@ -170,17 +200,14 @@ class ChatService:
             limit=FAST_CONTEXT_CHARS if fast else MAX_CONTEXT_CHARS,
         )
         history = await self._store.list_chat_messages(chat.id)
-        user = ChatMessage(
-            id=new_id(),
-            chat_id=chat.id,
-            role="user",
-            content=cleaned,
-            created_at=now,
-        )
-        await self._store.add_chat_message(user)
-        if images:
+        if retry and history and history[-1].role == "user" and history[-1].content == cleaned:
+            # Tentar de novo depois de um erro: a pergunta já está gravada e sem resposta.
+            history = history[:-1]
+        else:
+            user = ChatMessage(id=new_id(), chat_id=chat.id, role="user", content=cleaned, created_at=now)
+            await self._store.add_chat_message(user)
             saver = getattr(self._store, "save_chat_images", None)
-            if callable(saver):
+            if images and callable(saver):
                 await saver(
                     [
                         (
@@ -206,23 +233,54 @@ class ChatService:
         system = chat_system(ui_language) + chat_style_rules(style, solve_target) + chat_grounded_rules(grounded)
         # Só manda `images` quando há imagem: motores antigos não conhecem o argumento.
         extra: dict[str, object] = {"images": [item.data for item in images]} if images else {}
+        parts: list[str] = []
+
+        def reply(content: str, interrupted: bool = False) -> ChatMessage:
+            return ChatMessage(
+                id=new_id(),
+                chat_id=chat.id,
+                role="assistant",
+                content=content,
+                created_at=datetime.now(tz=UTC),
+                citations=citations,
+                style=style,
+                interrupted=interrupted,
+            )
+
         if on_token:
-            reply_text = await self._llm.generate_text_stream(prompt, on_token, system=system, **extra)
+
+            def collect(token: str) -> None:
+                parts.append(token)
+                on_token(token)
+
+            try:
+                reply_text = await self._llm.generate_text_stream(prompt, collect, system=system, **extra)
+            except asyncio.CancelledError:
+                # Parar (ou a tela fechou): o que já chegou fica salvo, marcado como interrompido.
+                # shield: a gravação termina mesmo se o cancelamento chegar de novo.
+                partial = "".join(parts).strip()
+                if partial:
+                    await asyncio.shield(self._save_reply(chat, reply(partial, interrupted=True)))
+                raise
         else:
             reply_text = await self._llm.generate_text(prompt, system=system, **extra)
-        assistant = ChatMessage(
-            id=new_id(),
-            chat_id=chat.id,
-            role="assistant",
-            content=(reply_text or "").strip() or ui_message(ui_language, "chat_no_reply"),
-            created_at=datetime.now(tz=UTC),
-            citations=citations,
-            style=style,
-        )
+        assistant = reply((reply_text or "").strip() or ui_message(ui_language, "chat_no_reply"))
+        chat = await self._save_reply(chat, assistant)
+        return chat, assistant, citations
+
+    async def _save_reply(self, chat: Chat, assistant: ChatMessage) -> Chat:
         await self._store.add_chat_message(assistant)
         chat = replace(chat, updated_at=assistant.created_at)
         await self._store.save_chat(chat)
-        return chat, assistant, citations
+        return chat
+
+    async def _drop_if_empty(self, chat_id: str) -> None:
+        if await self._store.list_chat_messages(chat_id):
+            return
+        detach = getattr(self._store, "detach_documents", None)
+        if callable(detach):
+            await detach(chat_id)
+        await self._store.delete_chat(chat_id)
 
     async def _ensure_chat(
         self,
@@ -362,6 +420,9 @@ class ChatService:
                 for segment in focused:
                     add(segment, "live meeting")
         hits = await self._store.search(_fts_query(query))
+        if scoped_ids is not None:
+            # Filtra antes de cortar: senão os 24 primeiros acertos de outras chamadas expulsam as escolhidas.
+            hits = [segment for segment in hits if segment.session_id in scoped_ids]
         for segment in hits[:24]:
             add(segment, "search")
         if not live:

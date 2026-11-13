@@ -304,3 +304,26 @@ async def test_chat_context_includes_earlier_meetings_of_the_series(tmp_path) ->
     assert "Earlier meetings in the same series" in prompt
     assert previous.title in prompt
     assert "open: Definir SLA" in prompt
+
+
+async def test_series_follows_the_folder_when_the_meeting_has_one(tmp_path) -> None:
+    store = await _store(tmp_path)
+    ana, bia = await store.create_person("Ana"), await store.create_person("Bia")
+    folder = await store.create_tag("Elevai - Refinamentos")
+    other = await store.create_tag("Outro cliente")
+    same_folder = await _session(store, "Backlog do app", days_ago=7)
+    same_people = await _session(store, "Conversa solta", days_ago=3)
+    current = await _session(store, "Refinamento sprint 12")
+    await store.set_session_tags(same_folder.id, [folder.id])
+    await store.set_session_tags(same_people.id, [other.id])
+    await store.set_session_tags(current.id, [folder.id])
+    for item in (same_people, current):
+        await store.set_session_participants(item.id, [ana.id, bia.id])
+
+    brief = await BriefService(store).for_session(current.id)
+    assert [(item.session.id, item.reason) for item in brief.related] == [(same_folder.id, "folder")]
+
+    # Sem pasta: volta ao critério de título ou pessoas.
+    await store.set_session_tags(current.id, [])
+    brief = await BriefService(store).for_session(current.id)
+    assert [(item.session.id, item.reason) for item in brief.related] == [(same_people.id, "people")]

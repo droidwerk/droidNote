@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, askChat } from "../shared/api/client";
 import type {
@@ -14,30 +14,43 @@ import type {
   SolveTarget,
 } from "../shared/api/types";
 import { DOCUMENT_ACCEPT, DocumentTray, hasFiles } from "../features/chat/DocumentTray";
-import { ChatTune, readSolveTarget, readStyle, scopePayload, type ScopeChoice } from "../features/chat/ChatTune";
+import { ChatTune, readSolveTarget, readStyle } from "../features/chat/ChatTune";
+import { ContextBar, MAX_CONTEXT, pickOf, type PickedSession } from "../features/chat/ContextBar";
 import { IMAGE_ACCEPT, MAX_IMAGES, isImageFile, prepareImage } from "../features/chat/images";
 import { EngineBanner } from "../features/document/EngineBanner";
 import { stampToMs } from "../features/summary/NoteEditor";
 import { AiThinking } from "../shared/ui/AiThinking";
-import { InfoTip } from "../shared/ui/InfoTip";
 import { Icon } from "../shared/ui/Icon";
 import { Markdown } from "../shared/ui/Markdown";
 import { useToast } from "../shared/ui/Toast";
+import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { templateName } from "../shared/lib/templates";
-import { useI18n, useT } from "../shared/i18n";
-import { copyToClipboard, formatClock, formatDate } from "../shared/lib/format";
+import { bcp47, useI18n, useT } from "../shared/i18n";
+import { copyToClipboard, formatClock, withoutTrailingDate } from "../shared/lib/format";
 import { saveBlob } from "../shared/lib/saveFile";
 import { useFlag } from "../shared/lib/useFlag";
 import { Button } from "../shared/ui/primitives";
+import { TourButton } from "../features/onboarding/Tour";
 
-const CONTEXT_LIMIT = 6;
+const THREAD_SEARCH_MIN = 15;
+const DAY = 86_400_000;
 const MAX_TASKS = 20;
 const MAX_NOTE_CHARS = 4000;
 
 /** Comandos com "/" e materiais de estudo: ids fixos, rótulos e perguntas traduzidos. */
 const COMMANDS = ["summary", "tasks", "decisions", "glossary", "flashcards", "exercises", "onepage", "exam"] as const;
 type CommandId = (typeof COMMANDS)[number];
-const STUDY: CommandId[] = ["flashcards", "exercises", "onepage", "exam"];
+/** Item do menu "/": comando fixo ou pergunta salva. */
+type SlashItem = { kind: "cmd"; id: CommandId } | { kind: "recipe"; item: NoteTemplate };
+const SUGGESTIONS = ["suggest_1", "suggest_2", "suggest_3"] as const;
+const DOC_SUGGESTIONS = ["summary", "numbers", "compare"] as const;
+
+/** Turno que não terminou: o motivo e o que reenviar. */
+interface TurnFailure {
+  reason: string;
+  question: string;
+  images: ChatImageDraft[];
+}
 
 interface ChatPageProps {
   recipes?: NoteTemplate[];
@@ -50,8 +63,20 @@ interface ChatPageProps {
 export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, onOpenSettings }: ChatPageProps) {
   const { locale, t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [threads, setThreads] = useState<ChatThread[]>([]);
-  const [recent, setRecent] = useState<Session[]>([]);
+  const [allSessions, setAllSessions] = useState<Session[]>([]);
+  const [selected, setSelected] = useState<PickedSession[]>([]);
+  const [failures, setFailures] = useState<Record<string, TurnFailure>>({});
+  const [interrupted, setInterrupted] = useState<Set<string>>(() => new Set());
+  const [threadQuery, setThreadQuery] = useState("");
+  const [threadMenu, setThreadMenu] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  // Esc cancela antes do blur: o blur lê daqui e não grava.
+  const renameRef = useRef(renaming);
+  renameRef.current = renaming;
+  const abortRef = useRef<AbortController | null>(null);
+  const pinRef = useRef<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<ChatThread | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -67,7 +92,6 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
   const [style, setStyle] = useState<ChatStyle>(readStyle);
   const [solveTarget, setSolveTarget] = useState<SolveTarget>(readSolveTarget);
   const [grounded, setGrounded] = useState(false);
-  const [scope, setScope] = useState<ScopeChoice>({ kind: "auto" });
   const [attachOpen, setAttachOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [link, setLink] = useState("");
@@ -128,19 +152,27 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     setThreads(await api.chats());
   };
 
+  const loadSessions = () =>
+    api
+      .sessions()
+      .then((items) => {
+        setAllSessions(items);
+        return items;
+      })
+      .catch(() => [] as Session[]);
+
   useEffect(() => {
     void loadThreads();
-    // As aulas reais viram o contexto oferecido: nada de pergunta pronta que
-    // não tem relação com o que foi capturado.
-    void api
-      .sessions()
-      .then((items) => setRecent(items.slice(0, CONTEXT_LIMIT)))
-      .catch(() => setRecent([]));
+    void loadSessions();
   }, []);
 
   useEffect(() => {
     if (!focus) return;
-    setPendingFocus(focus);
+    // A conversa em foco vira o único chip; o trecho, quando há, fica como item extra.
+    setPendingFocus(focus.excerpt ? focus : null);
+    setSelected(
+      focus.sessionId ? [{ sessionId: focus.sessionId, title: focus.sessionTitle ?? "", date: "" }] : [],
+    );
     setActiveId(null);
     setActiveThread(null);
     setMessages([]);
@@ -151,10 +183,32 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     window.setTimeout(() => input.current?.focus(), 40);
   }, [focus, onFocusConsumed]);
 
+  // Data do chip vinda de fora (Conversa aberta) chega depois que a lista carrega.
+  useEffect(() => {
+    if (!allSessions.length) return;
+    setSelected((current) =>
+      current.some((item) => !item.date)
+        ? current.map((item) => {
+            const found = allSessions.find((session) => session.id === item.sessionId);
+            return item.date || !found ? item : pickOf(found);
+          })
+        : current,
+    );
+  }, [allSessions]);
+
   useEffect(() => {
     const node = scroller.current;
-    if (!node || !stickBottom) return;
-    node.scrollTop = node.scrollHeight;
+    if (!node) return;
+    // Ao enviar, a pergunta sobe para o topo; a resposta corre abaixo dela.
+    if (pinRef.current) {
+      const question = node.querySelector<HTMLElement>(`[data-msg="${pinRef.current}"]`);
+      pinRef.current = null;
+      if (question) {
+        node.scrollTop = question.offsetTop - node.offsetTop - 16;
+        return;
+      }
+    }
+    if (stickBottom) node.scrollTop = node.scrollHeight;
   }, [messages, busy, stickBottom]);
 
   useEffect(() => {
@@ -213,6 +267,16 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     setActiveThread(detail.chat);
     setMessages(detail.messages);
     setPendingFocus(null);
+    setFailures({});
+    // Os chips da última pergunta voltam todos. Conversa apagada some da lista.
+    const sessions = allSessions.length ? allSessions : await loadSessions();
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    setSelected(
+      (detail.chat.scope_session_ids ?? []).flatMap((sid) => {
+        const found = byId.get(sid);
+        return found ? [pickOf(found)] : [];
+      }),
+    );
     setImages([]);
     setError(null);
     setStickBottom(true);
@@ -226,25 +290,24 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     setDocs([]);
     setImages([]);
     setPendingFocus(null);
+    setSelected([]);
+    setFailures({});
     setError(null);
     input.current?.focus();
-    void api
-      .sessions()
-      .then((items) => setRecent(items.slice(0, CONTEXT_LIMIT)))
-      .catch(() => undefined);
+    void loadSessions();
   };
 
-  const focusSessionId = pendingFocus?.sessionId ?? activeThread?.focus_session_id ?? null;
+  const focusSessionId = pendingFocus?.sessionId ?? (selected.length === 1 ? selected[0]!.sessionId : null);
 
-  const send = async (text: string) => {
+  const send = async (text: string, attached: ChatImageDraft[] = images, retry = false) => {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
-    const attached = images;
     setDraft("");
     setImages([]);
     setBusy(true);
     setError(null);
-    setStickBottom(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     const optimistic: ChatMessage = {
       id: `local-${Date.now()}`,
       chat_id: activeId ?? "pending",
@@ -263,21 +326,26 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
       created_at: new Date().toISOString(),
       citations: [],
     };
+    pinRef.current = optimistic.id;
     setMessages((current) => [...current, optimistic, streaming]);
+    const ids = selected.map((item) => item.sessionId).slice(0, MAX_CONTEXT);
+    let streamedChatId: string | null = null;
     try {
       const result = await askChat(
         {
           message: cleaned,
           chat_id: activeId,
-          session_id: pendingFocus?.sessionId,
+          session_id: pendingFocus?.sessionId ?? ids[0] ?? null,
           segment_ids: pendingFocus?.segmentId ? [pendingFocus.segmentId] : [],
           document_ids: docs.map((item) => item.id),
           ui_language: locale,
           style,
           grounded,
           solve_target: solveTarget,
-          scope: scopePayload(scope, focusSessionId),
+          // Chips = o que a resposta usa. Sem chips, null: busca em todas.
+          scope: ids.length ? { session_ids: ids } : null,
           images: attached.map((item) => ({ name: item.name, mime: item.mime, data: item.data })),
+          retry,
         },
         (token) => {
           setMessages((current) =>
@@ -285,6 +353,10 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
               item.id === streaming.id ? { ...item, content: item.content + token } : item,
             ),
           );
+        },
+        controller.signal,
+        (chatId) => {
+          streamedChatId = chatId;
         },
       );
       setActiveId(result.chat.id);
@@ -295,11 +367,104 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
       setDocs(await api.documents(result.chat.id).catch(() => docs));
       await loadThreads();
     } catch (err) {
-      setMessages((current) => current.filter((item) => item.id !== streaming.id));
-      setImages(attached);
-      setError(err instanceof Error ? err.message : t("chat.fail"));
+      // O texto parcial fica na tela. Parar marca "interrompida"; erro vira cartão no turno.
+      if (controller.signal.aborted) {
+        setInterrupted((current) => new Set(current).add(streaming.id));
+      } else {
+        const reason =
+          err instanceof TypeError
+            ? t("chat.errOffline")
+            : err instanceof Error && err.message
+              ? err.message
+              : t("chat.fail");
+        setFailures((current) => ({ ...current, [streaming.id]: { reason, question: cleaned, images: attached } }));
+      }
+      // Chat novo: adota pelo id do primeiro evento. Parado antes de gravar a pergunta, o id dá 404 e fica de fora.
+      if (!activeId && streamedChatId) {
+        const adopted = await api.chat(streamedChatId).catch(() => null);
+        if (adopted) {
+          setActiveId(adopted.chat.id);
+          setActiveThread(adopted.chat);
+        }
+      }
+      const list = await api.chats().catch(() => null);
+      if (list) setThreads(list);
     } finally {
+      abortRef.current = null;
       setBusy(false);
+    }
+  };
+
+  const stop = () => abortRef.current?.abort();
+
+  const retry = (failedId: string) => {
+    const failure = failures[failedId];
+    if (!failure || busy) return;
+    setFailures(({ [failedId]: _drop, ...rest }) => rest);
+    // Tira a pergunta e a resposta que falharam; o reenvio monta o turno de novo.
+    setMessages((current) => {
+      const index = current.findIndex((item) => item.id === failedId);
+      return index < 0 ? current : current.filter((_, i) => i !== index && i !== index - 1);
+    });
+    void send(failure.question, failure.images, true);
+  };
+
+  const lastQuestion = [...messages].reverse().find((item) => item.role === "user")?.content ?? "";
+  const lastAnswerId = [...messages].reverse().find((item) => item.role === "assistant")?.id ?? null;
+
+  const adoptSources = (citations: ChatCitation[]) => {
+    const ids = [
+      ...new Set(citations.filter((item) => !item.document_id && item.session_id).map((item) => item.session_id)),
+    ];
+    setSelected(
+      ids.slice(0, MAX_CONTEXT).map((id) => {
+        const found = allSessions.find((session) => session.id === id);
+        return found
+          ? pickOf(found)
+          : { sessionId: id, title: citations.find((item) => item.session_id === id)?.session_title ?? "", date: "" };
+      }),
+    );
+    input.current?.focus();
+  };
+
+  const commitRename = async (thread: ChatThread) => {
+    const title = renameRef.current?.draft.trim().slice(0, 120) ?? "";
+    renameRef.current = null;
+    setRenaming(null);
+    if (!title || title === thread.title) return;
+    try {
+      const saved = await api.renameChat(thread.id, title);
+      setThreads((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+      if (saved.id === activeId) setActiveThread(saved);
+      toast.push({ tone: "success", title: t("chat.threadRenamed") });
+    } catch (err) {
+      toast.push({
+        tone: "error",
+        title: t("chat.threadRenameFail"),
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
+  };
+
+  const removeThread = async (thread: ChatThread) => {
+    setThreadMenu(null);
+    const ok = await confirm({
+      title: t("chat.threadDeleteTitle", { title: thread.title }),
+      description: t("chat.threadDeleteBody"),
+      confirmLabel: t("chat.threadDelete"),
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await api.deleteChat(thread.id);
+      if (thread.id === activeId) startNew();
+      await loadThreads();
+    } catch (err) {
+      toast.push({
+        tone: "error",
+        title: t("chat.threadDeleteFail"),
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -365,45 +530,72 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
   };
 
   const empty = messages.length === 0;
-  const focusedSession = pendingFocus?.sessionId ?? null;
 
-  const focusSession = (session: Session) => {
-    setPendingFocus(
-      focusedSession === session.id
-        ? null
-        : { sessionId: session.id, sessionTitle: session.title },
-    );
-    input.current?.focus();
-  };
+  useEffect(() => {
+    if (!threadMenu) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!(event.target as Element).closest?.(".chat-thread-more-wrap")) setThreadMenu(null);
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => event.key === "Escape" && setThreadMenu(null);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [threadMenu]);
 
   const commandLabel = (id: CommandId) => t(`chat.cmd_${id}`);
   const runCommand = (id: CommandId) => {
     setDraft("");
     void send(t(`chat.cmdAsk_${id}`));
   };
-  // Menu de comandos: abre quando a pergunta começa com "/" e ainda está numa linha.
+  const runSlash = (entry: SlashItem) => {
+    if (entry.kind === "cmd") {
+      runCommand(entry.id);
+      return;
+    }
+    setDraft(entry.item.body);
+    input.current?.focus();
+  };
+  // Menu "/": comandos (estudo incluído) e perguntas salvas. Abre quando a pergunta começa com "/" numa linha só.
   const slashQuery = draft.startsWith("/") && !draft.includes("\n") ? draft.slice(1).toLowerCase() : null;
-  const commandMatches = useMemo(
+  const commandMatches = useMemo<SlashItem[]>(
     () =>
       slashQuery === null
         ? []
-        : COMMANDS.filter((id) => commandLabel(id).slice(1).toLowerCase().startsWith(slashQuery) || id.startsWith(slashQuery)),
+        : [
+            ...COMMANDS.filter(
+              (id) => commandLabel(id).slice(1).toLowerCase().startsWith(slashQuery) || id.startsWith(slashQuery),
+            ).map((id) => ({ kind: "cmd" as const, id })),
+            ...recipes
+              .filter((item) => templateName(item).toLowerCase().includes(slashQuery))
+              .map((item) => ({ kind: "recipe" as const, item })),
+          ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [slashQuery, locale],
+    [slashQuery, locale, recipes],
   );
   useEffect(() => setCommandIndex(0), [slashQuery]);
 
   const placeholder = docs.length
     ? t("chat.placeholderDocs")
     : pendingFocus?.excerpt
-    ? t("chat.placeholderFocus")
-    : pendingFocus?.sessionTitle
-      ? t("chat.placeholderSession", { title: pendingFocus.sessionTitle })
+      ? t("chat.placeholderFocus")
       : t("chat.placeholder");
+
+  const lang = bcp47(locale);
+  const needle = threadQuery.trim().toLowerCase();
+  const shownThreads = needle ? threads.filter((thread) => thread.title.toLowerCase().includes(needle)) : threads;
+  const threadGroups = groupThreads(shownThreads);
+
+  const fill = (text: string) => {
+    setDraft(text);
+    input.current?.focus();
+  };
 
   return (
     <div className={railCollapsed ? "chat-page is-rail-collapsed" : "chat-page"}>
-      <aside className="chat-rail" aria-label={t("chat.threads")}>
+      <aside data-tour="chat-rail" className="chat-rail" aria-label={t("chat.threads")}>
         <div className="chat-rail-head">
           <button
             type="button"
@@ -415,24 +607,95 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
           >
             <Icon name="rail" size={15} />
           </button>
-          <strong>{t("chat.threads")}</strong>
-          <Button size="sm" variant="quiet" aria-label={t("chat.new")} title={t("chat.new")} onClick={startNew}>
+          {/* O título só para leitor de tela: os grupos Hoje/Ontem já dizem que é o histórico e o espaço vai para os botões. */}
+          <strong className="sr-only">{t("chat.threads")}</strong>
+          <Button data-tour="chat-new" size="sm" variant="quiet" className="chat-new" onClick={startNew}>
             <PlusGlyph />
+            <span>{t("chat.new")}</span>
           </Button>
+          <TourButton chapter="chat" />
         </div>
+        {threads.length > THREAD_SEARCH_MIN ? (
+          <input
+            type="search"
+            className="chat-thread-search"
+            value={threadQuery}
+            placeholder={t("chat.threadSearch")}
+            aria-label={t("chat.threadSearch")}
+            onChange={(event) => setThreadQuery(event.target.value)}
+          />
+        ) : null}
         <div className="chat-thread-list">
           {threads.length === 0 ? (
             <p className="chat-rail-empty">{t("chat.emptyThreads")}</p>
           ) : (
-            threads.map((thread) => (
-              <button
-                key={thread.id}
-                type="button"
-                className={thread.id === activeId ? "chat-thread is-active" : "chat-thread"}
-                onClick={() => void openThread(thread.id)}
-              >
-                <span className="chat-thread-title">{thread.title}</span>
-              </button>
+            threadGroups.map((group) => (
+              <section key={group.key} className="chat-thread-group" aria-label={t(`chat.group_${group.key}`)}>
+                <h2>{t(`chat.group_${group.key}`)}</h2>
+                {group.items.map((thread) => (
+                  <div key={thread.id} className={thread.id === activeId ? "chat-thread-row is-active" : "chat-thread-row"}>
+                    {renaming?.id === thread.id ? (
+                      <input
+                        className="chat-thread-rename"
+                        value={renaming.draft}
+                        maxLength={120}
+                        autoFocus
+                        aria-label={t("chat.threadRenameAria")}
+                        onChange={(event) => setRenaming({ id: thread.id, draft: event.target.value })}
+                        onFocus={(event) => event.currentTarget.select()}
+                        onBlur={() => void commitRename(thread)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          if (event.key === "Escape") {
+                            event.stopPropagation();
+                            renameRef.current = null;
+                            setRenaming(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="chat-thread"
+                        aria-current={thread.id === activeId ? "true" : undefined}
+                        onClick={() => void openThread(thread.id)}
+                      >
+                        <span className="chat-thread-title">{thread.title}</span>
+                        <small>{relativeTime(thread.updated_at, lang)}</small>
+                      </button>
+                    )}
+                    <div className="chat-thread-more-wrap">
+                      <button
+                        type="button"
+                        className="chat-thread-more"
+                        aria-label={t("chat.threadOptions", { title: thread.title })}
+                        aria-haspopup="menu"
+                        aria-expanded={threadMenu === thread.id}
+                        onClick={() => setThreadMenu((current) => (current === thread.id ? null : thread.id))}
+                      >
+                        <Icon name="more" size={15} />
+                      </button>
+                      {threadMenu === thread.id ? (
+                        <div className="chat-save-menu chat-thread-menu" role="menu">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setThreadMenu(null);
+                              setRenaming({ id: thread.id, draft: thread.title });
+                            }}
+                          >
+                            {t("chat.threadRename")}
+                          </button>
+                          <button type="button" role="menuitem" className="is-danger" onClick={() => void removeThread(thread)}>
+                            {t("chat.threadDelete")}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </section>
             ))
           )}
         </div>
@@ -464,101 +727,20 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
         ) : null}
         {empty ? (
           <div className="chat-empty">
-            <h1 className="with-tip">
-              {t("chat.askAnything")}
-              <InfoTip text={t("chat.intro")} />
-            </h1>
-            {docs.length ? (
-              <div className="chat-context">
-                <p className="chat-context-label">{t("chat.docAsksLabel")}</p>
-                <div className="chips">
-                  {(["summary", "numbers", "compare", "risks"] as const).map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className="chip"
-                      onClick={() => {
-                        setDraft(t(`chat.docAsk_${id}`));
-                        input.current?.focus();
-                      }}
-                    >
+            <h1>{t("chat.askAnything")}</h1>
+            <div className="chips">
+              {docs.length
+                ? DOC_SUGGESTIONS.map((id) => (
+                    <button key={id} type="button" className="chip" onClick={() => fill(t(`chat.docAsk_${id}`))}>
                       {t(`chat.docAskLabel_${id}`)}
                     </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {pendingFocus?.excerpt ? (
-              <div className="chat-focus">
-                <small>{pendingFocus.sessionTitle ?? t("chat.selectedExcerpt")}</small>
-                <p>{pendingFocus.excerpt}</p>
-              </div>
-            ) : null}
-            {recent.length > 0 && !pendingFocus?.excerpt ? (
-              <div className="chat-context">
-                <p className="chat-context-label with-tip">
-                  {t("chat.contextLabel")}
-                  <InfoTip text={focusedSession ? t("chat.contextHintFocused") : t("chat.contextHint")} />
-                </p>
-                <div className="chat-context-list" role="group" aria-label={t("chat.contextLabel")}>
-                  {recent.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      aria-pressed={focusedSession === session.id}
-                      className={
-                        focusedSession === session.id
-                          ? "chat-context-chip is-active"
-                          : "chat-context-chip"
-                      }
-                      onClick={() => focusSession(session)}
-                    >
-                      <strong>{session.title}</strong>
-                      <small>{formatDate(session.started_at)}</small>
+                  ))
+                : SUGGESTIONS.map((id) => (
+                    <button key={id} type="button" className="chip" onClick={() => fill(t(`chat.${id}`))}>
+                      {t(`chat.${id}`)}
                     </button>
                   ))}
-                </div>
-              </div>
-            ) : null}
-            {focusedSession ? (
-              <div className="chat-context">
-                <p className="chat-context-label with-tip">
-                  {t("chat.studyLabel")}
-                  <InfoTip text={t("chat.studyHint")} />
-                </p>
-                <div className="chips">
-                  {STUDY.map((id) => (
-                    <button key={id} type="button" className="chip" title={t(`chat.cmdHint_${id}`)} onClick={() => runCommand(id)}>
-                      {t(`chat.cmdTitle_${id}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {recipes.length ? (
-              <div className="chat-context">
-                <p className="chat-context-label with-tip">
-                  {t("recipes.title")}
-                  <InfoTip text={t("recipes.hint")} />
-                </p>
-                <div className="chips">
-                  {recipes.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="chip"
-                      title={item.body}
-                      onClick={() => {
-                        setDraft(item.body);
-                        input.current?.focus();
-                      }}
-                    >
-                      {templateName(item)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
+            </div>
           </div>
         ) : (
           <div
@@ -570,27 +752,31 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
               setStickBottom(remaining < 80);
             }}
           >
-            {messages.map((item) => (
-              <article
-                key={item.id}
-                className={item.role === "user" ? "chat-turn is-user" : "chat-turn"}
-                aria-live={item.role === "assistant" && busy && item.id.startsWith("stream-") ? "polite" : undefined}
-              >
-                {!item.content && busy && item.role === "assistant" ? (
-                  <AiThinking
-                    compact
-                    lines={3}
-                    steps={docs.length ? [t("ai.readDocs"), t("ai.searchMemory"), t("ai.answer")] : [t("ai.searchMemory"), t("ai.answer")]}
-                  />
-                ) : (
-                  item.role === "assistant" ? (
-                    <Markdown
-                      text={item.content}
-                      renderStamp={stampRenderer(citedSession(item.citations), onOpenSession)}
-                      renderCite={citeRenderer(item.citations, onOpenSession, t)}
-                      chartTableLabel={t("chat.chartTable")}
-                      promptLabels={{ title: t("chat.promptReady"), copy: t("chat.promptCopy"), copied: t("common.copied") }}
+            {messages.map((item) => {
+              const failure = failures[item.id];
+              return (
+                <article
+                  key={item.id}
+                  data-msg={item.id}
+                  className={item.role === "user" ? "chat-turn is-user" : "chat-turn"}
+                  aria-live={item.role === "assistant" && busy && item.id.startsWith("stream-") ? "polite" : undefined}
+                >
+                  {!item.content && busy && item.role === "assistant" && !failure ? (
+                    <AiThinking
+                      compact
+                      lines={3}
+                      steps={docs.length ? [t("ai.readDocs"), t("ai.searchMemory"), t("ai.answer")] : [t("ai.searchMemory"), t("ai.answer")]}
                     />
+                  ) : item.role === "assistant" ? (
+                    item.content ? (
+                      <Markdown
+                        text={item.content}
+                        renderStamp={stampRenderer(item.citations, onOpenSession, t("chat.stampNoSource"))}
+                        renderCite={citeRenderer(item.citations, onOpenSession, t)}
+                        chartTableLabel={t("chat.chartTable")}
+                        promptLabels={{ title: t("chat.promptReady"), copy: t("chat.promptCopy"), copied: t("common.copied") }}
+                      />
+                    ) : null
                   ) : (
                     <>
                       {item.images?.length ? (
@@ -602,28 +788,77 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
                       ) : null}
                       <p>{item.content}</p>
                     </>
-                  )
-                )}
-                {item.role === "assistant" && item.content && !item.id.startsWith("stream-") ? (
-                  <AnswerActions
-                    copied={copiedId === item.id}
-                    promptCopied={copiedId === `prompt-${item.id}`}
-                    canNote={Boolean(noteTarget(item))}
-                    canExport={Boolean(activeId)}
-                    onCopy={() => void copyAnswer(item)}
-                    onCopyPrompt={item.style === "solve" ? () => void copyPrompt(item) : undefined}
-                    onNote={() => void saveAsNote(item)}
-                    onTasks={() => void sendTasks(item)}
-                    onExport={(format) => void exportAnswer(item, format)}
-                  />
-                ) : null}
-                {item.citations.length > 0 ? (
-                  <ChatSources citations={item.citations} content={item.content} onOpenSession={onOpenSession} />
-                ) : null}
-              </article>
-            ))}
+                  )}
+                  {interrupted.has(item.id) || item.interrupted ? (
+                    <p className="chat-turn-note">
+                      <span>{t("chat.interrupted")}</span>
+                      {item.id === lastAnswerId && !busy && lastQuestion ? (
+                        <span className="chat-turn-actions">
+                          <button type="button" onClick={() => void send(t("chat.continueAsk"), [])}>
+                            {t("chat.continue")}
+                          </button>
+                          {item.id.startsWith("stream-") ? (
+                            <button type="button" onClick={() => void send(lastQuestion, [])}>
+                              {t("chat.regenerate")}
+                            </button>
+                          ) : null}
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : null}
+                  {failure ? (
+                    <div className="chat-turn-error" role="alert">
+                      <strong>{t("chat.fail")}</strong>
+                      <p>{failure.reason}</p>
+                      <div>
+                        <Button size="sm" variant="primary" disabled={busy} onClick={() => retry(item.id)}>
+                          {t("common.retry")}
+                        </Button>
+                        {onOpenSettings ? (
+                          <Button size="sm" variant="quiet" onClick={onOpenSettings}>
+                            {t("chat.openSettings")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {item.role === "assistant" && item.content && !item.id.startsWith("stream-") ? (
+                    <AnswerActions
+                      copied={copiedId === item.id}
+                      promptCopied={copiedId === `prompt-${item.id}`}
+                      canNote={Boolean(noteTarget(item))}
+                      canExport={Boolean(activeId)}
+                      onCopy={() => void copyAnswer(item)}
+                      onCopyPrompt={item.style === "solve" ? () => void copyPrompt(item) : undefined}
+                      onNote={() => void saveAsNote(item)}
+                      onTasks={() => void sendTasks(item)}
+                      onExport={(format) => void exportAnswer(item, format)}
+                      onRegenerate={item.id === lastAnswerId && !busy && lastQuestion ? () => void send(lastQuestion, []) : undefined}
+                    />
+                  ) : null}
+                  {item.citations.length > 0 ? (
+                    <ChatSources
+                      citations={item.citations}
+                      content={item.content}
+                      onOpenSession={onOpenSession}
+                      onUse={
+                        busy || item.id !== lastAnswerId || sameSessions(item.citations, selected)
+                          ? undefined
+                          : () => adoptSources(item.citations)
+                      }
+                    />
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         )}
+        {busy && !stickBottom && !empty ? (
+          <button type="button" className="chat-jump" onClick={() => setStickBottom(true)}>
+            <Icon name="expand" size={14} />
+            {t("chat.newAnswer")}
+          </button>
+        ) : null}
         {error ? <p className="chat-error">{error}</p> : null}
         <div className="chat-engine">
           <EngineBanner revision={messages.length} onOpenSettings={onOpenSettings} />
@@ -637,6 +872,14 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
           onRemoveImage={(index) => setImages((current) => current.filter((_, i) => i !== index))}
         />
         <div className="chat-composer-wrap">
+          <ContextBar
+            sessions={allSessions}
+            selected={selected}
+            excerpt={pendingFocus?.excerpt ? { title: pendingFocus.sessionTitle, text: pendingFocus.excerpt } : null}
+            disabled={busy}
+            onChange={setSelected}
+            onClearExcerpt={() => setPendingFocus(null)}
+          />
           {linkOpen ? (
             <form
               className="chat-link-row"
@@ -664,28 +907,38 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
           ) : null}
           {commandMatches.length ? (
             <ul className="chat-commands" role="listbox" aria-label={t("chat.commands")}>
-              {commandMatches.map((id, index) => (
-                <li key={id}>
+              {commandMatches.map((entry, index) => (
+                <li key={entry.kind === "cmd" ? entry.id : `recipe-${entry.item.id}`}>
                   <button
                     type="button"
                     role="option"
                     aria-selected={index === commandIndex}
                     className={index === commandIndex ? "is-active" : ""}
                     onMouseEnter={() => setCommandIndex(index)}
-                    onClick={() => runCommand(id)}
+                    onClick={() => runSlash(entry)}
                   >
-                    <strong>{commandLabel(id)}</strong>
-                    <span>{t(`chat.cmdHint_${id}`)}</span>
+                    {entry.kind === "cmd" ? (
+                      <>
+                        <strong>{commandLabel(entry.id)}</strong>
+                        <span>{t(`chat.cmdHint_${entry.id}`)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <strong>{templateName(entry.item)}</strong>
+                        <span>{entry.item.body.slice(0, 90)}</span>
+                      </>
+                    )}
                   </button>
                 </li>
               ))}
             </ul>
           ) : null}
           <form
+            data-tour="chat-study"
             className="chat-composer"
             onSubmit={(event) => {
               event.preventDefault();
-              if (commandMatches.length) runCommand(commandMatches[commandIndex] ?? commandMatches[0]!);
+              if (commandMatches.length) runSlash(commandMatches[commandIndex] ?? commandMatches[0]!);
               else void send(draft);
             }}
           >
@@ -700,7 +953,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
                 event.target.value = "";
               }}
             />
-            <div className="chat-attach-wrap" ref={attachRef}>
+            <div data-tour="chat-attach" className="chat-attach-wrap" ref={attachRef}>
               <button
                 type="button"
                 className="chat-attach"
@@ -751,6 +1004,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
               value={draft}
               rows={1}
               placeholder={placeholder}
+              aria-label={t("chat.askAnything")}
               onChange={(event) => setDraft(event.target.value)}
               onPaste={(event) => {
                 const files = [...event.clipboardData.files].filter(isImageFile);
@@ -783,34 +1037,37 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
                     return;
                   }
                 }
+                // Seta para cima no campo vazio traz a última pergunta para editar.
+                if (event.key === "ArrowUp" && !draft && lastQuestion) {
+                  event.preventDefault();
+                  setDraft(lastQuestion);
+                  return;
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  if (commandMatches.length) runCommand(commandMatches[commandIndex] ?? commandMatches[0]!);
+                  if (commandMatches.length) runSlash(commandMatches[commandIndex] ?? commandMatches[0]!);
                   else void send(draft);
                 }
               }}
             />
             <ChatTune
               style={style}
-              scope={scope}
               grounded={grounded}
               solveTarget={solveTarget}
-              hasFocus={Boolean(focusSessionId)}
               disabled={busy}
               onStyle={setStyle}
-              onScope={setScope}
               onGrounded={setGrounded}
               onSolveTarget={setSolveTarget}
             />
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={busy || !draft.trim()}
-              aria-label={t("chat.send")}
-              title={t("chat.send")}
-            >
-              <SendGlyph />
-            </Button>
+            {busy ? (
+              <Button variant="primary" className="chat-stop" onClick={stop} aria-label={t("chat.stop")} title={t("chat.stop")}>
+                <StopGlyph />
+              </Button>
+            ) : (
+              <Button type="submit" variant="primary" disabled={!draft.trim()} aria-label={t("chat.send")} title={t("chat.send")}>
+                <SendGlyph />
+              </Button>
+            )}
           </form>
         </div>
       </section>
@@ -818,7 +1075,33 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
   );
 }
 
-/** Copiar e um menu "Salvar": nota da gravação, tarefas, PDF, Word, Markdown. */
+const GROUPS = ["today", "yesterday", "week", "older"] as const;
+type GroupKey = (typeof GROUPS)[number];
+
+function dayGroup(iso: string): GroupKey {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const at = new Date(iso).getTime();
+  return at >= today ? "today" : at >= today - DAY ? "yesterday" : at >= today - 6 * DAY ? "week" : "older";
+}
+
+/** Histórico em grupos: hoje, ontem, últimos 7 dias, antes. */
+function groupThreads(threads: ChatThread[]): { key: GroupKey; items: ChatThread[] }[] {
+  const groups: Record<GroupKey, ChatThread[]> = { today: [], yesterday: [], week: [], older: [] };
+  for (const thread of threads) groups[dayGroup(thread.updated_at)].push(thread);
+  return GROUPS.filter((key) => groups[key].length).map((key) => ({ key, items: groups[key] }));
+}
+
+/** Hoje e ontem: a hora. Na semana: o dia por extenso. Antes: dia e mês por extenso. */
+function relativeTime(iso: string, lang: string): string {
+  const date = new Date(iso);
+  const group = dayGroup(iso);
+  if (group === "today" || group === "yesterday") return date.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
+  if (group === "week") return date.toLocaleDateString(lang, { weekday: "long" });
+  return date.toLocaleDateString(lang, { day: "numeric", month: "long" });
+}
+
+/** Copiar, "Salvar" (nota da conversa, tarefas, PDF, Word, Markdown. */
 function AnswerActions({
   copied,
   promptCopied = false,
@@ -829,6 +1112,7 @@ function AnswerActions({
   onNote,
   onTasks,
   onExport,
+  onRegenerate,
 }: {
   copied: boolean;
   promptCopied?: boolean;
@@ -839,6 +1123,7 @@ function AnswerActions({
   onNote: () => void;
   onTasks: () => void;
   onExport: (format: "pdf" | "docx" | "markdown") => void;
+  onRegenerate?: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -868,7 +1153,8 @@ function AnswerActions({
       {canExport ? (
         <>
           <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-            {t("chat.save")} ▾
+            {t("chat.save")}
+            <Icon name="expand" size={12} />
           </button>
           {open ? (
             <div className="chat-save-menu" role="menu">
@@ -893,6 +1179,11 @@ function AnswerActions({
             </div>
           ) : null}
         </>
+      ) : null}
+      {onRegenerate ? (
+        <button type="button" onClick={onRegenerate}>
+          {t("chat.regenerate")}
+        </button>
       ) : null}
     </div>
   );
@@ -926,16 +1217,18 @@ function ChatSources({
   citations,
   content,
   onOpenSession,
+  onUse,
 }: {
   citations: ChatCitation[];
   content: string;
   onOpenSession: (sessionId: string, atMs?: number) => void;
+  onUse?: () => void;
 }) {
   const t = useT();
   // Uma entrada por gravação (ou documento), não por trecho. Os números [n] da
   // resposta continuam abrindo o instante exato; aqui vai o lugar de onde veio.
   const cited = new Set([...content.matchAll(/\[(\d{1,2})\]/g)].map((match) => Number(match[1])));
-  const groups = new Map<string, { key: string; title: string; detail: string; sessionId: string | null; startMs: number; count: number; cited: boolean; excerpt: string }>();
+  const groups = new Map<string, { key: string; title: string; detail: string; sessionId: string | null; startMs: number; count: number; cited: boolean; excerpt: string; page?: number | null }>();
   citations.forEach((citation, index) => {
     const key = citation.document_id ? `doc:${citation.document_id}` : `s:${citation.session_id}`;
     const isCited = cited.has(index + 1);
@@ -945,6 +1238,7 @@ function ChatSources({
       if (isCited && (!current.cited || citation.start_ms < current.startMs)) {
         current.startMs = citation.start_ms;
         current.excerpt = citation.excerpt;
+        current.page = citation.page;
       }
       current.cited = current.cited || isCited;
       return;
@@ -958,12 +1252,21 @@ function ChatSources({
       count: 1,
       cited: isCited,
       excerpt: citation.excerpt,
+      page: citation.page,
     });
   });
   const rows = [...groups.values()].sort((a, b) => Number(b.cited) - Number(a.cited));
+  const hasSessions = rows.some((row) => row.sessionId);
   return (
     <div className="chat-sources">
-      <p className="chat-sources-label">{t("chat.sources")}</p>
+      <div className="chat-sources-head">
+        <p className="chat-sources-label">{t("chat.sources")}</p>
+        {onUse && hasSessions ? (
+          <button type="button" className="chat-sources-use" onClick={onUse}>
+            {t("chat.useSources")}
+          </button>
+        ) : null}
+      </div>
       <ol>
         {rows.map((row) => (
           <li key={row.key}>
@@ -971,7 +1274,7 @@ function ChatSources({
               <button
                 type="button"
                 title={row.excerpt}
-                aria-label={t("chat.sourceOpen")}
+                aria-label={t("chat.sourceOpenAt", { title: row.title, time: formatClock(row.startMs) })}
                 onClick={() => onOpenSession(row.sessionId as string, row.startMs)}
               >
                 <span className="chat-source-index">
@@ -986,15 +1289,18 @@ function ChatSources({
                 </span>
               </button>
             ) : (
-              <span className="chat-source-doc" title={row.excerpt}>
+              <Peek label={`${row.title}${row.page ? ` · ${t("chat.docPages", { pages: row.page })}` : ""}`} excerpt={row.excerpt}>
                 <span className="chat-source-index">
                   <Icon name="attach" size={11} />
                 </span>
                 <span className="chat-source-copy">
                   <strong>{row.title}</strong>
-                  <small>{row.count > 1 ? t("chat.sourceExcerpts", { count: row.count }) : row.detail}</small>
+                  <small>
+                    {row.page ? `${t("chat.docPages", { pages: row.page })} · ` : ""}
+                    {row.count > 1 ? t("chat.sourceExcerpts", { count: row.count }) : row.detail}
+                  </small>
                 </span>
-              </span>
+              </Peek>
             )}
           </li>
         ))}
@@ -1003,21 +1309,49 @@ function ChatSources({
   );
 }
 
-/** A sessão citada na resposta, quando há uma só: aí `12:40` no texto pode levar à fala. */
+/** As conversas citadas são as mesmas dos chips: "Usar estas conversas" não mudaria nada. */
+function sameSessions(citations: ChatCitation[], selected: PickedSession[]): boolean {
+  const ids = new Set(citations.filter((item) => !item.document_id && item.session_id).map((item) => item.session_id));
+  return ids.size === selected.length && selected.every((item) => ids.has(item.sessionId));
+}
+
+/** A sessão citada na resposta, quando há uma só. */
 function citedSession(citations: ChatCitation[]): string | null {
   const ids = new Set(citations.filter((item) => !item.document_id && item.session_id).map((item) => item.session_id));
   return ids.size === 1 ? [...ids][0] ?? null : null;
 }
 
-/** Marca de tempo da resposta vira botão que abre a conversa citada naquele momento. */
-function stampRenderer(sessionId: string | null, open: (sessionId: string, atMs?: number) => void) {
-  if (!sessionId) return undefined;
+const STAMP_SLACK_MS = 60_000;
+
+/**
+ * Marca de tempo da resposta vira botão que abre a conversa citada naquele momento.
+ * Uma conversa só: abre nela. Várias: a citação de tempo mais perto; se outra conversa
+ * também cabe, o título curto vai junto para dizer qual.
+ */
+function stampRenderer(citations: ChatCitation[], open: (sessionId: string, atMs?: number) => void, noSource: string) {
+  const spoken = citations.filter((item) => !item.document_id && item.session_id);
+  const only = citedSession(citations);
+  const muted = (stamp: string) => (
+    <span className="chat-stamp is-muted" title={noSource}>
+      {stamp}
+    </span>
+  );
   return (stamp: string): ReactNode => {
     const ms = stampToMs(stamp);
-    if (ms === null) return stamp;
+    if (ms === null) return muted(stamp);
+    const near = spoken
+      .map((item) => ({ item, gap: Math.abs(item.start_ms - ms) }))
+      .filter((entry) => entry.gap <= STAMP_SLACK_MS)
+      .sort((a, b) => a.gap - b.gap);
+    const target = near[0]?.item.session_id;
+    if (!target) return muted(stamp);
+    const ambiguous = !only && new Set(near.map((entry) => entry.item.session_id)).size > 1;
+    const title = ambiguous ? near[0]!.item.session_title : "";
+    const bare = withoutTrailingDate(title);
+    const short = bare.length > 18 ? `${bare.slice(0, 17)}…` : bare;
     return (
-      <button type="button" className="chat-stamp" onClick={() => open(sessionId, ms)}>
-        {stamp}
+      <button type="button" className="chat-stamp" title={title || undefined} onClick={() => open(target, ms)}>
+        {short ? `${stamp} · ${short}` : stamp}
       </button>
     );
   };
@@ -1034,24 +1368,18 @@ function citeRenderer(
     const citation = citations[index - 1];
     if (!citation) return `[${index}]`;
     const label = citation.document_id
-      ? `${citation.document_name}${citation.page ? ` · p. ${citation.page}` : ""}`
+      ? `${citation.document_name}${citation.page ? ` · ${t("chat.docPages", { pages: citation.page })}` : ""}`
       : `${citation.session_title} · ${formatClock(citation.start_ms)}`;
-    if (citation.document_id) {
-      return (
-        <span className="chat-cite" title={`${label}\n${citation.excerpt}`}>
-          {index}
-        </span>
-      );
-    }
     return (
-      <button
-        type="button"
+      <Peek
         className="chat-cite"
-        title={`${t("chat.citeOpen", { n: index })}: ${label}\n${citation.excerpt}`}
-        onClick={() => open(citation.session_id, citation.start_ms)}
+        label={label}
+        excerpt={citation.excerpt}
+        ariaLabel={citation.document_id ? undefined : t("chat.citeOpen", { n: index })}
+        onClick={citation.document_id ? undefined : () => open(citation.session_id, citation.start_ms)}
       >
         {index}
-      </button>
+      </Peek>
     );
   };
 }
@@ -1075,6 +1403,44 @@ export function listItems(markdown: string): string[] {
     if (out.length >= MAX_TASKS) break;
   }
   return out;
+}
+
+/** Botão focável com o trecho da fonte num balão (passar o mouse ou focar pelo teclado). */
+function Peek({
+  className,
+  label,
+  excerpt,
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  className?: string;
+  label: string;
+  excerpt: string;
+  ariaLabel?: string;
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <span className="chat-peek">
+      <button type="button" className={className} aria-label={ariaLabel} aria-describedby={id} onClick={onClick}>
+        {children}
+      </button>
+      <span role="tooltip" id={id} className="chat-peek-pop">
+        <strong>{label}</strong>
+        {excerpt ? <span>{excerpt}</span> : null}
+      </span>
+    </span>
+  );
+}
+
+function StopGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden>
+      <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+    </svg>
+  );
 }
 
 function PlusGlyph() {

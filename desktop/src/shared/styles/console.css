@@ -1235,6 +1235,22 @@ button.speaker-chip:hover {
   color: var(--faint);
 }
 
+.timeline-span em {
+  font-family: var(--font-body);
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.timeline-silence {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 7px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .timeline-grid {
   display: grid;
   gap: 5px;
@@ -1550,4 +1566,9 @@ button.speaker-chip:hover {
   .search-field {
     width: 160px;
   }
+}
+
+/* Excluir fica longe de Exportar: um clique errado ali custa caro. */
+.page-actions-delete {
+  margin-left: 12px;
 }

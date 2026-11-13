@@ -201,10 +201,27 @@
 }
 
 .task-meta {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto auto 16px;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: none;
+}
+
+.task-meta > span {
+  display: flex;
+  min-width: 0;
+}
+
+.task-owner-cell {
+  justify-content: flex-end;
+}
+
+.task-meta .task-owner,
+.task-meta .task-due {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-owner,
@@ -226,8 +243,7 @@
 
 .task-origin {
   display: inline-flex;
-  color: var(--accent-hi);
-  opacity: 0.7;
+  color: var(--muted);
 }
 
 .task-remove {
@@ -251,6 +267,14 @@
 
 .task-remove:hover {
   color: var(--danger);
+}
+
+.task-remove.is-edit:hover {
+  color: var(--text);
+}
+
+.task-row:focus-within .task-remove {
+  opacity: 1;
 }
 
 /* -------------------------------------------------------------- próximas reuniões */

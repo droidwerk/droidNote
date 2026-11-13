@@ -17,6 +17,7 @@ interface ButtonProps extends Pick<
   recording?: boolean;
   type?: "button" | "submit";
   className?: string;
+  "data-tour"?: string;
 }
 
 export function Button({

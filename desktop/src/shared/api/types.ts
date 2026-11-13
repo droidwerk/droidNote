@@ -65,7 +65,7 @@ export interface BriefSession {
   session_id: string;
   title: string;
   started_at: string;
-  reason: "title" | "people" | "both";
+  reason: "title" | "people" | "both" | "folder";
   overview: string;
   decisions: string[];
   open_items: string[];
@@ -93,7 +93,7 @@ export interface MemoryThread {
   session_id: string;
   title: string;
   started_at: string;
-  reason: "title" | "people" | "both";
+  reason: "title" | "people" | "both" | "folder";
   has_summary: boolean;
   decisions: string[];
   open_items: string[];
@@ -435,6 +435,8 @@ export interface ChatMessage {
   images?: ChatImage[];
   /** Modo em que a resposta foi gerada (normal, fast, study, solve). */
   style?: ChatStyle | null;
+  /** Resposta parcial gravada quando a pessoa parou o streaming. */
+  interrupted?: boolean;
 }
 
 /** Modo da resposta escolhido no chat. */
@@ -465,6 +467,8 @@ export interface ChatThread {
   created_at: string;
   updated_at: string;
   focus_session_id?: string | null;
+  /** Conversas escolhidas na última pergunta; vazio = todas. */
+  scope_session_ids?: string[];
 }
 
 export interface ChatDetail {

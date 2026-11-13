@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { useT } from "../i18n";
 import { useConfirm } from "../ui/ConfirmDialog";
@@ -7,15 +7,18 @@ import { findAppUpdate, rememberSkippedUpdate, UPDATE_COMMAND } from "./appUpdat
 import { copyToClipboard } from "./format";
 import { openExternal } from "./openExternal";
 
-export function useUpdateNotice(enabled: boolean): void {
+/** Mostra o aviso de nova versão. Devolve true quando o aviso já foi resolvido (ou não havia),
+ *  para que outro diálogo (boas-vindas, novidades) nunca abra por cima dele. */
+export function useUpdateNotice(enabled: boolean): boolean {
   const t = useT();
+  const [settled, setSettled] = useState(false);
   const confirm = useConfirm();
   const toast = useToast();
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    void (async () => {
+    const run = async () => {
       let current = "";
       try {
         const { getVersion } = await import("@tauri-apps/api/app");
@@ -49,9 +52,14 @@ export function useUpdateNotice(enabled: boolean): void {
         return;
       }
       rememberSkippedUpdate(notice.version);
-    })();
+    };
+    void run().finally(() => {
+      if (!cancelled) setSettled(true);
+    });
     return () => {
       cancelled = true;
     };
   }, [enabled, confirm, t, toast]);
+
+  return settled;
 }

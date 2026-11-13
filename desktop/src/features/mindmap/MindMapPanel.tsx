@@ -95,17 +95,14 @@ export function MindMapPanel({ sessionId, title, hasSummary, revision = 0, onCit
       theme: themeFromTokens(),
       newTopicName: t("mindmap.newTopic"),
     });
-    instance.init({ nodeData: record.data.nodeData as NodeObj, direction: record.data.direction as 0 | 1 | 2 | 3 | undefined });
+    instance.init({ nodeData: collapsed(record.data.nodeData as NodeObj), direction: record.data.direction as 0 | 1 | 2 | 3 | undefined });
     instance.bus.addListener("operation", () => persist(instance.getData()));
     instance.bus.addListener("selectNodes", (nodes: NodeObj[]) => {
       const meta = (nodes[0]?.metadata ?? {}) as NodeMeta;
       if (nodes.length === 1 && typeof meta.at_ms === "number" && onCite) onCite(meta.at_ms);
     });
     mind.current = instance;
-    window.requestAnimationFrame(() => {
-      instance.scale(0.72);
-      instance.toCenter();
-    });
+    window.requestAnimationFrame(() => fitMap(instance));
     return () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       instance.destroy();
@@ -155,7 +152,7 @@ export function MindMapPanel({ sessionId, title, hasSummary, revision = 0, onCit
       toast.push({ tone: "error", title: t("session.exportFail") });
       return;
     }
-    const name = `${title} — ${t("mindmap.title")}.png`;
+    const name = `${title} · ${t("mindmap.title")}.png`;
     const result = await saveBlob(blob, name, [{ name: "PNG", extensions: ["png"] }]);
     if (result.status === "error") toast.push({ tone: "error", title: t("session.exportFail"), description: result.message });
     else if (result.status === "saved") toast.push({ tone: "success", title: t("session.fileSaved"), description: name });
@@ -173,11 +170,11 @@ export function MindMapPanel({ sessionId, title, hasSummary, revision = 0, onCit
         <div className="summary-actions">
           {ready ? (
             <>
-              <Button size="sm" variant="quiet" onClick={() => mind.current?.toCenter()} title={t("mindmap.center")}>
-                <Icon name="search" size={14} />
+              <Button size="sm" variant="quiet" onClick={() => mind.current && fitMap(mind.current)} title={t("mindmap.center")} aria-label={t("mindmap.center")}>
+                <Icon name="center" size={14} />
               </Button>
               <Button size="sm" variant="quiet" onClick={() => void copyOutline()} title={t("mindmap.copyHint")} aria-label={t("mindmap.copy")}>
-                {copied ? <Icon name="check" size={14} /> : <Icon name="attach" size={14} />}
+                {copied ? <Icon name="check" size={14} /> : <Icon name="copy" size={14} />}
               </Button>
               <Button size="sm" variant="quiet" onClick={() => void downloadPng()} title={t("mindmap.png")} aria-label={t("mindmap.png")}>
                 <Icon name="export" size={14} />
@@ -218,6 +215,30 @@ export function MindMapPanel({ sessionId, title, hasSummary, revision = 0, onCit
       )}
     </section>
   );
+}
+
+const MIN_FIT = 0.7;
+const MAX_FIT = 1;
+
+/** Abre só com a raiz e os ramos principais; quem quiser abre o resto clicando no ramo. */
+function collapsed(root: NodeObj): NodeObj {
+  return {
+    ...root,
+    children: root.children?.map((branch) => (branch.children?.length ? { ...branch, expanded: false } : branch)),
+  };
+}
+
+/**
+ * Cabe no quadro, entre 0.7 (menor escala legível) e 1. ponytail: um mapa ainda maior que o
+ * quadro a 0.7 fica centralizado; arrastar ou o zoom do mouse mostram o resto.
+ */
+function fitMap(instance: MindElixirInstance) {
+  instance.scaleFit();
+  const clamped = Math.min(MAX_FIT, Math.max(MIN_FIT, instance.scaleVal));
+  if (clamped !== instance.scaleVal) {
+    instance.scale(clamped);
+    instance.toCenter();
+  }
 }
 
 function hasNodes(record: MindMap | null): boolean {

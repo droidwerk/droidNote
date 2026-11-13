@@ -14,10 +14,9 @@ interface ModelSelectProps {
 
 export function modelMeta(detail?: string): string {
   if (!detail) return "";
+  // Só tira os rótulos do backend quando são um item inteiro entre "·": no texto de ajuda "neste PC" fica.
   return detail
-    .replace(/\bneste PC\b/gi, "")
-    .replace(/\bnão instalado\b/gi, "")
-    .replace(/\bBaixa na primeira geração de nota\b/gi, "")
+    .replace(/(^|[·•])\s*(?:neste PC|não instalado|Baixa na primeira geração de nota)\s*(?=[·•]|$)/gi, "$1")
     .replace(/[·•]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

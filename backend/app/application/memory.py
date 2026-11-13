@@ -136,7 +136,7 @@ class MemoryService:
         if not brief.related:
             return ""
         lines = [
-            "Reuniões anteriores desta mesma série (mesmo título ou mesmas pessoas). Use só para reconhecer "
+            "Reuniões anteriores desta mesma série (mesma pasta, mesmo título ou mesmas pessoas). Use só para reconhecer "
             "quando a conversa atual retoma algo: se uma pendência ou tarefa anterior foi resolvida ou decidida "
             "agora, diga isso explicitamente em \"decisions\" ou em \"topics\"; se seguiu em aberto e foi "
             "mencionada, mantenha em \"open_items\". Não copie nada daqui que a transcrição atual não mencione.",

@@ -2,15 +2,14 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useId,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 import { useT } from "../i18n";
+import { Modal } from "./Modal";
 import { Button } from "./primitives";
 
 export type ConfirmTone = "danger" | "default";
@@ -26,6 +25,7 @@ export interface ConfirmOptions {
 }
 
 interface ConfirmRequest extends ConfirmOptions {
+  id: number;
   resolve: (value: boolean) => void;
 }
 
@@ -34,19 +34,17 @@ interface ConfirmContextValue {
 }
 
 const ConfirmContext = createContext<ConfirmContextValue | null>(null);
-const FOCUSABLE =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+let nextRequestId = 0;
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const t = useT();
   const [request, setRequest] = useState<ConfirmRequest | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
 
   const confirm = useCallback((options: ConfirmOptions) => {
     return new Promise<boolean>((resolve) => {
-      setRequest({ ...options, resolve });
+      setRequest({ ...options, id: (nextRequestId += 1), resolve });
     });
   }, []);
 
@@ -57,46 +55,6 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  useEffect(() => {
-    if (!request) return;
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusables = () =>
-      Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (element) => !element.hasAttribute("disabled"),
-      );
-    const cancel = dialog.querySelector<HTMLElement>(".confirm-actions .button-ghost:not(.confirm-extra)");
-    (cancel ?? focusables()[0])?.focus();
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        settle(false);
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      previouslyFocused?.focus();
-    };
-  }, [request, settle]);
-
   const value = useMemo(() => ({ confirm }), [confirm]);
   const tone = request?.tone ?? "default";
 
@@ -104,39 +62,35 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={value}>
       {children}
       {request ? (
-        <div className="confirm-overlay" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) settle(false);
-        }}>
-          <div
-            ref={dialogRef}
-            className={`confirm-dialog confirm-${tone}`}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            aria-describedby={request.description ? descriptionId : undefined}
-          >
-            <div className="confirm-copy">
-              <h2 id={titleId}>{request.title}</h2>
-              {request.description ? <p id={descriptionId}>{request.description}</p> : null}
-            </div>
-            <div className="confirm-actions">
-              {request.extraAction ? (
-                <Button className="confirm-extra" onClick={request.extraAction.onClick}>
-                  {request.extraAction.label}
-                </Button>
-              ) : null}
-              <Button onClick={() => settle(false)}>
-                {request.cancelLabel ?? t("common.cancel")}
-              </Button>
-              <Button
-                variant={tone === "danger" ? "danger" : "primary"}
-                onClick={() => settle(true)}
-              >
-                {request.confirmLabel ?? t("common.ok")}
-              </Button>
-            </div>
+        <Modal
+          key={request.id}
+          onClose={() => settle(false)}
+          labelledBy={titleId}
+          describedBy={request.description ? descriptionId : undefined}
+          className={`confirm-${tone}`}
+          initialFocus=".confirm-actions .button-ghost:not(.confirm-extra)"
+        >
+          <div className="confirm-copy">
+            <h2 id={titleId}>{request.title}</h2>
+            {request.description ? <p id={descriptionId}>{request.description}</p> : null}
           </div>
-        </div>
+          <div className="confirm-actions">
+            {request.extraAction ? (
+              <Button className="confirm-extra" onClick={request.extraAction.onClick}>
+                {request.extraAction.label}
+              </Button>
+            ) : null}
+            <Button onClick={() => settle(false)}>
+              {request.cancelLabel ?? t("common.cancel")}
+            </Button>
+            <Button
+              variant={tone === "danger" ? "danger" : "primary"}
+              onClick={() => settle(true)}
+            >
+              {request.confirmLabel ?? t("common.ok")}
+            </Button>
+          </div>
+        </Modal>
       ) : null}
     </ConfirmContext.Provider>
   );

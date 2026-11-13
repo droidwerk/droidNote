@@ -2,7 +2,8 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { api } from "../shared/api/client";
 import type { ModelOption, ModelsCatalog, Person, Settings } from "../shared/api/types";
-import { CaptureLanguagePicker, isCaptureLanguage, LanguagePicker, useI18n } from "../shared/i18n";
+import { bcp47, CaptureLanguagePicker, isCaptureLanguage, LanguagePicker, pluralForm, useI18n } from "../shared/i18n";
+import { openExternal } from "../shared/lib/openExternal";
 import type { TranslateFn } from "../shared/i18n/I18nProvider";
 import { AboutPage } from "./AboutPage";
 import { PrivacyPage } from "./PrivacyPage";
@@ -15,9 +16,11 @@ import { ModelSelect, StatusGlyph } from "../shared/ui/ModelSelect";
 import { OpenAiKeyGuide } from "../features/setup/OpenAiKeyGuide";
 import { PrivacyLink } from "../shared/ui/PrivacyPolicy";
 import { Icon } from "../shared/ui/Icon";
+import { KeySeal } from "../shared/ui/KeySeal";
 import { CalendarCard, ConsentCard, RetentionCard } from "../features/meeting/MeetingSettings";
 import { TemplateManager } from "../features/templates/TemplateManager";
 import { useToast } from "../shared/ui/Toast";
+import { TourButton } from "../features/onboarding/Tour";
 
 export type SettingsTab =
   | "transcription"
@@ -38,7 +41,11 @@ interface SettingsPageProps {
   onDownloadVoice?: () => void;
   onTemplatesChanged?: () => void;
   engineProvider?: Settings["provider"];
+  /** Troca o motor na hora, pelo mesmo caminho do seletor da barra lateral. */
+  onEngineChange?: (provider: NonNullable<Settings["provider"]>) => void;
 }
+
+const OPENAI_PRICING = "https://openai.com/api/pricing/";
 
 export function SettingsPage({
   onSaved,
@@ -48,8 +55,10 @@ export function SettingsPage({
   voiceDownloading = false,
   onDownloadVoice,
   onTemplatesChanged,
+  onEngineChange,
 }: SettingsPageProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
+  const lang = bcp47(locale);
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "transcription", label: t("settings.tabTranscription") },
     { id: "language", label: t("settings.tabLanguage") },
@@ -213,6 +222,13 @@ export function SettingsPage({
   }
 
   const cloud = settings.provider === "openai";
+  const whisperCount = (catalog?.whisper ?? []).filter((item) => item.installed).length;
+  const needsDownload =
+    !cloud &&
+    [
+      catalog?.whisper.find((item) => item.id === settings.whisper_model),
+      catalog?.ollama.find((item) => item.id === settings.ollama_model),
+    ].some((item) => item && !item.installed);
   const showActions = tab === "transcription" || tab === "people" || tab === "files";
 
   const persist = async (payload: Partial<Settings> & { asr_api_key?: string; calendar_ics_url?: string }) => {
@@ -383,10 +399,12 @@ export function SettingsPage({
       <PageHeader
         title={<h1>{t("settings.title")}</h1>}
         description={t("settings.description")}
+        actions={<TourButton chapter="preferencias" />}
       />
       {error ? <p className="banner">{error}</p> : null}
 
       <div
+        data-tour="settings-tabs"
         className="settings-tabs"
         role="tablist"
         aria-label={t("settings.tabsAria")}
@@ -425,7 +443,9 @@ export function SettingsPage({
                   role="tab"
                   aria-selected={!cloud}
                   className={!cloud ? "on" : ""}
-                  onClick={() => setSettings({ ...settings, provider: "neste_pc" })}
+                  onClick={() =>
+                    onEngineChange ? onEngineChange("neste_pc") : setSettings({ ...settings, provider: "neste_pc" })
+                  }
                 >
                   {t("engine.localPrivate")}
                 </button>
@@ -434,7 +454,12 @@ export function SettingsPage({
                   role="tab"
                   aria-selected={cloud}
                   className={cloud ? "on" : ""}
-                  onClick={() => setSettings({ ...settings, provider: "openai" })}
+                  onClick={() =>
+                    // Sem chave ainda: mostra o campo aqui; o motor troca ao salvar.
+                    onEngineChange && settings.has_api_key
+                      ? onEngineChange("openai")
+                      : setSettings({ ...settings, provider: "openai" })
+                  }
                 >
                   {t("engine.openaiAccurate")}
                 </button>
@@ -471,6 +496,7 @@ export function SettingsPage({
                       options={localizeModels(
                         optionsFor(catalog?.asr_cloud ?? [], settings.asr_cloud_model ?? "", "openai"),
                         t,
+                        lang,
                       )}
                       onChange={(id) => setSettings({ ...settings, asr_cloud_model: id })}
                       showStatus={false}
@@ -484,11 +510,18 @@ export function SettingsPage({
                       options={localizeModels(
                         optionsFor(catalog?.llm_cloud ?? [], settings.llm_cloud_model ?? "", "openai"),
                         t,
+                        lang,
                       )}
                       onChange={(id) => setSettings({ ...settings, llm_cloud_model: id })}
                       showStatus={false}
                     />
                   </label>
+                  <p className="model-legend">
+                    <button type="button" className="text-link" onClick={() => void openExternal(OPENAI_PRICING)}>
+                      {t("settings.pricing")}
+                    </button>
+                  </p>
+                  <div className="key-field">
                   <label>
                     {t("settings.apiKey")}
                     {settings.has_api_key && !replacingKey ? (
@@ -538,6 +571,8 @@ export function SettingsPage({
                       </>
                     )}
                   </label>
+                  <KeySeal />
+                  </div>
                   <OpenAiKeyGuide defaultOpen={!settings.has_api_key} />
                 </div>
               ) : (
@@ -547,7 +582,7 @@ export function SettingsPage({
                     <ModelSelect
                       label={t("settings.whisperModel")}
                       value={settings.whisper_model}
-                      options={localizeModels(optionsFor(catalog?.whisper ?? [], settings.whisper_model, "whisper"), t)}
+                      options={localizeModels(optionsFor(catalog?.whisper ?? [], settings.whisper_model, "whisper"), t, lang)}
                       onChange={(id) => setSettings({ ...settings, whisper_model: id })}
                     />
                   </label>
@@ -566,7 +601,7 @@ export function SettingsPage({
                     <ModelSelect
                       label={t("settings.noteModel")}
                       value={settings.ollama_model}
-                      options={localizeModels(optionsFor(catalog?.ollama ?? [], settings.ollama_model, "ollama"), t)}
+                      options={localizeModels(optionsFor(catalog?.ollama ?? [], settings.ollama_model, "ollama"), t, lang)}
                       onChange={(id) => setSettings({ ...settings, ollama_model: id })}
                     />
                   </label>
@@ -580,6 +615,9 @@ export function SettingsPage({
                       {t("settings.willDownload")}
                     </span>
                     <InfoTip text={`${t("modelHelp.legend")} ${t("settings.localExpectBody")}`} />
+                    <button type="button" className="text-link model-legend-refresh" onClick={() => void load()} disabled={loading}>
+                      {loading ? t("settings.updating") : t("settings.refresh")}
+                    </button>
                   </p>
                 </div>
               )}
@@ -591,11 +629,10 @@ export function SettingsPage({
                       {catalog?.ollama_online ? t("settings.ollamaOnline") : t("settings.ollamaOffline")}
                     </span>
                     <span className="muted">
-                      {t("settings.whisperInstalled", {
-                        count: (catalog?.whisper ?? []).filter((item) => item.installed).length,
-                      })}
+                      {t(`settings.whisperInstalled_${pluralForm(locale, whisperCount)}`, { count: whisperCount })}
                     </span>
                   </div>
+                  {needsDownload || downloading || downloadStatus ? (
                   <div className="tutorial">
                     <Button onClick={() => void downloadModel()} disabled={downloading} title={t("settings.downloadHint")}>
                       <Icon name="cloud" size={15} />
@@ -608,6 +645,7 @@ export function SettingsPage({
                       </div>
                     ) : null}
                   </div>
+                  ) : null}
                 </>
               )}
             </Card>
@@ -919,9 +957,11 @@ export function SettingsPage({
 
         {showActions ? (
           <div className="settings-actions">
-            <Button onClick={() => void load()} disabled={loading}>
-              {loading ? t("settings.updating") : t("settings.refresh")}
-            </Button>
+            {tab === "transcription" ? null : (
+              <Button onClick={() => void load()} disabled={loading}>
+                {loading ? t("settings.updating") : t("settings.refresh")}
+              </Button>
+            )}
             <Button variant="primary" onClick={() => void save()}>
               {t("common.save")}
             </Button>
@@ -933,7 +973,12 @@ export function SettingsPage({
   );
 }
 
-function localizeModels(items: ModelOption[], t: TranslateFn): ModelOption[] {
+/** "6.1 GB" do catálogo vira "6,1 GB" no idioma da tela. */
+function localSizes(detail: string | undefined, lang: string): string | undefined {
+  return detail?.replace(/(\d+(?:\.\d+)?)(?=\s?[KMGT]B\b)/g, (num) => Number(num).toLocaleString(lang));
+}
+
+function localizeModels(items: ModelOption[], t: TranslateFn, lang: string): ModelOption[] {
   return items.map((item) => {
     // Ponto no id (gpt-4.1-mini, qwen3.6) viraria caminho para o tradutor: nas chaves é sublinhado.
     const safeId = item.id.replace(/\./g, "_");
@@ -942,7 +987,8 @@ function localizeModels(items: ModelOption[], t: TranslateFn): ModelOption[] {
     // A segunda linha de cada opção explica, sem jargão, para quem aquele modelo serve.
     const helpKey = `modelHelp.${safeId}`;
     const help = t(helpKey);
-    const detail = help === helpKey ? item.detail : [help, item.detail].filter(Boolean).join(" · ");
+    const size = localSizes(item.detail, lang);
+    const detail = help === helpKey ? size : [help, size].filter(Boolean).join(" · ");
     return { ...item, label: label === key ? item.label : label, detail };
   });
 }

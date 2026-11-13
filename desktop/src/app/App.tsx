@@ -3,8 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CommandPalette } from "../features/command/CommandPalette";
 import { MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
+import { WelcomeModal, WhatsNewModal } from "../features/onboarding/Onboarding";
+import { Tour, type TourStart } from "../features/onboarding/Tour";
+import { TOUR_EVENT } from "../features/onboarding/tourScript";
 import { Wizard } from "../features/setup/Wizard";
 import { ChatPage } from "../pages/ChatPage";
+import { HelpPage } from "../pages/HelpPage";
 import { LivePage } from "../pages/LivePage";
 import { SessionPage } from "../pages/SessionPage";
 import { SettingsPage, type SettingsTab } from "../pages/SettingsPage";
@@ -18,6 +22,7 @@ import { openMiniWindow, requestAttention } from "../shared/lib/miniWindow";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { useFlag } from "../shared/lib/useFlag";
 import { useUpdateNotice } from "../shared/lib/useUpdateNotice";
+import { decideOnboarding, LAST_VERSION_KEY, readStored, WELCOME_KEY, writeStored } from "../shared/lib/whatsNew";
 import { AppVersion, BrandLockup, SiteCredit } from "../shared/ui/Brand";
 import { BootScreen } from "../shared/ui/BootScreen";
 import { useConfirm } from "../shared/ui/ConfirmDialog";
@@ -26,7 +31,7 @@ import { Icon, type IconName } from "../shared/ui/Icon";
 import { StatusStrip } from "../shared/ui/StatusStrip";
 import { useToast } from "../shared/ui/Toast";
 
-type View = "live" | "session" | "settings" | "chat" | "tasks" | "library";
+type View = "live" | "session" | "settings" | "chat" | "tasks" | "library" | "help";
 
 const RECENT_LIMIT = 14;
 
@@ -107,7 +112,46 @@ export function App() {
   const [engineInfo, setEngineInfo] = useState({ asr: "—", note: "—" });
   const captureIdRef = useRef<string | null>(null);
   captureIdRef.current = captureId;
-  useUpdateNotice(ready && !needsWizard && !bootError);
+  const updateSettled = useUpdateNotice(ready && !needsWizard && !bootError);
+  // Instalação nova = o assistente abriu nesta execução. Só ela vê as boas-vindas; quem já usava não.
+  const freshInstall = useRef(false);
+  const onboardingChecked = useRef(false);
+  const [onboarding, setOnboarding] = useState<{ kind: "welcome" } | { kind: "news"; version: string } | null>(null);
+  // O tour nunca abre sozinho: só por "Fazer o tour", pela Ajuda, pelo "?" da tela ou pela paleta.
+  const [tour, setTour] = useState<{ start: TourStart; key: number } | null>(null);
+  const endTour = useCallback(() => setTour(null), []);
+  const startTour = useCallback(() => {
+    setOnboarding(null);
+    setTour((current) => ({ start: { kind: "picker" }, key: (current?.key ?? 0) + 1 }));
+  }, []);
+  useEffect(() => {
+    const onRequest = (event: Event) => {
+      const chapter = (event as CustomEvent<string | null>).detail;
+      setTour((current) => ({ start: chapter ? { kind: "chapter", chapter } : { kind: "picker" }, key: (current?.key ?? 0) + 1 }));
+    };
+    window.addEventListener(TOUR_EVENT, onRequest);
+    return () => window.removeEventListener(TOUR_EVENT, onRequest);
+  }, []);
+
+  // Um diálogo por vez: o aviso de nova versão vem primeiro; boas-vindas ou novidades só depois dele.
+  useEffect(() => {
+    if (!ready || needsWizard || bootError || !updateSettled || onboardingChecked.current) return;
+    onboardingChecked.current = true;
+    void import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .catch(() => "")
+      .then(async (current) => {
+        const last = readStored(LAST_VERSION_KEY);
+        if (current) writeStored(LAST_VERSION_KEY, current);
+        const welcomeSeen = readStored(WELCOME_KEY) !== null;
+        if (!welcomeSeen) writeStored(WELCOME_KEY, "1");
+        const sessionCount =
+          !last && !welcomeSeen ? await api.sessions().then((list) => list.length).catch(() => null) : null;
+        const kind = decideOnboarding({ wizardRan: freshInstall.current, last, welcomeSeen, sessionCount, current });
+        if (kind === "welcome") setOnboarding({ kind: "welcome" });
+        if (kind === "news") setOnboarding({ kind: "news", version: current.trim().replace(/^v/i, "") });
+      });
+  }, [ready, needsWizard, bootError, updateSettled]);
 
   const openChat = useCallback((focus?: ChatFocus) => {
     setChatFocus(focus ?? null);
@@ -308,6 +352,7 @@ export function App() {
           setLanguage(isCaptureLanguage(settings.language) ? settings.language : "pt");
           applyEngineSettings(settings);
           const wizard = !status.disclaimer_accepted || !status.setup_complete;
+          if (wizard) freshInstall.current = true;
           setNeedsWizard(wizard);
           setVoiceReady(status.voice ? status.voice.status === "ready" : false);
           if (status.voice?.status === "downloading") {
@@ -709,6 +754,16 @@ export function App() {
 
   const groups = groupByDay(recentSessions, t);
 
+  // Conversas que o tour pode abrir: a que está sendo gravada fica de fora.
+  const tourSessions = sessions.filter((session) => !(capture.recording && session.id === capture.session_id));
+  const openTourSession = () => {
+    if (view === "session" && activeId) return true;
+    const latest = tourSessions[0];
+    if (!latest) return false;
+    openSession(latest.id);
+    return true;
+  };
+
   return (
     <div className={["shell", capture.recording ? "is-recording" : "", navCollapsed ? "is-nav-collapsed" : ""].filter(Boolean).join(" ")}>
       <aside className="sidebar">
@@ -718,21 +773,22 @@ export function App() {
             type="button"
             className="sidebar-toggle"
             onClick={toggleNav}
-            title={`${navCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")} (Ctrl+B)`}
+            title={`${navCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")} (Ctrl B)`}
             aria-label={navCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
             aria-expanded={!navCollapsed}
           >
             <Icon name="rail" size={16} />
           </button>
         </div>
-        <nav className="nav" aria-label={t("nav.primary")}>
-          <NavButton icon="console" label={t("nav.live")} active={view === "live"} onClick={() => setView("live")} badge={capture.recording ? "rec" : undefined} />
-          <NavButton icon="folder" label={t("nav.library")} active={view === "library"} onClick={() => setView("library")} />
+        <nav data-tour="nav" className="nav" aria-label={t("nav.primary")}>
+          <NavButton tour="live" icon="console" label={t("nav.live")} active={view === "live"} onClick={() => setView("live")} badge={capture.recording ? "rec" : undefined} />
+          <NavButton tour="library" icon="folder" label={t("nav.library")} active={view === "library"} onClick={() => setView("library")} />
           <NavButton icon="tasks" label={t("nav.tasks")} active={view === "tasks"} onClick={() => setView("tasks")} badge={openTasks ? String(openTasks) : undefined} />
-          <NavButton icon="chat" label={t("nav.chat")} active={view === "chat"} onClick={() => openChat()} badge={t("common.beta")} />
+          <NavButton icon="chat" label={t("nav.chat")} active={view === "chat"} onClick={() => openChat()} />
           <NavButton icon="settings" label={t("nav.settings")} active={view === "settings"} onClick={() => openSettings()} />
+          <NavButton icon="help" label={t("nav.help")} active={view === "help"} onClick={() => setView("help")} />
         </nav>
-        <div className="sidebar-section">
+        <div data-tour="recent" className="sidebar-section">
           <div className="sidebar-heading">
             <span>{t("nav.recent")}</span>
           </div>
@@ -779,6 +835,7 @@ export function App() {
       </aside>
       <main className="main">
         <StatusStrip
+          hideIdle={view === "live"}
           recording={capture.recording}
           socketLive={socketLive}
           provider={asrProvider}
@@ -923,6 +980,7 @@ export function App() {
               liveSessionId={capture.recording ? capture.session_id : null}
               onOpenSession={(sessionId) => openSession(sessionId)}
               onChanged={loadSessions}
+              onGoLive={() => setView("live")}
             />
           ) : null}
           {view === "tasks" ? (
@@ -941,11 +999,13 @@ export function App() {
               onOpenSettings={() => openSettings("transcription")}
             />
           ) : null}
+          {view === "help" ? <HelpPage /> : null}
           {view === "settings" ? (
             <SettingsPage
               key={settingsTab}
               initialTab={settingsTab}
               engineProvider={asrProvider}
+              onEngineChange={(next) => void switchProvider(next)}
               voiceReady={Boolean(voiceReady)}
               voiceDownloading={voiceDownloading}
               onDownloadVoice={() => void downloadVoice()}
@@ -972,6 +1032,32 @@ export function App() {
         onOpenLive={() => setView("live")}
         onOpenTasks={() => setView("tasks")}
       />
+      {onboarding?.kind === "welcome" ? (
+        <WelcomeModal
+          local={asrProvider !== "openai"}
+          onClose={() => setOnboarding(null)}
+          onTour={startTour}
+          onHelp={() => {
+            setOnboarding(null);
+            setView("help");
+          }}
+        />
+      ) : null}
+      {onboarding?.kind === "news" ? (
+        <WhatsNewModal version={onboarding.version} onClose={() => setOnboarding(null)} />
+      ) : null}
+      {tour ? (
+        <Tour
+          key={tour.key}
+          start={tour.start}
+          view={view}
+          recording={capture.recording}
+          hasSession={tourSessions.length > 0}
+          onNavigate={setView}
+          onOpenSession={openTourSession}
+          onEnd={endTour}
+        />
+      ) : null}
     </div>
   );
 }
@@ -998,6 +1084,7 @@ async function untilBackendAnswers<T>(call: () => Promise<T>, cancelled: () => b
 }
 
 function NavButton({
+  tour,
   icon,
   label,
   active,
@@ -1009,9 +1096,10 @@ function NavButton({
   active: boolean;
   onClick: () => void;
   badge?: string;
+  tour?: string;
 }) {
   return (
-    <button className={active ? "nav-item is-active" : "nav-item"} aria-current={active ? "page" : undefined} onClick={onClick} type="button" title={label}>
+    <button data-tour={tour} className={active ? "nav-item is-active" : "nav-item"} aria-current={active ? "page" : undefined} onClick={onClick} type="button" title={label}>
       <Icon name={icon} size={18} />
       <span>{label}</span>
       {badge === "rec" ? <span className="nav-rec" aria-hidden /> : badge ? <span className={/^\d+$/.test(badge) ? "nav-badge is-count" : "nav-badge"}>{badge}</span> : null}

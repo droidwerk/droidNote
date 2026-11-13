@@ -100,6 +100,11 @@
   list-style: none;
 }
 
+.memory-thread li {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .memory-chip {
   display: inline-flex;
   align-items: center;
@@ -119,21 +124,28 @@
   color: var(--text);
 }
 
+.memory-chip time,
+.memory-chip small {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .memory-chip time {
   color: var(--faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .memory-chip span {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .memory-chip small {
-  color: var(--faint);
-  font-size: 10px;
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
 .memory-list {
@@ -275,26 +287,6 @@
 }
 
 
-/* ----------------------------------------------------- abas laterais compactas */
-
-.side-panel {
-  container-type: inline-size;
-}
-
-.side-panel > .tabs {
-  flex-wrap: wrap;
-}
-
-.side-panel > .tabs button {
-  flex: 1 1 auto;
-  padding: 0 9px;
-}
-
-@container (max-width: 420px) {
-  .side-panel > .tabs .tab-label {
-    display: none;
-  }
-}
 
 /* --------------------------------------------------------- material de apoio */
 

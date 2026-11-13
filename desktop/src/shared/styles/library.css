@@ -106,7 +106,10 @@
 }
 
 .folder-select select {
-  max-width: 180px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   height: 100%;
   padding-right: 4px;
   border: 0;
@@ -366,7 +369,7 @@
 
 .library-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 160px) 130px 70px;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(150px, 220px) 130px 70px;
   align-items: center;
   gap: 10px;
   min-height: 42px;
@@ -499,6 +502,10 @@
   text-align: center;
 }
 
+.library-empty .button {
+  margin-top: 10px;
+}
+
 .library-empty strong {
   color: var(--text);
   font-size: 14px;
@@ -521,7 +528,7 @@
   }
 
   .library-row {
-    grid-template-columns: 36px minmax(0, 1fr) minmax(0, 120px) 104px 60px;
+    grid-template-columns: 36px minmax(0, 1fr) minmax(120px, 160px) 104px 60px;
   }
 
   .library-toolbar {
@@ -558,14 +565,3 @@
   }
 }
 
-/* Abas do painel lateral: cabem as quatro sem cortar a última. */
-.side-panel .tabs {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.side-panel .tabs button {
-  flex: 1 0 auto;
-  gap: 5px;
-  padding: 0 9px;
-}

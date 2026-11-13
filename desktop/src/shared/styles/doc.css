@@ -105,8 +105,14 @@
   color: var(--accent-ink);
 }
 
+/* A ata na tela não repete o título da conversa (ele já está no topo da página); a exportação mantém. */
+.summary .note-editor .ProseMirror > h1:first-child {
+  display: none;
+}
+
 .chat-stamp {
   display: inline;
+  white-space: nowrap;
   margin: 0 1px;
   padding: 0 6px;
   border: 1px solid var(--accent-line);
@@ -121,6 +127,15 @@
 .chat-stamp:hover {
   background: var(--accent);
   color: var(--accent-ink);
+}
+
+.chat-stamp.is-muted,
+.chat-stamp.is-muted:hover {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: default;
 }
 
 .transcript article.is-cited {

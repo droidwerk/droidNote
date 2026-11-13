@@ -43,7 +43,7 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
 
   if (!data.configured) {
     return (
-      <button type="button" className="upcoming-connect" onClick={onConnect} title={t("calendar.connectHint")}>
+      <button data-tour="upcoming" type="button" className="upcoming-connect" onClick={onConnect} title={t("calendar.connectHint")}>
         <Icon name="calendar" size={16} />
         <span>
           <strong>{t("calendar.connectTitle")}</strong>
@@ -65,7 +65,7 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
   };
 
   return (
-    <section className="upcoming panel">
+    <section data-tour="upcoming" className="upcoming panel">
       <div className="panel-head">
         <div className="panel-title">
           <span className="eyebrow">
