@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.3.1] — 2026-11-13
+
 ### Added
 - Chat context with several conversations: pick them with "Choose conversations" (search, last 7 or 30 days, folder); the answer uses only those, a line above the box says how many, and the pick is saved on the chat and restored when you reopen it.
 - Chat: Stop button (the partial answer is kept and marked as interrupted), rename a chat, "Try again" after an error without repeating the question, "Generate again" on the last answer, history grouped by Today, Yesterday, 7 days and Earlier.
@@ -193,7 +195,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/droidwerk/droidNote/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/droidwerk/droidNote/compare/v2.2.10...v2.3.0
 [2.2.10]: https://github.com/droidwerk/droidNote/compare/v2.2.9...v2.2.10
 [2.2.9]: https://github.com/droidwerk/droidNote/compare/v2.2.8...v2.2.9
