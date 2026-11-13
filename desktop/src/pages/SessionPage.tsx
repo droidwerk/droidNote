@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { api } from "../shared/api/client";
 import type { Brief, ChatFocus, NoteTemplate, Person, SessionDetail, Tag } from "../shared/api/types";
@@ -8,11 +8,12 @@ import { MindMapPanel } from "../features/mindmap/MindMapPanel";
 import { MemoryPanel } from "../features/memory/MemoryPanel";
 import { ContextPanel } from "../features/context/ContextPanel";
 import { templateName } from "../shared/lib/templates";
-import { pluralForm, useI18n } from "../shared/i18n";
+import { bcp47, pluralForm, useI18n } from "../shared/i18n";
 import { AudioPlayer } from "../features/audio/AudioPlayer";
 import { FolderSelect } from "../features/session/FolderSelect";
 import { NoteDocument } from "../features/document/NoteDocument";
 import { modeIcon } from "../features/command/CommandPalette";
+import { TourButton } from "../features/onboarding/Tour";
 import { SummaryPanel } from "../features/summary/SummaryPanel";
 import { DockToggle, TranscriptTicker, useTranscriptDock } from "../features/transcript/TranscriptDock";
 import { TranscriptList } from "../features/transcript/TranscriptList";
@@ -25,6 +26,7 @@ import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Icon, type IconName } from "../shared/ui/Icon";
 import { Button } from "../shared/ui/primitives";
 import { SessionTitle } from "../shared/ui/SessionTitle";
+import { onTabListKeyDown, panelId, tabId, tabPanelProps } from "../shared/ui/Tabs";
 import { useToast } from "../shared/ui/Toast";
 
 interface SessionPageProps {
@@ -76,12 +78,41 @@ export function SideTabButton<T extends string>({
   count?: number;
 }) {
   return (
-    <button type="button" role="tab" aria-selected={side === id} className={side === id ? "is-on" : ""} title={label} onClick={() => onPick(id)}>
+    <button
+      type="button"
+      role="tab"
+      id={tabId("side", id)}
+      aria-selected={side === id}
+      aria-controls={panelId("side", id)}
+      tabIndex={side === id ? 0 : -1}
+      className={side === id ? "is-on" : ""}
+      title={label}
+      onClick={() => onPick(id)}
+    >
       <Icon name={icon} size={15} />
       <span className="tab-label">{label}</span>
       {count ? <span className="tab-count">{count}</span> : null}
     </button>
   );
+}
+
+/** Fecha um menu aberto com clique fora ou Esc. */
+function useMenuDismiss(open: boolean, ref: RefObject<HTMLElement | null>, setOpen: (open: boolean) => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, ref, setOpen]);
 }
 
 export function SessionPage({
@@ -122,7 +153,9 @@ export function SessionPage({
   const [refining, setRefining] = useState(false);
   const [recipesOpen, setRecipesOpen] = useState(false);
   const [brief, setBrief] = useState<Brief | null>(null);
+  const [stillOpen, setStillOpen] = useState<number | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  const recipesRef = useRef<HTMLDivElement>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -172,6 +205,18 @@ export function SessionPage({
     };
   }, [sessionId, tasksRevision, memoryRevision, detail?.session.title]);
 
+  // Selo da aba Memória = "Segue em aberto" do painel, não as tarefas pendentes.
+  useEffect(() => {
+    let alive = true;
+    void api
+      .memory(sessionId)
+      .then((next) => alive && setStillOpen(next.still_open.length))
+      .catch(() => alive && setStillOpen(null));
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, summaryRevision, memoryRevision, tasksRevision]);
+
   const lastRevision = useRef(voicesRevision);
   useEffect(() => {
     if (voicesRevision === lastRevision.current) return;
@@ -179,21 +224,8 @@ export function SessionPage({
     void reload();
   }, [voicesRevision, reload]);
 
-  useEffect(() => {
-    if (!exportOpen) return;
-    const onPointer = (event: MouseEvent) => {
-      if (exportRef.current && !exportRef.current.contains(event.target as Node)) setExportOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setExportOpen(false);
-    };
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [exportOpen]);
+  useMenuDismiss(exportOpen, exportRef, setExportOpen);
+  useMenuDismiss(recipesOpen, recipesRef, setRecipesOpen);
 
   const merged = useMemo(() => mergeVoicesByPerson(detail?.segments ?? []), [detail?.segments]);
   const segments = merged.segments;
@@ -214,6 +246,7 @@ export function SessionPage({
     const updated = await api.renameSession(sessionId, title);
     setDetail({ ...detail, session: updated });
     onRenamed?.(updated.title);
+    toast.push({ tone: "success", title: t("session.renamed") });
   };
 
   const generate = async (chosen?: string | null) => {
@@ -307,7 +340,7 @@ export function SessionPage({
 
   return (
     <div className="page session">
-      <header className="page-head">
+      <header data-tour="session-head" className="page-head">
         <div className="page-head-copy">
           <SessionTitle value={detail.session.title} onCommit={rename} />
           <p className="session-meta">
@@ -318,7 +351,7 @@ export function SessionPage({
             <span>{formatDate(detail.session.started_at)}</span>
             <span>{formatClock(detail.session.duration_ms)}</span>
             {roster.length ? <span>{t("voices.count", { count: roster.length })}</span> : null}
-            {words ? <span>{t("console.words", { count: words })}</span> : null}
+            {words ? <span>{t("console.words", { count: words.toLocaleString(bcp47(locale)) })}</span> : null}
             {detail.session.language ? <span>{detail.session.language.toUpperCase()}</span> : null}
           </p>
         </div>
@@ -331,17 +364,18 @@ export function SessionPage({
               setDetail({ ...detail, session: { ...detail.session, tags } });
               void api.tags().then(setCatalog);
               onTagsChanged?.();
+              toast.push({ tone: "success", title: t("session.folderSaved") });
             }}
           />
           {onAsk ? (
-            <Button variant="quiet" onClick={() => onAsk({ sessionId, sessionTitle: detail.session.title })}>
+            <Button data-tour="session-ask" variant="quiet" onClick={() => onAsk({ sessionId, sessionTitle: detail.session.title })}>
               <Icon name="chat" size={15} />
               {t("transcript.ask")}
             </Button>
           ) : null}
           {onAsk && templates.some((item) => item.kind === "recipe") ? (
-            <div className="export-menu">
-              <Button variant="quiet" aria-expanded={recipesOpen} onClick={() => setRecipesOpen((open) => !open)}>
+            <div className="export-menu" ref={recipesRef}>
+              <Button variant="quiet" aria-expanded={recipesOpen} aria-haspopup="menu" onClick={() => setRecipesOpen((open) => !open)}>
                 <Icon name="spark" size={15} />
                 {t("recipes.title")}
               </Button>
@@ -366,7 +400,7 @@ export function SessionPage({
               ) : null}
             </div>
           ) : null}
-          <div className="export-menu" ref={exportRef}>
+          <div data-tour="export" className="export-menu" ref={exportRef}>
             <Button disabled={exportBusy} aria-expanded={exportOpen} aria-haspopup="menu" onClick={() => setExportOpen((open) => !open)}>
               <Icon name="export" size={15} />
               {exportBusy ? t("session.exporting") : t("session.export")}
@@ -394,7 +428,8 @@ export function SessionPage({
               </div>
             ) : null}
           </div>
-          <Button variant="danger" onClick={() => void remove()} aria-label={t("common.delete")} title={t("common.delete")}>
+          <TourButton chapter="conversa" />
+          <Button variant="danger" className="page-actions-delete" onClick={() => void remove()} aria-label={t("common.delete")} title={t("common.delete")}>
             <Icon name="trash" size={15} />
           </Button>
         </div>
@@ -404,7 +439,7 @@ export function SessionPage({
 
 
       {detail.session.has_audio || detail.segments.length ? (
-      <section className="panel playback">
+      <section data-tour="playback" className="panel playback">
         {detail.session.has_audio ? (
           <AudioPlayer sessionId={sessionId} seekMs={seekMs} onSeeked={() => setSeekMs(null)} onTimeMs={setActiveMs} />
         ) : null}
@@ -418,8 +453,8 @@ export function SessionPage({
       </section>
       ) : null}
 
-      <div className={`workspace is-ai-first${dockMin ? " is-dock-min" : ""}`}>
-        <section className="panel transcript-panel">
+      <div className={`workspace is-ai-first${dockMin ? " is-dock-min" : ""}${side === "mindmap" ? " is-map" : ""}`}>
+        <section data-tour="transcript" className="panel transcript-panel">
           <div className="panel-head">
             <div className="panel-title">
               <h2>{t("live.transcript")}</h2>
@@ -498,16 +533,16 @@ export function SessionPage({
           )}
         </section>
         <aside className="panel side-panel">
-          <div className="tabs" role="tablist">
+          <div className="tabs" role="tablist" onKeyDown={onTabListKeyDown}>
             <SideTabButton id="doc" icon="spark" label={t("doc.tab")} side={side} onPick={setSide} />
             <SideTabButton id="notes" icon="edit" label={t("notes.tab")} side={side} onPick={setSide} />
             <SideTabButton id="context" icon="attach" label={t("context.tab")} side={side} onPick={setSide} />
             <SideTabButton id="mindmap" icon="mindmap" label={t("mindmap.tab")} side={side} onPick={setSide} />
-            <SideTabButton id="memory" icon="memory" label={t("memory.tab")} side={side} onPick={setSide} count={brief?.pending.length} />
+            <SideTabButton id="memory" icon="memory" label={t("memory.tab")} side={side} onPick={setSide} count={stillOpen ?? undefined} />
             <SideTabButton id="voices" icon="voice" label={t("voices.title")} side={side} onPick={setSide} count={roster.length} />
           </div>
           {side === "notes" ? (
-            <div className="side-body">
+            <div className="side-body" {...tabPanelProps("side", side)}>
               <UserNotes
                 sessionId={sessionId}
                 recording={false}
@@ -519,11 +554,11 @@ export function SessionPage({
               />
             </div>
           ) : side === "context" ? (
-            <div className="side-body">
+            <div className="side-body" {...tabPanelProps("side", side)}>
               <ContextPanel sessionId={sessionId} revision={summaryRevision} />
             </div>
           ) : side === "mindmap" ? (
-            <div className="side-body">
+            <div className="side-body" {...tabPanelProps("side", side)}>
               <MindMapPanel
                 sessionId={sessionId}
                 title={detail.session.title}
@@ -533,17 +568,18 @@ export function SessionPage({
               />
             </div>
           ) : side === "memory" ? (
-            <div className="side-body">
+            <div className="side-body" {...tabPanelProps("side", side)}>
               <MemoryPanel
                 sessionId={sessionId}
                 revision={summaryRevision + memoryRevision + tasksRevision}
                 onOpenSession={onOpenSession}
                 onTasksChanged={onTagsChanged}
+                onStillOpen={setStillOpen}
               />
-              {brief ? <BriefCard brief={brief} onOpenSession={onOpenSession} onTasksChanged={onTagsChanged} /> : null}
+              {brief ? <BriefCard brief={brief} pendingOnly onOpenSession={onOpenSession} onTasksChanged={onTagsChanged} /> : null}
             </div>
           ) : side === "doc" ? (
-            <div className="side-body">
+            <div className="side-body" {...tabPanelProps("side", side)}>
               <NoteDocument
                 aiFirst={Boolean(detail.summary)}
                 engineRevision={summaryRevision}
@@ -567,7 +603,7 @@ export function SessionPage({
               />
             </div>
           ) : (
-            <div className="side-body">
+            <div className="side-body" {...tabPanelProps("side", side)}>
               <VoiceRoster
                 roster={roster}
                 people={people}

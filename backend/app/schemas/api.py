@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.domain.models import (
     ChatImage,
@@ -380,7 +380,7 @@ class BriefSessionOut(BaseModel):
     session_id: str
     title: str
     started_at: datetime
-    reason: Literal["title", "people", "both"]
+    reason: Literal["folder", "title", "people", "both"]
     overview: str = ""
     decisions: list[str] = Field(default_factory=list)
     open_items: list[str] = Field(default_factory=list)
@@ -449,7 +449,7 @@ class MemoryThreadOut(BaseModel):
     session_id: str
     title: str
     started_at: datetime
-    reason: Literal["title", "people", "both"]
+    reason: Literal["folder", "title", "people", "both"]
     has_summary: bool = False
     decisions: list[str] = Field(default_factory=list)
     open_items: list[str] = Field(default_factory=list)
@@ -694,7 +694,8 @@ class ChatScopeIn(BaseModel):
     days: int | None = Field(default=None, ge=1, le=3660)
     person_id: str | None = None
     tag_id: str | None = None
-    session_ids: list[str] = Field(default_factory=list, max_length=50)
+    # Chamadas escolhidas na tela; a primeira é a "em foco" (nota e memória da série).
+    session_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ChatImageIn(BaseModel):
@@ -722,6 +723,12 @@ class ChatAskIn(BaseModel):
     solve_target: Literal["generic", "claude", "codex", "cursor"] = "generic"
     scope: ChatScopeIn | None = None
     images: list[ChatImageIn] = Field(default_factory=list, max_length=3)
+    # "Tentar de novo" depois de um erro: reaproveita a pergunta sem resposta, sem gravar outra.
+    retry: bool = False
+
+
+class ChatRenameIn(BaseModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 
 
 class ChatImageOut(BaseModel):
@@ -801,6 +808,7 @@ class ChatMessageOut(BaseModel):
     citations: list[ChatCitationOut] = Field(default_factory=list)
     images: list[ChatImageOut] = Field(default_factory=list)
     style: str | None = None
+    interrupted: bool = False
 
     @classmethod
     def from_domain(cls, message: ChatMessage) -> ChatMessageOut:
@@ -813,6 +821,7 @@ class ChatMessageOut(BaseModel):
             citations=[ChatCitationOut.from_domain(item) for item in message.citations],
             images=[ChatImageOut.from_domain(item) for item in message.images],
             style=message.style,
+            interrupted=message.interrupted,
         )
 
 
@@ -822,6 +831,8 @@ class ChatOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     focus_session_id: str | None = None
+    # Chips da última pergunta; vazio = todas as conversas.
+    scope_session_ids: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_domain(cls, chat: Chat) -> ChatOut:
@@ -831,6 +842,7 @@ class ChatOut(BaseModel):
             created_at=chat.created_at,
             updated_at=chat.updated_at,
             focus_session_id=chat.focus_session_id,
+            scope_session_ids=list(chat.scope_session_ids),
         )
 
 

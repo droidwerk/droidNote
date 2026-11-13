@@ -29,6 +29,8 @@ export type IconName =
   | "tasks"
   | "calendar"
   | "shield"
+  | "center"
+  | "copy"
   | "gear"
   | "link"
   | "edit"
@@ -37,7 +39,8 @@ export type IconName =
   | "collapse"
   | "rail"
   | "mindmap"
-  | "memory";
+  | "memory"
+  | "help";
 
 const PATHS: Record<IconName, ReactElement> = {
   console: (
@@ -208,6 +211,26 @@ const PATHS: Record<IconName, ReactElement> = {
   collapse: <path d="m6.5 14.5 5.5-5.5 5.5 5.5" />,
   attach: <path d="M19 11.5 12 18.5a4.6 4.6 0 0 1-6.5-6.5l7.2-7.2a3 3 0 0 1 4.3 4.3l-7.1 7.1a1.5 1.5 0 0 1-2.1-2.1l6.5-6.5" />,
   edit: <path d="M14.5 5.5 18.5 9.5M4.5 19.5l1-4.2L15.8 5a1.4 1.4 0 0 1 2 0l1.2 1.2a1.4 1.4 0 0 1 0 2L8.7 18.5z" />,
+  help: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.6 9.6a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.6" />
+      <path d="M12 16.6v.2" />
+    </>
+  ),
+  center: (
+    <>
+      <circle cx="12" cy="12" r="6.5" />
+      <circle cx="12" cy="12" r="1.6" />
+      <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
+      <path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" />
+    </>
+  ),
   shield: (
     <>
       <path d="M12 3.8 5.5 6.3v5.2c0 4.1 2.7 7.2 6.5 8.7 3.8-1.5 6.5-4.6 6.5-8.7V6.3z" />

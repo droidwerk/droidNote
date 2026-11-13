@@ -15,7 +15,7 @@ from app.application.chat import ChatImageIn, ChatScope
 from app.application.export import export_markdown_docx, export_markdown_pdf
 from app.core.i18n import ui_message
 from app.core.security import verify_token
-from app.schemas.api import ChatAskIn, ChatCitationOut, ChatDetailOut, ChatMessageOut, ChatOut
+from app.schemas.api import ChatAskIn, ChatCitationOut, ChatDetailOut, ChatMessageOut, ChatOut, ChatRenameIn
 
 router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(verify_token)])
 
@@ -43,6 +43,15 @@ async def get_chat(request: Request, chat_id: str) -> ChatDetailOut:
         chat=ChatOut.from_domain(chat),
         messages=[ChatMessageOut.from_domain(item) for item in messages],
     )
+
+
+@router.patch("/{chat_id}", response_model=ChatOut)
+async def rename_chat(request: Request, chat_id: str, payload: ChatRenameIn) -> ChatOut:
+    try:
+        chat = await get_container(request.app).chat.rename(chat_id, payload.title)
+    except KeyError:
+        raise _missing(request) from None
+    return ChatOut.from_domain(chat)
 
 
 @router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -155,6 +164,8 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
                 solve_target=payload.solve_target,
                 scope=scope,
                 images=images,
+                retry=payload.retry,
+                on_chat=lambda chat: queue.put_nowait(("chat", chat.id)),
             )
             queue.put_nowait(
                 (
@@ -187,7 +198,9 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
         try:
             while True:
                 kind, data = await queue.get()
-                if kind == "token":
+                if kind == "chat":
+                    yield f"data: {json.dumps({'chat_id': data})}\n\n"
+                elif kind == "token":
                     yield f"data: {json.dumps({'token': data}, ensure_ascii=False)}\n\n"
                 elif kind == "done":
                     yield f"data: {json.dumps({'done': True, **data}, ensure_ascii=False)}\n\n"

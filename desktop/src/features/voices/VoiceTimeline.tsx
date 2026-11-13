@@ -20,6 +20,8 @@ export function VoiceTimeline({ segments, roster, durationMs, playheadMs = null,
   const span = Math.max(durationMs, lastEnd, 1000);
   if (roster.length === 0) return null;
   const ticks = buildTicks(span);
+  // Gravação que segue muito depois da última fala: a faixa vazia é silêncio de verdade, não erro de escala.
+  const silent = span - lastEnd >= Math.max(60_000, span * 0.1) ? lastEnd : null;
 
   const seek = (event: MouseEvent<HTMLDivElement>) => {
     if (!onSeek) return;
@@ -32,7 +34,15 @@ export function VoiceTimeline({ segments, roster, durationMs, playheadMs = null,
     <div className="timeline" aria-label={t("voices.timeline")}>
       <div className="timeline-head">
         <span className="eyebrow">{t("voices.timeline")}</span>
-        <span className="timeline-span">{formatClock(span)}</span>
+        <span className="timeline-span">
+          {silent !== null ? (
+            <>
+              <em>{t("voices.noSpeechAfter", { time: formatClock(silent) })}</em>
+              {" · "}
+            </>
+          ) : null}
+          {formatClock(span)}
+        </span>
       </div>
       <div className="timeline-grid">
         {roster.map((voice) => (
@@ -50,6 +60,13 @@ export function VoiceTimeline({ segments, roster, durationMs, playheadMs = null,
                     }}
                   />
                 ))}
+              {silent !== null ? (
+                <span
+                  className="timeline-silence"
+                  aria-hidden
+                  style={{ left: `${(silent / span) * 100}%`, width: `${((span - silent) / span) * 100}%` }}
+                />
+              ) : null}
               {playheadMs !== null ? <b className="timeline-playhead" style={{ left: `${(playheadMs / span) * 100}%` }} /> : null}
             </div>
           </div>

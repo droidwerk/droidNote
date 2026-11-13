@@ -74,13 +74,13 @@ export function VoiceRoster({
                   <span className="roster-copy">
                     <strong>
                       {voice.name ?? voiceName(voice.cluster)}
-                      {voice.hasVoiceprint ? <span className="roster-known" aria-label={t("voices.learned")} /> : null}
+                      {voice.hasVoiceprint ? <span className="roster-known" role="img" aria-label={t("voices.learned")} /> : null}
                     </strong>
                     <small>
                       {voice.name ? `${voiceName(voice.cluster)} · ` : ""}
                       {t("voices.turns", { count: voice.turns })}
-                      {voice.sources.includes("mic") ? " · MIC" : ""}
-                      {voice.sources.includes("loopback") ? " · SYS" : ""}
+                      {voice.sources.includes("mic") ? ` · ${t("voices.srcMic")}` : ""}
+                      {voice.sources.includes("loopback") ? ` · ${t("voices.srcSys")}` : ""}
                     </small>
                   </span>
                   <span className="roster-share">
@@ -103,7 +103,12 @@ export function VoiceRoster({
                       }}
                     />
                   ) : (
-                    <button type="button" className="roster-name-btn" onClick={() => setEditing(voice.cluster)}>
+                    <button
+                      type="button"
+                      className="roster-name-btn"
+                      aria-label={t("voices.renameAria", { name: voice.name ?? voiceName(voice.cluster) })}
+                      onClick={() => setEditing(voice.cluster)}
+                    >
                       {voice.name ? t("voices.rename") : t("voices.name")}
                     </button>
                   )

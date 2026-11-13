@@ -62,13 +62,14 @@ export function CaptureDeck({
     <section className={`deck panel deck-${visual}`} aria-label={t("live.title")}>
       <div className="deck-core">
         <button
+          data-tour="record"
           type="button"
           className={["reactor", recording ? "is-live" : "", pending ? "is-pending" : ""].filter(Boolean).join(" ")}
           disabled={busy}
           onClick={onToggle}
           aria-pressed={recording}
           aria-label={label}
-          title={`${label} (Ctrl+Shift+R)`}
+          title={`${label} (Ctrl Shift R)`}
         >
           <span className="reactor-orbit" aria-hidden />
           <span className="reactor-ring" aria-hidden />

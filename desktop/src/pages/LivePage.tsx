@@ -21,8 +21,10 @@ import { MindMapPanel } from "../features/mindmap/MindMapPanel";
 import { MemoryPanel } from "../features/memory/MemoryPanel";
 import { ContextPanel } from "../features/context/ContextPanel";
 import { SideTabButton } from "./SessionPage";
+import { onTabListKeyDown, tabPanelProps } from "../shared/ui/Tabs";
 import { UpcomingPanel } from "../features/brief/UpcomingPanel";
 import { CaptureDeck } from "../features/capture/CaptureDeck";
+import { TourButton } from "../features/onboarding/Tour";
 import { NoteDocument } from "../features/document/NoteDocument";
 import { CaptureLanguageMenu } from "../features/capture/CaptureLanguageMenu";
 import { UserNotes } from "../features/notes/UserNotes";
@@ -32,11 +34,10 @@ import { DockToggle, TranscriptTicker, useTranscriptDock } from "../features/tra
 import { TranscriptList } from "../features/transcript/TranscriptList";
 import { VoiceRoster } from "../features/voices/VoiceRoster";
 import { VoiceTimeline } from "../features/voices/VoiceTimeline";
-import { isCaptureLanguage, pluralForm, useI18n, type CaptureLanguage } from "../shared/i18n";
+import { bcp47, isCaptureLanguage, pluralForm, useI18n, type CaptureLanguage } from "../shared/i18n";
 import type { TranslateFn } from "../shared/i18n/I18nProvider";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { buildRoster, countWords, mergeVoicesByPerson } from "../shared/lib/voices";
-import { AiThinking } from "../shared/ui/AiThinking";
 import { InfoTip } from "../shared/ui/InfoTip";
 import { Icon, type IconName } from "../shared/ui/Icon";
 import { SessionTitle } from "../shared/ui/SessionTitle";
@@ -314,7 +315,7 @@ export function LivePage({
 
   const toolbar = (
     <>
-      <div className="mode-switch" role="radiogroup" aria-label={t("live.captureType")}>
+      <div data-tour="mode" className="mode-switch" role="radiogroup" aria-label={t("live.captureType")}>
         {MODES(t).map((item) => (
           <button
             key={item.id}
@@ -391,12 +392,13 @@ export function LivePage({
           )}
         </div>
         <div className="page-actions">
-          <button type="button" className="tool-btn is-icon" onClick={onCopyConsent} title={t("consent.copyHint")} aria-label={t("consent.copyHint")}>
+          <button data-tour="consent" type="button" className="tool-btn is-icon" onClick={onCopyConsent} title={t("consent.copyHint")} aria-label={t("consent.copyHint")}>
             <Icon name="shield" size={15} />
           </button>
-          <button type="button" className="tool-btn is-icon" onClick={onOpenMini} title={t("mini.openHint")} aria-label={t("mini.openHint")}>
+          <button data-tour="mini" type="button" className="tool-btn is-icon" onClick={onOpenMini} title={t("mini.openHint")} aria-label={t("mini.openHint")}>
             <Icon name="chip" size={15} />
           </button>
+          <TourButton chapter="preparar" />
         </div>
       </header>
 
@@ -440,7 +442,7 @@ export function LivePage({
               {segments.length ? (
                 <span className="panel-meta">
                   {t(`transcript.${pluralForm(locale, segments.length)}`, { count: segments.length })} ·{" "}
-                  {t("console.words", { count: words })}
+                  {t("console.words", { count: words.toLocaleString(bcp47(locale)) })}
                 </span>
               ) : null}
             </div>
@@ -497,7 +499,7 @@ export function LivePage({
 
         {sessionId ? (
           <aside className="panel side-panel">
-            <div className="tabs" role="tablist">
+            <div className="tabs" role="tablist" onKeyDown={onTabListKeyDown}>
               <SideTabButton id="doc" icon="spark" label={t("doc.tab")} side={side} onPick={setSide} />
               <SideTabButton id="notes" icon="edit" label={t("notes.tab")} side={side} onPick={setSide} />
               <SideTabButton id="context" icon="attach" label={t("context.tab")} side={side} onPick={setSide} />
@@ -506,7 +508,7 @@ export function LivePage({
               <SideTabButton id="voices" icon="voice" label={t("voices.title")} side={side} onPick={setSide} count={roster.length} />
             </div>
             {side === "notes" ? (
-              <div className="side-body">
+              <div className="side-body" {...tabPanelProps("side", side)}>
                 <UserNotes
                   sessionId={sessionId}
                   recording={capture.recording}
@@ -517,11 +519,11 @@ export function LivePage({
                 />
               </div>
             ) : side === "context" ? (
-              <div className="side-body">
+              <div className="side-body" {...tabPanelProps("side", side)}>
                 <ContextPanel sessionId={sessionId} revision={summaryRevision} />
               </div>
             ) : side === "doc" ? (
-              <div className="side-body">
+              <div className="side-body" {...tabPanelProps("side", side)}>
                 <NoteDocument
                   aiFirst={!capture.recording && Boolean(summary)}
                   engineRevision={summaryRevision}
@@ -547,7 +549,7 @@ export function LivePage({
                 />
               </div>
             ) : side === "mindmap" ? (
-              <div className="side-body">
+              <div className="side-body" {...tabPanelProps("side", side)}>
                 <MindMapPanel
                   sessionId={sessionId}
                   title={sessionTitle}
@@ -557,7 +559,7 @@ export function LivePage({
                 />
               </div>
             ) : side === "brief" ? (
-              <div className="side-body">
+              <div className="side-body" {...tabPanelProps("side", side)}>
                 <MemoryPanel
                   sessionId={sessionId}
                   revision={summaryRevision + memoryRevision + tasksRevision}
@@ -565,14 +567,10 @@ export function LivePage({
                   onOpenSession={onOpenSession}
                   onTasksChanged={onTasksChanged}
                 />
-                {brief ? (
-                  <BriefCard brief={brief} onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} />
-                ) : (
-                  <AiThinking compact lines={3} steps={[t("brief.loading"), t("ai.crossMeetings")]} />
-                )}
+                {brief ? <BriefCard brief={brief} pendingOnly onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} /> : null}
               </div>
             ) : (
-              <div className="side-body">
+              <div className="side-body" {...tabPanelProps("side", side)}>
                 <VoiceRoster
                   roster={roster}
                   people={people}
@@ -654,7 +652,7 @@ function SourcesMenu({
       : t("live.sourceMicSystem");
 
   return (
-    <div className="sources" ref={ref}>
+    <div data-tour="sources" className="sources" ref={ref}>
       <button type="button" className="tool-btn" aria-expanded={open} onClick={() => setOpen((value) => !value)} title={summary}>
         <Icon name={micOnly ? "mic" : "system"} size={15} />
         <span>{t("console.sources")}</span>

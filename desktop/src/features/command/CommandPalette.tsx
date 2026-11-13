@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { api } from "../../shared/api/client";
 import type { SearchResult, Session } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
-import { formatClock, formatDate, highlight } from "../../shared/lib/format";
+import { formatClock, formatDate, highlight, titleHasDate } from "../../shared/lib/format";
+import { requestTour } from "../onboarding/tourScript";
 import { Icon, type IconName } from "../../shared/ui/Icon";
 
 interface CommandPaletteProps {
@@ -98,12 +99,13 @@ export function CommandPalette({
         group: "actions",
         icon: recording ? "pause" : "console",
         title: recording ? t("palette.stopCapture") : t("palette.startCapture"),
-        meta: "Ctrl+Shift+R",
+        meta: "Ctrl Shift R",
         run: onToggleCapture,
       },
       { key: "live", group: "actions", icon: "console", title: t("palette.openLive"), run: onOpenLive },
       { key: "chat", group: "actions", icon: "chat", title: t("palette.newChat"), run: onOpenChat },
       { key: "settings", group: "actions", icon: "settings", title: t("palette.openSettings"), run: onOpenSettings },
+      { key: "tour", group: "actions", icon: "help", title: t("tour.paletteCommand"), run: () => requestTour() },
     ].filter((item) => !cleaned || item.title.toLowerCase().includes(cleaned)) as Item[];
     const sessionItems: Item[] = sessions
       .filter((item) => !cleaned || item.title.toLowerCase().includes(cleaned))
@@ -113,7 +115,7 @@ export function CommandPalette({
         group: "sessions",
         icon: modeIcon(item.capture_mode),
         title: item.title,
-        meta: formatDate(item.started_at),
+        meta: titleHasDate(item.title) ? undefined : formatDate(item.started_at),
         run: () => onOpenSession(item.id),
       }));
     const sessionTitle = (id: string | null) => (id ? titles.get(id)?.title : undefined) ?? "—";

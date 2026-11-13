@@ -12,6 +12,17 @@ export function formatClock(ms: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+/** O título já traz uma data ("SP3 - 12/11/2026 16:04"): aí a data ao lado sobra. */
+export function titleHasDate(title: string): boolean {
+  return /\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/.test(title);
+}
+
+/** "SP3 - Parte 3 - 12/11/2026 16:04" vira "SP3 - Parte 3" onde a data já aparece ao lado. */
+export function withoutTrailingDate(title: string): string {
+  const cut = title.replace(/\s*[-–·,|]?\s*\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?(?:,?\s+\d{1,2}[:h]\d{2})?\s*$/, "");
+  return cut.trim() ? cut : title;
+}
+
 export function formatDate(iso: string): string {
   const date = new Date(iso);
   return date.toLocaleString(bcp47(currentUiLanguage()), {

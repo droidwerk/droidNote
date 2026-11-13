@@ -300,6 +300,8 @@ class SqliteStore:
             await _ensure_column(db, "segments", "speaker_locked", "INTEGER NOT NULL DEFAULT 0")
             await _ensure_column(db, "documents", "session_id", "TEXT")
             await _ensure_column(db, "chat_messages", "style", "TEXT")
+            await _ensure_column(db, "chat_messages", "interrupted", "INTEGER NOT NULL DEFAULT 0")
+            await _ensure_column(db, "chats", "scope_session_ids", "TEXT NOT NULL DEFAULT '[]'")
             await db.executescript(INDEXES)
             await db.execute("PRAGMA journal_mode=WAL")
             try:
@@ -788,12 +790,13 @@ class SqliteStore:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
-                INSERT INTO chats (id, title, created_at, updated_at, focus_session_id)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO chats (id, title, created_at, updated_at, focus_session_id, scope_session_ids)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     title = excluded.title,
                     updated_at = excluded.updated_at,
-                    focus_session_id = excluded.focus_session_id
+                    focus_session_id = excluded.focus_session_id,
+                    scope_session_ids = excluded.scope_session_ids
                 """,
                 (
                     chat.id,
@@ -801,6 +804,7 @@ class SqliteStore:
                     _dump_dt(chat.created_at),
                     _dump_dt(chat.updated_at),
                     chat.focus_session_id,
+                    json.dumps(list(chat.scope_session_ids)),
                 ),
             )
             await db.commit()
@@ -897,8 +901,8 @@ class SqliteStore:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
-                INSERT INTO chat_messages (id, chat_id, role, content, citations_json, created_at, style)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO chat_messages (id, chat_id, role, content, citations_json, created_at, style, interrupted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message.id,
@@ -923,6 +927,7 @@ class SqliteStore:
                     ),
                     _dump_dt(message.created_at),
                     message.style,
+                    int(message.interrupted),
                 ),
             )
             await db.commit()
@@ -1585,7 +1590,16 @@ def _row_to_chat(row: aiosqlite.Row) -> Chat:
         created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
         updated_at=_parse_dt(row["updated_at"]) or datetime.now(tz=UTC),
         focus_session_id=row["focus_session_id"] or None,
+        scope_session_ids=_scope_ids(row["scope_session_ids"] if "scope_session_ids" in row.keys() else None),
     )
+
+
+def _scope_ids(raw: str | None) -> tuple[str, ...]:
+    try:
+        value = json.loads(raw or "[]")
+    except ValueError:
+        return ()
+    return tuple(str(item) for item in value) if isinstance(value, list) else ()
 
 
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
@@ -1621,6 +1635,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         created_at=_parse_dt(row["created_at"]) or datetime.now(tz=UTC),
         citations=citations,
         style=(row["style"] if "style" in keys else None) or None,
+        interrupted=bool(row["interrupted"]) if "interrupted" in keys else False,
     )
 
 

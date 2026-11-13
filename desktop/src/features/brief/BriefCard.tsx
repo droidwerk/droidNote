@@ -9,17 +9,20 @@ import { Icon } from "../../shared/ui/Icon";
 interface BriefCardProps {
   brief: Brief;
   compact?: boolean;
+  /** Só as pendências, sem estado vazio: a aba Memória já mostra o fio e as reuniões. */
+  pendingOnly?: boolean;
   onOpenSession?: (sessionId: string) => void;
   onTasksChanged?: () => void;
 }
 
 /** O que ficou da última vez: pendências abertas e decisões das reuniões parecidas. */
-export function BriefCard({ brief, compact = false, onOpenSession, onTasksChanged }: BriefCardProps) {
+export function BriefCard({ brief, compact = false, pendingOnly = false, onOpenSession, onTasksChanged }: BriefCardProps) {
   const t = useT();
   const [done, setDone] = useState<Record<string, boolean>>({});
 
   const latest = brief.related[0];
-  if (!latest) {
+  if (pendingOnly && !brief.pending.length) return null;
+  if (!latest && !pendingOnly) {
     return <p className="brief-empty">{t("brief.firstTime")}</p>;
   }
 
@@ -34,7 +37,7 @@ export function BriefCard({ brief, compact = false, onOpenSession, onTasksChange
     }
   };
 
-  const earlier = compact ? [] : brief.related.slice(1);
+  const earlier = compact || pendingOnly ? [] : brief.related.slice(1);
 
   return (
     <div className={compact ? "brief is-compact" : "brief"}>
@@ -70,10 +73,12 @@ export function BriefCard({ brief, compact = false, onOpenSession, onTasksChange
         <p className="brief-empty">{t("brief.nothingPending")}</p>
       )}
 
-      <section className="brief-block">
-        <h4>{t("brief.lastTime")}</h4>
-        <BriefMeeting item={latest} onOpenSession={onOpenSession} />
-      </section>
+      {latest && !pendingOnly ? (
+        <section className="brief-block">
+          <h4>{t("brief.lastTime")}</h4>
+          <BriefMeeting item={latest} onOpenSession={onOpenSession} />
+        </section>
+      ) : null}
 
       {earlier.length ? (
         <section className="brief-block">

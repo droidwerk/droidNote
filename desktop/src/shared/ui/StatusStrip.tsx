@@ -9,6 +9,8 @@ interface StatusStripProps {
   noteLabel: string;
   voiceReady: boolean | null;
   onOpenPalette: () => void;
+  /** Em Ao vivo o painel de gravação já diz "Pronto para gravar": o topo não repete. */
+  hideIdle?: boolean;
 }
 
 /** Topo: estado da captura e onde o áudio é processado. Os modelos ficam no tooltip. */
@@ -20,6 +22,7 @@ export function StatusStrip({
   noteLabel,
   voiceReady,
   onOpenPalette,
+  hideIdle = false,
 }: StatusStripProps) {
   const t = useT();
   const cloud = provider === "openai";
@@ -30,16 +33,18 @@ export function StatusStrip({
   ].join("\n");
   return (
     <div className="strip">
-      <span className={recording ? "strip-cell strip-rec is-live" : "strip-cell strip-rec"}>
-        <span className="state-led" aria-hidden />
-        {recording ? t("status.live") : t("status.standby")}
-      </span>
+      {recording || !hideIdle ? (
+        <span className={recording ? "strip-cell strip-rec is-live" : "strip-cell strip-rec"}>
+          <span className="state-led" aria-hidden />
+          {recording ? t("status.live") : t("status.standby")}
+        </span>
+      ) : null}
       {!socketLive ? <span className="strip-cell is-warn">{t("status.offline")}</span> : null}
       <span className="strip-cell strip-engine" title={engines}>
         <Icon name={cloud ? "cloud" : "lock"} size={13} />
         {cloud ? t("console.privacyCloud") : t("console.privacyLocal")}
       </span>
-      <button type="button" className="strip-search" onClick={onOpenPalette}>
+      <button data-tour="search" type="button" className="strip-search" onClick={onOpenPalette}>
         <Icon name="search" size={14} />
         <span>{t("palette.open")}</span>
         <kbd>Ctrl K</kbd>

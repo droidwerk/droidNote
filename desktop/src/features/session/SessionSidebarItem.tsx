@@ -2,7 +2,7 @@ import { useState, type DragEvent, type KeyboardEvent } from "react";
 
 import type { Session, Tag } from "../../shared/api/types";
 import { useT } from "../../shared/i18n";
-import { formatClock } from "../../shared/lib/format";
+import { formatClock, withoutTrailingDate } from "../../shared/lib/format";
 import { Icon } from "../../shared/ui/Icon";
 import { modeIcon } from "../command/CommandPalette";
 
@@ -77,7 +77,7 @@ export function SessionSidebarItem({
             <Icon name={modeIcon(session.capture_mode)} size={14} />
           </span>
           <span className="session-item-copy">
-            <strong>{session.title}</strong>
+            <strong title={session.title}>{withoutTrailingDate(session.title)}</strong>
             <span>
               {new Date(session.started_at).toLocaleTimeString(document.documentElement.lang || undefined, { hour: "2-digit", minute: "2-digit" })}
               {" · "}

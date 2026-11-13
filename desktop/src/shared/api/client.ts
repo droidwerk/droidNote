@@ -324,6 +324,8 @@ export const api = {
   chats: () => request<ChatThread[]>("/chat"),
   chat: (id: string) => request<ChatDetail>(`/chat/${id}`),
   deleteChat: (id: string) => request<void>(`/chat/${id}`, { method: "DELETE" }),
+  renameChat: (id: string, title: string) =>
+    request<ChatThread>(`/chat/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   chatImage: (id: string) => download(`/chat/images/${id}`),
   exportChatMessage: (chatId: string, messageId: string, format: "markdown" | "pdf" | "docx") =>
     download(`/chat/${chatId}/messages/${messageId}/export?format=${format}`),
@@ -342,8 +344,13 @@ export async function askChat(
     solve_target?: SolveTarget;
     scope?: ChatScope | null;
     images?: { name: string; mime: string; data: string }[];
+    /** Reenvio depois de erro: o backend reaproveita a pergunta já gravada. */
+    retry?: boolean;
   },
   onToken: (token: string) => void,
+  signal?: AbortSignal,
+  /** Primeiro evento do stream: o id do chat (novo ou não), antes dos tokens. */
+  onChatId?: (chatId: string) => void,
 ): Promise<{ chat: ChatThread; message: ChatMessage }> {
   const headers = new Headers();
   headers.set(TOKEN_HEADER, backend.token);
@@ -352,6 +359,7 @@ export async function askChat(
     method: "POST",
     headers,
     body: JSON.stringify(payload),
+    signal,
   });
   if (!response.ok || !response.body) {
     let detail = response.statusText;
@@ -388,12 +396,14 @@ export async function askChat(
     const line = part.replace(/^data:\s*/m, "").trim();
     if (!line) return;
     const event = JSON.parse(line) as {
+      chat_id?: string;
       token?: string;
       error?: string;
       done?: boolean;
       chat?: ChatThread;
       message?: ChatMessage;
     };
+    if (event.chat_id) onChatId?.(event.chat_id);
     if (event.token) onToken(event.token);
     if (event.error) throw new Error(event.error);
     if (event.done && event.chat && event.message) {

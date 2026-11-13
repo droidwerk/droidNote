@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../shared/api/client";
 import type { TaskItem } from "../shared/api/types";
-import { useI18n } from "../shared/i18n";
+import { bcp47, useI18n } from "../shared/i18n";
 import { formatDate } from "../shared/lib/format";
 import { Icon } from "../shared/ui/Icon";
 import { useToast } from "../shared/ui/Toast";
+import { TourButton } from "../features/onboarding/Tour";
 
 type Filter = "open" | "done" | "all";
 
@@ -25,7 +26,8 @@ interface Group {
 
 /** Central de tarefas: as ações de todas as atas, com dono, prazo e "feito". */
 export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
+  const lang = bcp47(locale);
   const toast = useToast();
   const [items, setItems] = useState<TaskItem[]>([]);
   const [filter, setFilter] = useState<Filter>("open");
@@ -52,15 +54,25 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
     () => ({ open: items.filter((item) => !item.done).length, done: items.filter((item) => item.done).length }),
     [items],
   );
+  // "Giovanna" sozinha, quando só existe uma "Giovanna Biasin", é a mesma pessoa.
+  const canon = useMemo(() => {
+    const names = [...new Set(items.flatMap((item) => splitOwners(item.owner)))];
+    const map = new Map<string, string>();
+    for (const name of names) {
+      const fuller = names.filter((other) => other.startsWith(`${name} `));
+      map.set(name, !name.includes(" ") && fuller.length === 1 ? fuller[0]! : name);
+    }
+    return (owner: string | null) => [...new Set(splitOwners(owner).map((name) => map.get(name) ?? name))];
+  }, [items]);
   const owners = useMemo(
-    () => [...new Set(items.filter((item) => !item.done && item.owner).map((item) => item.owner as string))].sort(),
-    [items],
+    () => [...new Set(items.filter((item) => !item.done).flatMap((item) => canon(item.owner)))].sort((a, b) => a.localeCompare(b)),
+    [items, canon],
   );
 
   const visible = items.filter((item) => {
     if (filter === "open" && item.done) return false;
     if (filter === "done" && !item.done) return false;
-    if (owner && item.owner !== owner) return false;
+    if (owner && !canon(item.owner).includes(owner)) return false;
     const needle = query.trim().toLowerCase();
     if (needle && !`${item.text} ${item.owner ?? ""} ${item.session_title ?? ""}`.toLowerCase().includes(needle)) return false;
     return true;
@@ -93,6 +105,11 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
     }
   };
 
+  const startEdit = (task: TaskItem) => {
+    setEditing(task.id);
+    setEditDraft(task.text);
+  };
+
   const remove = async (task: TaskItem) => {
     setItems((current) => current.filter((item) => item.id !== task.id));
     try {
@@ -107,13 +124,16 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
     <div className="page tasks-page">
       <header className="page-head">
         <div className="page-head-copy">
-          <span className="eyebrow">{t("tasks.eyebrow")}</span>
           <h1>{t("tasks.title")}</h1>
           <p className="muted">{t("tasks.summary", { open: counts.open, done: counts.done })}</p>
+        </div>
+        <div className="page-actions">
+          <TourButton chapter="tarefas" />
         </div>
       </header>
 
       <form
+        data-tour="task-new"
         className="task-composer"
         onSubmit={(event) => {
           event.preventDefault();
@@ -140,7 +160,7 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
         </button>
       </form>
 
-      <div className="task-filters">
+      <div data-tour="task-filters" className="task-filters">
         <div className="segmented" role="radiogroup" aria-label={t("tasks.filterAria")}>
           {(["open", "done", "all"] as const).map((id) => (
             <button
@@ -152,7 +172,7 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
               onClick={() => setFilter(id)}
             >
               {t(`tasks.filter_${id}`)}
-              {id !== "all" ? <span className="tab-count">{counts[id]}</span> : null}
+              {id !== "all" ? <span className={id === "done" ? "tab-count is-neutral" : "tab-count"}>{counts[id]}</span> : null}
             </button>
           ))}
         </div>
@@ -183,13 +203,13 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
       </div>
 
       {groups.length === 0 ? (
-        <div className="empty-block task-empty">
+        <div data-tour="task-list" className="empty-block task-empty">
           <Icon name="tasks" size={22} />
           <strong>{filter === "done" ? t("tasks.emptyDone") : t("tasks.emptyOpen")}</strong>
           <small>{t("tasks.emptyHint")}</small>
         </div>
       ) : (
-        <div className="task-groups">
+        <div data-tour="task-list" className="task-groups">
           {groups.map((group) => (
             <section className="task-group" key={group.key}>
               <header className="task-group-head">
@@ -234,24 +254,45 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
                     ) : (
                       <span
                         className="task-text"
+                        tabIndex={0}
                         title={t("tasks.editHint")}
-                        onDoubleClick={() => {
-                          setEditing(task.id);
-                          setEditDraft(task.text);
+                        onDoubleClick={() => startEdit(task)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === "F2") {
+                            event.preventDefault();
+                            startEdit(task);
+                          }
                         }}
                       >
                         {task.text}
                       </span>
                     )}
                     <span className="task-meta">
-                      {task.owner ? <span className="task-owner">{task.owner}</span> : null}
-                      {task.due ? <span className="task-due">{task.due}</span> : null}
-                      {task.origin === "ai" ? (
-                        <span className="task-origin" title={t("tasks.fromNote")}>
-                          <Icon name="spark" size={12} />
-                        </span>
-                      ) : null}
+                      <span className="task-owner-cell">{task.owner ? <span className="task-owner" title={task.owner}>{task.owner}</span> : null}</span>
+                      <span className="task-due-cell">
+                        {task.due ? (
+                          <span className="task-due" title={task.due}>
+                            {anchoredDue(task.due, task.session_started_at, lang)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="task-origin-cell">
+                        {task.origin === "ai" ? (
+                          <span className="task-origin" role="img" aria-label={t("tasks.fromNote")} title={t("tasks.fromNote")}>
+                            <Icon name="spark" size={12} />
+                          </span>
+                        ) : null}
+                      </span>
                     </span>
+                    <button
+                      type="button"
+                      className="task-remove is-edit"
+                      aria-label={t("tasks.edit")}
+                      title={t("tasks.edit")}
+                      onClick={() => startEdit(task)}
+                    >
+                      <Icon name="edit" size={14} />
+                    </button>
                     <button
                       type="button"
                       className="task-remove"
@@ -270,6 +311,63 @@ export function TasksPage({ revision = 0, onOpenSession, onChanged }: TasksPageP
       )}
     </div>
   );
+}
+
+/** "Bufon e Giovanna" vira duas pessoas no filtro. */
+function splitOwners(owner: string | null): string[] {
+  if (!owner) return [];
+  return owner
+    .split(/\s*(?:,|;|&|\/|\s(?:e|and|y|et|und|и)\s)\s*/i)
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+const DUE_WORDS: [number, string[]][] = [
+  [2, ["depois de amanhã", "day after tomorrow", "pasado mañana", "après-demain", "dopodomani", "übermorgen", "послезавтра"]],
+  [1, ["amanhã", "tomorrow", "mañana", "demain", "domani", "morgen", "завтра"]],
+  [0, ["hoje", "today", "hoy", "aujourd'hui", "oggi", "heute", "сегодня"]],
+];
+
+/**
+ * Prazo relativo ("Amanhã") envelhece: vira "Amanhã · 13/11", contado da data da reunião.
+ * Dia da semana ("sexta") conta até a próxima sexta depois da reunião.
+ */
+function anchoredDue(due: string, startedAt: string | null, lang: string): string {
+  if (!startedAt) return due;
+  const base = new Date(startedAt);
+  if (Number.isNaN(base.getTime())) return due;
+  // "Até amanhã" conta como "amanhã".
+  const lower = due
+    .trim()
+    .toLocaleLowerCase(lang)
+    .replace(/^(?:até|by|until|hasta|jusqu'à|entro|bis|до)\s+/, "");
+  let offset: number | undefined;
+  let word = "";
+  for (const [days, words] of DUE_WORDS) {
+    const hit = words.find((item) => lower.startsWith(item));
+    if (hit) {
+      offset = days;
+      word = hit;
+      break;
+    }
+  }
+  if (offset === undefined) {
+    for (let day = 0; day < 7; day += 1) {
+      // 2023-01-01 foi domingo: day 0 = domingo, como Date.getDay().
+      const name = new Date(2023, 0, 1 + day).toLocaleDateString(lang, { weekday: "long" }).toLocaleLowerCase(lang);
+      const short = name.split("-")[0]!;
+      if (lower.startsWith(name) || lower.startsWith(short)) {
+        offset = (day - base.getDay() + 7) % 7 || 7;
+        word = lower.startsWith(name) ? name : short;
+        break;
+      }
+    }
+  }
+  if (offset === undefined) return due;
+  const at = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset);
+  // Forma curta "Amanhã · 13/11": a data nunca some; o texto inteiro fica no title.
+  const label = word.charAt(0).toLocaleUpperCase(lang) + word.slice(1);
+  return `${label} · ${at.toLocaleDateString(lang, { day: "2-digit", month: "2-digit" })}`;
 }
 
 function groupBySession(items: TaskItem[], looseTitle: string): Group[] {

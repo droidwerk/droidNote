@@ -11,6 +11,29 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Added
+- Chat context with several conversations: pick them with "Choose conversations" (search, last 7 or 30 days, folder); the answer uses only those, a line above the box says how many, and the pick is saved on the chat and restored when you reopen it.
+- Chat: Stop button (the partial answer is kept and marked as interrupted), rename a chat, "Try again" after an error without repeating the question, "Generate again" on the last answer, history grouped by Today, Yesterday, 7 days and Earlier.
+- Full guided tour in 9 chapters (41 steps): chapter picker, skip a chapter, resume where you stopped, and a "?" on each page to replay its chapter. It never clicks, records or changes settings for you.
+- Help tab: a plain-language manual, keyboard shortcuts and frequently asked questions.
+- Welcome dialog shown once on a fresh install, in the install language, and a release-notes dialog shown once per version to users who updated.
+- Key safety seal in Preferences: the OpenAI key stays on this PC, encrypted by Windows, and only goes to OpenAI.
+
+### Changed
+- Chat leaves beta. When conversations are selected, search, citations and the conversation list are limited to them; with none selected the chat uses all conversations.
+- Series memory follows the folder: a meeting in a folder links only meetings of the same folder, and each linked meeting shows why (same folder, similar title, same people).
+- The conversation tab "Document" is now "Ata"; the chat uses "New chat" and "Choose conversations".
+- Time stamps in answers link to the right meeting when several are in context.
+- Tasks show relative due dates anchored to the meeting date ("Tomorrow · 13/11") and filter by one person per button.
+- The mind map opens with the main branches, fitted and using the full width.
+- The engine switch in Preferences applies at once, like the one in the sidebar. OpenAI prices were replaced by a link to OpenAI's pricing page.
+- Readability: higher-contrast text and buttons, a visible keyboard focus ring, tabs that move with the arrow keys.
+- The recording notice mentions OpenAI and a transfer outside Brazil when the cloud engine is on.
+
+### Fixed
+- The chat answered with excerpts from every conversation even when one was selected.
+- The "Who spoke when" timeline now marks a long final silence instead of looking empty.
+
 ## [2.3.0] — 2026-11-03
 
 ### Added

@@ -12,6 +12,7 @@ export function EngineSwitch({ value, disabled = false, onChange }: EngineSwitch
   const cloud = value === "openai";
   return (
     <div
+      data-tour="engine"
       className={cloud ? "engine-switch is-cloud" : "engine-switch"}
       role="radiogroup"
       aria-label={t("engine.aria")}

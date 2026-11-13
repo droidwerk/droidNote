@@ -106,7 +106,7 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
   };
 
   return (
-    <div className="audio-player">
+    <div data-tour="audio" className="audio-player">
       <audio
         ref={audioRef}
         onLoadedMetadata={(event) => setDurationMs(event.currentTarget.duration * 1000)}

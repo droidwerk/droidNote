@@ -44,7 +44,7 @@ export function CaptureLanguageMenu({ value, disabled = false, onChange }: Captu
   }, [disabled]);
 
   return (
-    <div className="export-menu capture-lang-menu" ref={menuRef}>
+    <div data-tour="capture-language" className="export-menu capture-lang-menu" ref={menuRef}>
       <Button
         className="capture-lang-btn"
         disabled={disabled}

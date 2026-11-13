@@ -15,7 +15,7 @@ export function TemplatePicker({ templates, value, disabled = false, compact = f
   const t = useT();
   const notes = templates.filter((item) => item.kind === "note");
   return (
-    <label className={compact ? "template-picker is-compact" : "template-picker"} title={t("templates.pickerHint")}>
+    <label data-tour="template" className={compact ? "template-picker is-compact" : "template-picker"} title={t("templates.pickerHint")}>
       {compact ? null : <span>{t("templates.label")}</span>}
       <select
         className="select"

@@ -114,7 +114,7 @@ export function ConsentCard({ settings, persist }: { settings: Settings; persist
         className="input consent-text"
         rows={3}
         value={draft}
-        placeholder={t("consent.default")}
+        placeholder={consentText("", t, settings.provider === "openai")}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
           if (draft.trim() !== (settings.consent_message ?? "")) void persist({ consent_message: draft.trim() });
@@ -124,7 +124,7 @@ export function ConsentCard({ settings, persist }: { settings: Settings; persist
         <Button
           variant="primary"
           onClick={() => {
-            void copyToClipboard(consentText(draft, t)).then((ok) =>
+            void copyToClipboard(consentText(draft, t, settings.provider === "openai")).then((ok) =>
               toast.push({ tone: ok ? "success" : "error", title: ok ? t("consent.copied") : t("consent.copyFail") }),
             );
           }}

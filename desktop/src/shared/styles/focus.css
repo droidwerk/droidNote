@@ -22,6 +22,19 @@
   grid-template-columns: minmax(0, 1fr) 280px;
 }
 
+/* Aba Mapa: o mapa ocupa a largura toda; a transcrição volta nas outras abas. */
+.workspace.is-ai-first.is-map {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace.is-ai-first.is-map > .transcript-panel {
+  display: none;
+}
+
+.workspace.is-map .mindmap-host {
+  height: max(520px, calc(var(--work-h) - 150px));
+}
+
 .workspace.is-ai-first > .panel {
   display: flex;
   flex-direction: column;
@@ -86,11 +99,6 @@
 
 .workspace.is-ai-first > .side-panel .side-body {
   padding: 18px 20px 22px;
-}
-
-.workspace.is-ai-first > .side-panel .tabs button {
-  height: 34px;
-  font-size: 13px;
 }
 
 .workspace.is-ai-first > .transcript-panel .panel-head {

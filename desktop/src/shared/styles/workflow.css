@@ -125,7 +125,6 @@
   border: 1px solid var(--accent-line);
   background: var(--surface);
   resize: vertical;
-  outline: none;
 }
 
 .user-note-remove {
@@ -410,7 +409,6 @@ html.is-mini #root {
   border-radius: var(--r-sm);
   border: 1px solid var(--line-strong);
   background: var(--surface);
-  outline: none;
   font-size: 12.5px;
   transition: border-color var(--t-med), box-shadow var(--t-med);
 }

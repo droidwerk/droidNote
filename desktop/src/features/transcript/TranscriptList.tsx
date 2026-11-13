@@ -739,6 +739,7 @@ function SpeakerChip({
           speaker.uncertain ? "is-uncertain" : "",
         ].filter(Boolean).join(" ")}
         title={speaker.uncertain ? t("voices.lowConfidence") : undefined}
+        aria-label={speaker.uncertain ? `${speaker.name}, ${t("voices.lowConfidence")}` : undefined}
         onClick={(event) => {
           event.stopPropagation();
           toggle();
