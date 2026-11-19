@@ -927,7 +927,7 @@ export const pt = {
     pane_ask: "Perguntar",
     pane_context: "Contexto",
     askNeedsSession: "Comece a gravar para perguntar sobre a reunião.",
-    askPlaceholder: "Pergunte sobre a reunião…",
+    askPlaceholder: "Pergunte algo sobre esta reunião",
     askAgain: "Nova pergunta",
     askLabel_sofar: "Resumo até agora",
     askLabel_decided: "O que foi decidido",
@@ -983,6 +983,8 @@ export const pt = {
     mark: "Marcar",
     marked: "Marcado: {marker} em {time}",
     panelAria: "Painel da reunião",
+    notePlaceholder: "Anotar algo da reunião",
+    tabsAria: "Painel",
     trayAsk: "DroidNote: a reunião ainda está acontecendo?",
   },
   tasks: {

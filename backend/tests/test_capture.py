@@ -514,3 +514,57 @@ async def test_pause_drops_audio_and_resume_keeps_session(client: AsyncClient, a
     rate = app.state.container.settings.sample_rate
     # Só o áudio depois do resume foi gravado (cabeçalho 44 B + PCM 16 bits).
     assert path.stat().st_size == 44 + int(rate * window) * 2
+
+
+class _FakeSocket:
+    """Recebe só o hello e desconecta: basta para provar o que o WS manda ao abrir."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+        self.headers = {"X-DroidNote-Token": auth()["X-DroidNote-Token"]}
+        self.sent: list[dict] = []
+
+    async def accept(self) -> None:
+        pass
+
+    async def close(self, code: int = 1000) -> None:
+        raise AssertionError(f"socket closed {code}")
+
+    async def send_json(self, data: dict) -> None:
+        from fastapi import WebSocketDisconnect
+
+        self.sent.append(data)
+        raise WebSocketDisconnect()
+
+
+@pytest.mark.asyncio
+async def test_hello_and_capture_event_carry_pause_and_pending_alert(client: AsyncClient, app) -> None:
+    from app.api.v1.endpoints.ws import transcript_socket
+
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+    clock.now += 10_000
+    await capture.idle_tick()
+    socket = _FakeSocket(app)
+    await transcript_socket(socket)  # type: ignore[arg-type]
+    [hello] = socket.sent
+    assert hello["type"] == "hello"
+    assert hello["paused"] is False
+    assert hello["idle_alert"] == {"kind": "silence"}
+
+    while not events.empty():
+        events.get_nowait()
+    await client.post("/capture/pause", headers=auth())
+    [event] = [item for item in _drain(events) if item.get("type") == "capture"]
+    assert event["paused"] is True
+    socket = _FakeSocket(app)
+    await transcript_socket(socket)  # type: ignore[arg-type]
+    assert socket.sent[0]["paused"] is True
+    assert socket.sent[0]["idle_alert"] is None
+
+
+def _drain(queue: asyncio.Queue) -> list[dict]:
+    out = []
+    while not queue.empty():
+        out.append(queue.get_nowait())
+    return out

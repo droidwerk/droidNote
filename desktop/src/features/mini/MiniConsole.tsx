@@ -44,6 +44,8 @@ export function MiniConsole() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<View>("bubble");
   const [meeting, setMeeting] = useState<string | null>(null);
+  // Com a janela principal à vista a bolha fica escondida e o aviso de reunião é dela.
+  const [visible, setVisible] = useState(!IN_TAURI);
   const [alert, setAlert] = useState<AlertKind | null>(null);
   const [level, setLevel] = useState(0);
   const [marksOpen, setMarksOpen] = useState(false);
@@ -58,6 +60,7 @@ export function MiniConsole() {
   const box = useRef<HTMLDivElement>(null);
   const bubble = useRef<HTMLButtonElement>(null);
   const press = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
+  const markBtn = useRef<HTMLButtonElement>(null);
   const elapsed = useElapsed(capture?.recording ? capture.started_at ?? null : null);
 
   useEffect(() => {
@@ -104,8 +107,10 @@ export function MiniConsole() {
       const self = getCurrentWindow();
       const apply = (state: string) => {
         if (state === "minimized" || state === "hidden") {
+          setVisible(true);
           void self.show();
         } else if (state === "restored" || state === "shown") {
+          setVisible(false);
           setView("bubble");
           void self.hide();
           void setMiniFocus(false);
@@ -154,7 +159,8 @@ export function MiniConsole() {
         setLevel(Math.min(1, Math.sqrt(event.rms) * 2.5));
       }
       if (event.type === "meeting") {
-        if (event.status === "detected") setMeeting(typeof event.app === "string" ? event.app : "");
+        // "Gravar" também manda detected antes de começar: só "Perguntar" abre o cartão.
+        if (event.status === "detected" && event.mode === "ask") setMeeting(typeof event.app === "string" ? event.app : "");
         else if (event.status === "dismissed" || event.status === "auto-started") setMeeting(null);
       }
       if (event.type === "idle_alert") {
@@ -178,18 +184,19 @@ export function MiniConsole() {
   const recording = Boolean(capture?.recording);
   const paused = recording && Boolean(capture?.paused);
   const sessionId = capture?.session_id ?? null;
-  const card = alert ? "alert" : meeting !== null && !recording ? "meeting" : view !== "bubble" && !recording ? "record" : null;
+  const card = alert ? "alert" : meeting !== null && visible && !recording ? "meeting" : view !== "bubble" && !recording ? "record" : null;
   const panel = view === "panel" && recording && !alert;
 
-  // Cartão de reunião some em 20 s, como o aviso da janela principal.
+  // Cartão de reunião some em 20 s, como o aviso da janela principal; só conta com a bolha à vista.
+  const meetingShown = card === "meeting";
   useEffect(() => {
-    if (meeting === null) return undefined;
+    if (!meetingShown) return undefined;
     const timer = window.setTimeout(() => {
       setMeeting(null);
       void api.dismissMeeting().catch(() => undefined);
     }, MEETING_CARD_MS);
     return () => window.clearTimeout(timer);
-  }, [meeting]);
+  }, [meetingShown, meeting]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -226,10 +233,19 @@ export function MiniConsole() {
     setMarksOpen(false);
   };
 
+  // Lista de marcadores: abre no primeiro; ao escolher ou Esc, o foco volta para "Marcar".
+  useEffect(() => {
+    if (marksOpen) box.current?.querySelector<HTMLElement>("#bubble-marks button")?.focus();
+  }, [marksOpen]);
+  const closeMarks = () => {
+    setMarksOpen(false);
+    markBtn.current?.focus();
+  };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (marksOpen) setMarksOpen(false);
+      if (marksOpen) closeMarks();
       else if (view !== "bubble") collapse();
       else return;
       event.preventDefault();
@@ -257,7 +273,7 @@ export function MiniConsole() {
     const text = note.trim() || t(`mini.markerMoment_${marker}`);
     await saveNote(text, marker, marker);
     setNote("");
-    setMarksOpen(false);
+    closeMarks();
     setMarked(t("mini.marked", { marker: t(`mini.marker_${marker}`), time: formatTimecode(elapsed) }));
   };
 
@@ -410,12 +426,14 @@ export function MiniConsole() {
               {t("mini.collapse")}
             </button>
           </header>
-          <nav className="mini-tabs" role="tablist">
+          <nav className="mini-tabs" role="tablist" aria-label={t("mini.tabsAria")}>
             {(["live", "ask", "context"] as const).map((id, index, all) => (
               <button
                 key={id}
+                id={`bubble-tab-${id}`}
                 type="button"
                 role="tab"
+                aria-controls="bubble-pane"
                 aria-selected={pane === id}
                 tabIndex={pane === id ? 0 : -1}
                 className={pane === id ? "is-on" : ""}
@@ -434,7 +452,7 @@ export function MiniConsole() {
               </button>
             ))}
           </nav>
-          <div className="mini-pane" role="tabpanel">
+          <div className="mini-pane" id="bubble-pane" role="tabpanel" aria-labelledby={`bubble-tab-${pane}`}>
             {pane === "live" ? (
               lines.length ? (
                 <ol className="mini-tail" ref={tail}>
@@ -531,6 +549,7 @@ export function MiniConsole() {
           <div className="bubble-mark">
             <div className="bubble-mark-top">
               <button
+                ref={markBtn}
                 type="button"
                 className="button button-ghost button-sm"
                 aria-expanded={marksOpen}
@@ -562,8 +581,8 @@ export function MiniConsole() {
             <input
               className={flash === "note" ? "mini-note is-saved" : "mini-note"}
               value={note}
-              placeholder={t("notes.placeholderLive")}
-              aria-label={t("notes.placeholderLive")}
+              placeholder={t("mini.notePlaceholder")}
+              aria-label={t("mini.notePlaceholder")}
               onChange={(event) => setNote(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {

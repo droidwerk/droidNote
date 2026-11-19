@@ -925,7 +925,7 @@ export const de: Messages = {
     pane_ask: "Fragen",
     pane_context: "Kontext",
     askNeedsSession: "Starte die Aufnahme, um Fragen zum Meeting zu stellen.",
-    askPlaceholder: "Frag zum Meeting…",
+    askPlaceholder: "Frag etwas zu diesem Meeting",
     askAgain: "Neue Frage",
     askLabel_sofar: "Bisher",
     askLabel_decided: "Was entschieden wurde",
@@ -981,6 +981,8 @@ export const de: Messages = {
     mark: "Markieren",
     marked: "Markiert: {marker} um {time}",
     panelAria: "Meeting-Bereich",
+    notePlaceholder: "Etwas aus dem Meeting notieren",
+    tabsAria: "Bereich",
     trayAsk: "DroidNote: Läuft das Meeting noch?",
   },
   tasks: {
