@@ -9,3 +9,4 @@
 | 2026-11-13 | R2 | Revisão visual na ferramenta real | tec-uxui-critico | 3 rodadas sobre capturas reais (255, 240 e 105 recortes); tudo aprovado. |
 | 2026-11-13 | R2 | Teste ao vivo | EOG | Feito em localhost com uma CÓPIA do banco do CEO no scratchpad e Ollama local; sem custo de OpenAI. |
 | 2026-11-13 | R1 | Mapa do droidBrain (graphify) do droidnote | EOG + 2 extratores de docs | 3.404 nós, 10.090 ligações, 154 grupos. `graphify-out/` no .gitignore; segredos, áudio, modelos e imagens no .graphifyignore. |
+| 2026-11-19 | R2 | Diagnóstico do chat e dos modelos de nota; desenho do aviso de reunião e da bolha | tec-ai, tec-backend, tec-frontend (mapas, só leitura); tec-uxui-designer; tec-uxui-critico (2 críticas, corrija, corrigido) | Sem código. Maquetes em `docs/uxui/proposals/`. Teste em cópia do banco: OpenAI 11/11 ok; Ollama gemma4:e4b 1 ok (130 s), modo rápido travou, modo estudo estourou 900 s, bateria parada. |

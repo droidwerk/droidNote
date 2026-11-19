@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bolha de reunião</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Tokens copiados de desktop/src/shared/styles/tokens.css (claro e escuro), iguais a autostart-voice-detect-options.html. */
+:root {
+  --font-display: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace;
+  --r-xs: 4px; --r-sm: 7px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px; --s-12: 48px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1); --t-fast: 120ms; --t-med: 220ms; --t-morph: 260ms; --t-min: 320ms;
+
+  color-scheme: light;
+  --bg: #f3f3f1; --bg-deep: #e9e9e6;
+  --surface: #ffffff; --surface-2: #f8f8f6; --surface-3: #efefec; --surface-hi: #e6e6e2;
+  --line: rgba(10,10,12,.09); --line-strong: rgba(10,10,12,.15); --line-bright: rgba(10,10,12,.32);
+  --text: #0c0c0e; --text-soft: #34343a; --muted: #6b6b73; --faint: #6c6c74;
+  --accent: #e63d00; --accent-hi: #ff4400; --accent-text: #c73600; --accent-ink: #ffffff;
+  --accent-fill: #c73600; --accent-soft: rgba(230,61,0,.09); --accent-line: rgba(230,61,0,.35);
+  --accent-glow: 0 10px 24px -14px rgba(230,61,0,.6);
+  --ok: #0f9f63; --ok-soft: rgba(15,159,99,.1); --warn: #b97300; --warn-soft: rgba(185,115,0,.1); --warn-line: rgba(185,115,0,.45);
+  --danger: #d42f2f;
+  --channel-mic: #e63d00; --channel-system: #0284c7;
+  --idle-core: #d9d9d5; --idle-ink: #34343a;
+  --float-shadow: 0 18px 40px -18px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.08);
+  --wall: linear-gradient(160deg, #e7ecf2 0%, #dfe5ec 45%, #eceae6 100%);
+  --taskbar: rgba(243,243,243,.92); --taskbar-line: rgba(0,0,0,.08); --taskbar-ink: #1b1b1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #050506; --bg-deep: #000000;
+    --surface: #0b0b0d; --surface-2: #111114; --surface-3: #18181c; --surface-hi: #1f1f24;
+    --line: rgba(255,255,255,.07); --line-strong: rgba(255,255,255,.12); --line-bright: rgba(255,255,255,.26);
+    --text: #f4f4f5; --text-soft: #cfcfd4; --muted: #8b8b95; --faint: #83838d;
+    --accent: #ff4400; --accent-hi: #ff6a2b; --accent-text: #ff6a2b; --accent-fill: #c73600;
+    --accent-soft: rgba(255,68,0,.12); --accent-line: rgba(255,68,0,.38);
+    --accent-glow: 0 10px 28px -12px rgba(255,68,0,.7);
+    --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --warn: #fbbf24; --warn-soft: rgba(251,191,36,.1); --warn-line: rgba(251,191,36,.45);
+    --danger: #ff5c5c; --channel-mic: #ff6a2b; --channel-system: #38bdf8;
+    --idle-core: #2a2a30; --idle-ink: #cfcfd4;
+    --float-shadow: 0 18px 40px -16px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);
+    --wall: linear-gradient(160deg, #1a1f27 0%, #141820 45%, #1c1a18 100%);
+    --taskbar: rgba(28,28,30,.92); --taskbar-line: rgba(255,255,255,.08); --taskbar-ink: #f1f1f3;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #050506; --bg-deep: #000000;
+  --surface: #0b0b0d; --surface-2: #111114; --surface-3: #18181c; --surface-hi: #1f1f24;
+  --line: rgba(255,255,255,.07); --line-strong: rgba(255,255,255,.12); --line-bright: rgba(255,255,255,.26);
+  --text: #f4f4f5; --text-soft: #cfcfd4; --muted: #8b8b95; --faint: #83838d;
+  --accent: #ff4400; --accent-hi: #ff6a2b; --accent-text: #ff6a2b; --accent-fill: #c73600;
+  --accent-soft: rgba(255,68,0,.12); --accent-line: rgba(255,68,0,.38);
+  --accent-glow: 0 10px 28px -12px rgba(255,68,0,.7);
+  --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --warn: #fbbf24; --warn-soft: rgba(251,191,36,.1); --warn-line: rgba(251,191,36,.45);
+  --danger: #ff5c5c; --channel-mic: #ff6a2b; --channel-system: #38bdf8;
+  --idle-core: #2a2a30; --idle-ink: #cfcfd4;
+  --float-shadow: 0 18px 40px -16px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);
+  --wall: linear-gradient(160deg, #1a1f27 0%, #141820 45%, #1c1a18 100%);
+  --taskbar: rgba(28,28,30,.92); --taskbar-line: rgba(255,255,255,.08); --taskbar-ink: #f1f1f3;
+}
+
+* { box-sizing: border-box; }
+::selection { background: rgba(255,68,0,.3); }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/1.6 var(--font-body); padding-inline: var(--s-4); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: var(--s-10); }
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.02em; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(26px, 4vw, 38px); max-width: 24ch; }
+h2 { font-size: clamp(22px, 3vw, 28px); }
+h3 { font-size: 15px; letter-spacing: -0.01em; }
+p { margin: 0; color: var(--text-soft); }
+.eyebrow { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.eyebrow em { font-style: normal; color: var(--accent-text); }
+.lede { max-width: 68ch; margin-top: var(--s-4); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.card { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: var(--s-5); }
+.card h3 + p, .card h3 + ul { margin-top: var(--s-2); }
+.card ul { margin: 0; padding-left: 18px; color: var(--text-soft); }
+.card li + li { margin-top: var(--s-1); }
+svg.i { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.intro { display: grid; gap: var(--s-6); grid-template-columns: 1.3fr 1fr; align-items: start; margin-bottom: var(--s-10); }
+.decide { display: grid; gap: var(--s-3); }
+.decide .card { padding: var(--s-4) var(--s-5); }
+.decide b { color: var(--text); font-weight: 500; }
+.jump { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-6); }
+.jump a { display: inline-flex; align-items: center; gap: var(--s-2); height: 32px; padding: 0 var(--s-3); border-radius: var(--r-pill); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; font-size: 13px; background: var(--surface); }
+.jump a:hover { border-color: var(--accent-line); }
+.jump b { font-family: var(--font-mono); font-weight: 500; color: var(--accent-text); }
+
+.section { padding-block: var(--s-10); border-top: 1px solid var(--line-strong); }
+.sec-head { display: grid; grid-template-columns: auto 1fr; gap: var(--s-4); align-items: start; margin-bottom: var(--s-6); }
+.num { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line-bright); display: grid; place-items: center; font-family: var(--font-mono); font-size: 13px; color: var(--accent-text); }
+.sec-head p { margin-top: var(--s-2); max-width: 72ch; }
+
+/* Elementos comuns */
+.led { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.led.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 10px var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.led.heard { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+.state { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.state.live { color: var(--accent-text); }
+.state.warn { color: var(--warn); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: 500 12.5px/1 var(--font-body); white-space: nowrap; cursor: pointer; }
+.btn:hover { border-color: var(--line-bright); }
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); box-shadow: var(--accent-glow); }
+.btn.link { background: transparent; border-color: transparent; color: var(--muted); padding: 0 4px; height: 24px; font-weight: 400; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.btn.link:hover { color: var(--text); }
+.btn .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.btn:focus-visible, .icon-btn:focus-visible, .bub:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-btn { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; flex: none; }
+.icon-btn:hover { background: var(--surface-3); color: var(--text); }
+.float { position: absolute; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); }
+
+/* Área de trabalho falsa */
+.desk { position: relative; border-radius: var(--r-lg); overflow: hidden; background: var(--wall); border: 1px solid var(--line-strong); }
+.taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: var(--taskbar); border-top: 1px solid var(--taskbar-line); display: flex; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; }
+.taskbar i { width: 20px; height: 20px; border-radius: 5px; background: rgba(127,127,127,.22); position: relative; }
+.taskbar i.dn { background: #000; display: grid; place-items: center; }
+.taskbar i.dn::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ff4400; }
+.taskbar i.dn.open::before { content: ""; position: absolute; left: 6px; right: 6px; bottom: -4px; height: 2px; border-radius: 2px; background: var(--taskbar-ink); opacity: .5; }
+.tray { position: absolute; right: 8px; top: 0; bottom: 0; display: flex; align-items: center; gap: 8px; font: 400 10px/1.2 "Segoe UI", system-ui, sans-serif; color: var(--taskbar-ink); }
+.tray-dn { width: 14px; height: 14px; border-radius: 4px; background: #111; display: grid; place-items: center; }
+.tray-dn::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #8b8b95; }
+.tray-dn.on::after { background: #ff4400; box-shadow: 0 0 6px #ff4400; }
+.tray-dn.warn::after { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+.call-win { position: absolute; left: 5%; top: 7%; width: 60%; height: 58%; border-radius: 7px; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); box-shadow: 0 10px 30px -18px rgba(0,0,0,.3); padding: 7px 9px; font: 500 10px/1.3 "Segoe UI", system-ui, sans-serif; color: #444; }
+:root[data-theme="dark"] .call-win { background: rgba(40,44,52,.75); color: #ccc; border-color: rgba(255,255,255,.06); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .call-win { background: rgba(40,44,52,.75); color: #ccc; border-color: rgba(255,255,255,.06); } }
+.call-win .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px; height: calc(100% - 22px); }
+.call-win .grid span { border-radius: 5px; background: rgba(127,127,127,.18); }
+
+/* Bolha: núcleo, anel de nível e selo */
+.bub { --mic: .35; --sys: .5; position: relative; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; border: 0; padding: 0; cursor: pointer; background: var(--accent); box-shadow: var(--accent-glow), 0 8px 20px -10px rgba(0,0,0,.45); color: #fff; flex: none; }
+.bub .core-dot { width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.bub::before, .bub::after { content: ""; position: absolute; border-radius: 50%; pointer-events: none; transition: inset 140ms linear, opacity 140ms linear; }
+.bub::before { inset: calc(-5px - var(--mic) * 6px); border: 2px solid var(--channel-mic); opacity: calc(.25 + var(--mic) * .75); }
+.bub::after { inset: calc(-2px - var(--sys) * 3px); border: 2px solid var(--channel-system); opacity: calc(.25 + var(--sys) * .75); }
+.bub.idle { width: 48px; height: 48px; background: var(--idle-core); color: var(--idle-ink); box-shadow: 0 8px 20px -12px rgba(0,0,0,.45); border: 1px solid var(--line-strong); }
+.bub.idle::before, .bub.idle::after, .bub.paused::before, .bub.paused::after, .bub.gen::before, .bub.gen::after, .bub.alert::after { display: none; }
+.bub.idle .core-dot { width: 10px; height: 10px; background: var(--muted); }
+.bub.paused { background: var(--surface-3); color: var(--text); box-shadow: 0 8px 20px -12px rgba(0,0,0,.45); border: 1px solid var(--line-strong); }
+.bub.alert { background: var(--warn); color: #1b1300; box-shadow: 0 0 0 0 var(--warn-line); animation: warnpulse 2s ease-out infinite; }
+.bub.alert::before { inset: -6px; border-color: var(--warn); opacity: .5; }
+.bub.alert .core-dot { background: #1b1300; }
+@keyframes warnpulse { 0% { box-shadow: 0 0 0 0 var(--warn-line); } 70% { box-shadow: 0 0 0 14px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.bub.gen { background: var(--surface); color: var(--accent-text); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); }
+.bub .badge { position: absolute; top: -1px; right: -1px; width: 13px; height: 13px; border-radius: 50%; background: var(--warn); border: 2px solid var(--surface); }
+.bub .prog { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); transform: rotate(-90deg); }
+.bub .prog circle { fill: none; stroke-width: 3; }
+.chipline { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10.5px; padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); white-space: nowrap; }
+.chipline.warn { color: var(--warn); border-color: var(--warn-line); }
+
+/* Cápsula de passar o mouse */
+.hoverbar { display: flex; align-items: center; gap: 4px; height: 48px; padding: 0 6px 0 4px; border-radius: var(--r-pill); }
+.hoverbar .bub { width: 40px; height: 40px; }
+.hoverbar .bub::before { inset: calc(-3px - var(--mic) * 3px); }
+.hoverbar .bub::after { inset: calc(-1px - var(--sys) * 2px); }
+.hoverbar .bub .core-dot { width: 10px; height: 10px; }
+.hoverbar .t { font-family: var(--font-mono); font-size: 12px; padding: 0 6px 0 10px; }
+.caption-card { width: 230px; padding: 8px 10px; border-radius: var(--r-md); font-size: 11.5px; line-height: 1.45; color: var(--text-soft); }
+.caption-card b { color: var(--text); font-weight: 600; }
+.caption-card .who { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--channel-system); margin-bottom: 2px; }
+.caption-card .who i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Mini que nasce da bolha */
+.mini { width: 320px; border-radius: 16px 16px 16px 16px; overflow: hidden; display: grid; grid-template-rows: auto auto auto 1fr auto auto; background: radial-gradient(420px 120px at 100% 0%, var(--accent-soft), transparent 70%), var(--surface); }
+.mini.live { border-color: var(--accent-line); }
+.mini-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+.mini-clock { margin-left: auto; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.levels { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; gap: 6px; padding: 6px 12px 0; font-family: var(--font-mono); font-size: 9px; letter-spacing: .1em; color: var(--muted); }
+.lv { height: 3px; border-radius: 2px; background: var(--line-strong); overflow: hidden; }
+.lv i { display: block; height: 100%; width: 40%; border-radius: 2px; transition: width 140ms linear; }
+.lv.mic i { background: var(--channel-mic); }
+.lv.sys i { background: var(--channel-system); }
+.tabs { display: flex; gap: 2px; padding: 8px 10px 0; }
+.tabs button { height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 500 12px/1 var(--font-body); cursor: pointer; }
+.tabs button.on { background: var(--surface-3); color: var(--text); }
+.tail { list-style: none; margin: 0; padding: 8px 12px; display: grid; gap: 6px; font-size: 12px; line-height: 1.45; color: var(--text-soft); align-content: start; min-height: 96px; }
+.tail b { color: var(--v, var(--text)); font-weight: 600; margin-right: 4px; }
+.markers { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 4px; }
+.mk { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: var(--r-pill); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text-soft); font: 500 11px/1 var(--font-body); cursor: pointer; }
+.mk svg.i { width: 12px; height: 12px; }
+.mini-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px 10px 12px; }
+.note { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); font: 400 12px/32px var(--font-body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec { width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--accent); box-shadow: var(--accent-glow); display: grid; place-items: center; flex: none; cursor: pointer; }
+.rec .s { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
+
+/* Cartões que nascem da bolha */
+.qcard { width: 300px; border-radius: 16px; padding: 14px; display: grid; gap: 10px; }
+.qcard.warn { border-color: var(--warn-line); background: radial-gradient(360px 110px at 100% 0%, var(--warn-soft), transparent 70%), var(--surface); }
+.qhead { display: flex; align-items: flex-start; gap: 10px; }
+.qicon { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; border: 1px solid var(--line-bright); color: var(--text-soft); }
+.qcard.warn .qicon { border-color: var(--warn-line); color: var(--warn); }
+.qtitle { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--text); }
+.qbody { font-size: 12px; color: var(--text-soft); line-height: 1.5; margin-top: 2px; }
+.qacts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.qacts .btn.primary { grid-column: 1 / -1; }
+.qfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.count { font-size: 11.5px; color: var(--muted); }
+.count b { font-family: var(--font-mono); color: var(--text); font-weight: 500; }
+.cbar { height: 2px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.cbar i { display: block; height: 100%; width: 70%; background: var(--warn); }
+
+.toast { width: 300px; border-radius: var(--r-md); padding: 12px 12px 12px 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; }
+.toast .app { width: 20px; height: 20px; border-radius: 5px; background: #000; display: grid; place-items: center; }
+.toast .app::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ff4400; }
+.toast .meta { font-size: 11px; color: var(--muted); }
+.toast .body { font-size: 13px; font-weight: 500; margin-top: 2px; }
+.toast .sub { font-size: 12px; color: var(--text-soft); }
+.toast .acts { display: flex; gap: 8px; margin-top: 10px; }
+
+/* A. Storyboard */
+.story { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); counter-reset: fr; list-style: none; margin: 0; padding: 0; }
+.frame { display: grid; gap: var(--s-3); align-content: start; }
+.frame .desk { height: 224px; }
+.frame .desk .float, .frame .desk .bub { position: absolute; }
+.frame-cap { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.frame-cap .n { font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); padding-top: 2px; }
+.frame-cap h3 { font-size: 13.5px; }
+.frame-cap p { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-top: 3px; }
+.sc { transform: scale(.72); transform-origin: top right; }
+.sc-br { transform: scale(.72); transform-origin: bottom right; }
+.mainwin { position: absolute; left: 10%; top: 8%; width: 72%; height: 66%; border-radius: 8px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); overflow: hidden; display: grid; grid-template-rows: 18px 1fr; }
+.mainwin .bar { display: flex; align-items: center; gap: 6px; padding: 0 6px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.mainwin .bar .wd { width: 8px; height: 8px; border-radius: 2px; background: #000; display: grid; place-items: center; }
+.mainwin .bar .wd::after { content: ""; width: 3px; height: 3px; border-radius: 50%; background: #ff4400; }
+.mainwin .bar .wctl { margin-left: auto; display: flex; gap: 6px; font: 400 9px/1 "Segoe UI", sans-serif; color: var(--muted); }
+.mainwin .body { display: grid; grid-template-columns: 22% 1fr; }
+.mainwin .side { border-right: 1px solid var(--line); background: var(--surface-2); }
+.mainwin .content { padding: 8px; display: grid; gap: 5px; align-content: start; }
+.mainwin .content i { display: block; height: 6px; border-radius: 3px; background: var(--surface-3); }
+.mainwin .content i.o { background: var(--accent-soft); width: 40%; }
+.ghost { position: absolute; border-radius: 8px; border: 1.5px dashed var(--accent-line); pointer-events: none; }
+.arrow-path { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.arrow-path path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 4; }
+
+/* B. Estados */
+.states { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }
+.st { border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface-2); padding: var(--s-3); display: grid; grid-template-rows: auto 1fr auto; gap: var(--s-3); }
+.st.wide { grid-column: span 2; }
+.st-name { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 500; }
+.st-name .mono { margin-left: auto; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.st-view { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--s-6); min-height: 150px; border-radius: var(--r-md); background: var(--wall); overflow: hidden; padding: var(--s-6) var(--s-4); }
+.st-view .float { position: relative; }
+.st p { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.st p b { color: var(--text-soft); font-weight: 500; }
+.anat { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-6); margin-bottom: var(--s-6); align-items: stretch; }
+.anat-view { position: relative; min-height: 260px; display: grid; place-items: center; border-radius: var(--r-lg); background: var(--wall); border: 1px solid var(--line-strong); }
+.anat-view .bub { transform: scale(2.1); }
+.anat-view .chipline { transform: translateX(-50%) scale(.6); top: calc(100% + 2px); }
+.anat-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s-3); }
+.anat-list li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; font-size: 13px; color: var(--text-soft); }
+.anat-list li b { color: var(--text); font-weight: 500; }
+.sw { width: 14px; height: 14px; margin-top: 4px; border-radius: 50%; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s-4); margin-top: var(--s-4); font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; }
+
+/* C. Demo */
+.demo { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--s-6); align-items: start; }
+.demo-desk { height: 480px; }
+.demo-ctrl { display: grid; gap: var(--s-3); }
+.demo-ctrl .group-title { margin-top: var(--s-2); }
+.demo-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.demo-btns .btn { justify-content: flex-start; height: 34px; }
+.demo-btns .btn[disabled] { opacity: .45; cursor: not-allowed; }
+.demo-log { min-height: 66px; font-size: 12.5px; line-height: 1.5; color: var(--text-soft); padding: var(--s-3); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+.demo-log b { color: var(--text); font-weight: 500; }
+#dWin { position: absolute; left: 5%; top: 5%; width: 74%; height: 76%; z-index: 2; transform-origin: center; }
+#dWin .content { gap: 7px; padding: 12px; }
+#dWin .content i { height: 8px; }
+.win-banner { display: none; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface-2); font-size: 11.5px; line-height: 1.35; margin-bottom: 6px; }
+.win-banner.show { display: flex; }
+.win-banner.warn { border-color: var(--warn-line); background: var(--warn-soft); }
+.win-banner .btn { height: 24px; padding: 0 8px; font-size: 11px; margin-left: auto; }
+.win-live { display: none; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); margin-bottom: 6px; }
+.win-live.show { display: flex; }
+#dMorph { position: absolute; right: 20px; top: 20px; z-index: 5; width: 56px; height: 56px; border-radius: 28px; transition: width var(--t-morph) var(--ease), height var(--t-morph) var(--ease), border-radius var(--t-morph) var(--ease), opacity 180ms var(--ease), transform 180ms var(--ease), background-color var(--t-med), border-color var(--t-med); background: transparent; border: 0; }
+#dMorph.boxed .panel { top: 0; right: 0; }
+#dMorph.hidden { opacity: 0; transform: scale(.6); pointer-events: none; }
+#dMorph.boxed { background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); overflow: hidden; }
+#dMorph.boxed.warnbox { border-color: var(--warn-line); }
+#dMorph.boxed.livebox { border-color: var(--accent-line); }
+.panel { position: absolute; top: 0; right: 0; opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease); }
+.panel.on { opacity: 1; pointer-events: auto; transition-delay: 110ms; }
+.panel.float, .panel .float { position: absolute; }
+.panel.p-bubble { top: 0; right: 0; }
+.panel.p-bubble .bub { position: relative; }
+.panel .mini, .panel .qcard { position: static; border: 0; box-shadow: none; background: transparent; }
+.panel .qcard.warn { background: radial-gradient(360px 110px at 100% 0%, var(--warn-soft), transparent 70%); }
+.panel .mini { background: radial-gradient(420px 120px at 100% 0%, var(--accent-soft), transparent 70%); }
+#dHover { position: absolute; right: 84px; top: 22px; z-index: 4; opacity: 0; transform: translateX(8px); transition: opacity 140ms, transform 140ms var(--ease); pointer-events: none; }
+#dHover.on { opacity: 1; transform: none; pointer-events: auto; }
+#dToast { right: 10px; bottom: 46px; z-index: 6; opacity: 0; transform: translateY(8px); transition: opacity 180ms, transform 180ms var(--ease); pointer-events: none; }
+#dToast.on { opacity: 1; transform: none; pointer-events: auto; }
+.speed { font-size: 11px; color: var(--muted); }
+
+/* D. Configurações */
+.cfg-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: var(--s-6); align-items: start; }
+.settings { padding: 0; overflow: hidden; }
+.settings-top { padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--line); }
+.settings-top .eyebrow { display: block; margin-bottom: 4px; }
+.settings-body { padding: var(--s-4) var(--s-5) var(--s-5); display: grid; gap: var(--s-4); }
+.group-title { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.settings-body .group-title:not(:first-child) { margin-top: var(--s-2); padding-top: var(--s-4); border-top: 1px solid var(--line); }
+.check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; position: relative; }
+.check input { position: absolute; opacity: 0; pointer-events: none; }
+.box { flex: none; width: 18px; height: 18px; margin-top: 2px; border-radius: 5px; border: 1px solid var(--line-bright); background: var(--surface-2); display: grid; place-items: center; }
+.check input:checked + .box { background: var(--accent); border-color: var(--accent); }
+.check input:checked + .box::after { content: ""; width: 9px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+.check input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check strong { display: block; font-size: 13px; font-weight: 500; }
+.check small { display: block; font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+.check.sub, .seg-row.sub { margin-left: 28px; }
+.seg-row { display: grid; gap: 6px; }
+.seg-row > span { font-size: 13px; font-weight: 500; }
+.seg-row > small { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: -2px; }
+.seg-row.sub > span { font-size: 12px; font-weight: 400; color: var(--muted); }
+.segmented { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); }
+.segmented button { flex: 1; height: 28px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 500 12px/1 var(--font-body); cursor: pointer; white-space: nowrap; }
+.segmented button[aria-pressed="true"] { background: var(--surface-hi); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.is-off { opacity: .45; pointer-events: none; }
+.hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; padding: var(--s-3); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+.hint b { color: var(--text-soft); font-weight: 500; }
+.notes-col { display: grid; gap: var(--s-3); }
+.copy-table { display: grid; gap: var(--s-3); }
+.copy-row { display: grid; gap: 4px; padding: var(--s-3) var(--s-4); border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); }
+.copy-row .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.copy-row .t { font-size: 13.5px; font-weight: 600; }
+.copy-row .b { font-size: 12.5px; color: var(--text-soft); }
+
+/* E. Regras */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface); }
+table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 500; color: var(--text); width: 18%; }
+td { color: var(--text-soft); }
+td .mono { color: var(--text); }
+.never { margin-top: var(--s-6); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
+.never .card { border-color: var(--accent-line); }
+.never h3 { display: flex; align-items: center; gap: 8px; }
+.circ { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-bright); display: grid; place-items: center; color: var(--text-soft); flex: none; }
+.open-q { margin-top: var(--s-10); padding: var(--s-6); border-radius: var(--r-lg); border: 1px solid var(--accent-line); background: radial-gradient(500px 160px at 0% 0%, var(--accent-soft), transparent 70%), var(--surface); display: grid; grid-template-columns: 1fr 1.3fr; gap: var(--s-6); }
+.open-q ol { margin: 0; padding-left: 20px; color: var(--text-soft); }
+.open-q li + li { margin-top: var(--s-2); }
+footer { margin-top: var(--s-8); font-size: 12px; color: var(--muted); }
+
+@media (max-width: 1080px) {
+  .story { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .demo, .cfg-grid, .intro, .anat, .open-q { grid-template-columns: 1fr; }
+  .states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .wrap { padding-block: var(--s-8); }
+  .story, .states, .never { grid-template-columns: 1fr; }
+  .st.wide { grid-column: auto; }
+  .demo-desk { height: 520px; }
+  #dWin { width: 88%; height: 60%; }
+  .tray .clock { display: none; }
+  .taskbar i:nth-child(n+5):not(.dn) { display: none; }
+  .mini, .qcard, .toast { width: min(300px, calc(100vw - 72px)); }
+  .demo-btns { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .led.live, .led.heard, .bub.alert { animation: none; }
+  #dMorph, .panel, #dHover, #dToast, .bub::before, .bub::after, .lv i { transition-duration: 1ms !important; transition-delay: 0ms !important; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M6 4v8M10 4v8"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M5.5 3.5l7 4.5-7 4.5z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/></symbol>
+  <symbol id="i-collapse" viewBox="0 0 16 16"><path d="M13 7H9V3M9 7l4.5-4.5M3 9h4v4M7 9l-4.5 4.5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.3-5 6.4-2.8-1.1-5-3.2-5-6.4v-4z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></symbol>
+  <symbol id="i-tasks" viewBox="0 0 16 16"><path d="M6.5 4h7M6.5 8h7M6.5 12h7M2.5 4l1 1 1.5-2M2.5 8.5h2M2.5 12h2"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l1.8 1.8M10.2 10.2L12 12M12 4l-1.8 1.8M5.8 10.2L4 12"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></symbol>
+  <symbol id="i-quiet" viewBox="0 0 16 16"><path d="M2 8h2M6 6v4M9 7v2M12 8h2M2 2l12 12"/></symbol>
+  <symbol id="i-music" viewBox="0 0 16 16"><path d="M6 12V3.5l7-1.5V10.5"/><circle cx="4.5" cy="12" r="1.8"/><circle cx="11.5" cy="10.5" r="1.8"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 16 16"><path d="M2 8h1.5M5 5v6M8 3v10M11 5.5v5M13.5 8H14"/></symbol>
+  <symbol id="i-min" viewBox="0 0 16 16"><path d="M3 12h10"/></symbol>
+  <symbol id="i-bubble" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.8"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></symbol>
+  <symbol id="i-note" viewBox="0 0 16 16"><path d="M4 2.5h6l2.5 2.5v8.5H4z"/><path d="M6 7.5h4.5M6 10h4.5"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header class="intro">
+  <div>
+    <span class="eyebrow">DroidNote <em>/</em> proposta final <em>/</em> base: opção 3</span>
+    <h1 style="margin-top:12px">Uma bolha só, do começo ao fim da reunião</h1>
+    <p class="lede">A mini janela deixa de existir como janela separada. Tudo mora na bolha: ela espera quieta, pergunta quando percebe uma conversa, mostra o nível da sua voz e da chamada enquanto grava, cresce e vira o painel completo quando você clica, e volta a ser bolha quando você recolhe. Minimizar o DroidNote faz a janela encolher até virar a bolha. E se a gravação ficar muito tempo sem ninguém falar, a bolha pergunta se a reunião ainda está acontecendo.</p>
+    <nav class="jump" aria-label="Seções">
+      <a href="#a"><b>A</b> Fluxo completo</a>
+      <a href="#b"><b>B</b> Anatomia e estados</a>
+      <a href="#c"><b>C</b> Experimente</a>
+      <a href="#d"><b>D</b> Configurações</a>
+      <a href="#e"><b>E</b> Regras</a>
+    </nav>
+  </div>
+  <div class="decide">
+    <div class="card"><h3>O que muda em relação à opção 3</h3><ul>
+      <li><b>A bolha é a mini.</b> Clique na bolha e ela cresce até o painel com Ao vivo, Perguntar e Contexto. O botão de recolher devolve para a bolha. Não existe mais mini janela aberta à parte.</li>
+      <li><b>Minimizar vira bolha.</b> A janela principal encolhe até o ponto onde a bolha estava da última vez. Restaurar a janela engole a bolha de volta.</li>
+      <li><b>Alerta ao contrário.</b> Muito tempo sem fala, nem no microfone nem no som do computador, ou só música tocando: a bolha fica âmbar e pergunta "A reunião ainda está acontecendo?".</li>
+    </ul></div>
+    <div class="card"><h3>Tempos escolhidos</h3><ul>
+      <li>Alerta depois de <b>10 min</b> sem fala (5, 10 ou 15 nas configurações).</li>
+      <li>Sem resposta ao alerta: <b>pausa em 2 min</b>, com contagem visível. Nunca encerra nem apaga sozinho.</li>
+      <li>Aviso de conversa detectada fica <b>20 s</b>, depois vira um selo âmbar na bolha.</li>
+      <li>Crescer e recolher: <b>260 ms</b>. Janela até a bolha: <b>320 ms</b>.</li>
+    </ul></div>
+  </div>
+</header>
+
+<!-- ===================== A. FLUXO ===================== -->
+<section class="section" id="a" aria-labelledby="a-t">
+  <div class="sec-head">
+    <div class="num">A</div>
+    <div>
+      <h2 id="a-t">Fluxo completo</h2>
+      <p>Oito momentos de uma reunião comum, do Windows ligando até a nota pronta. Cada quadro é a tela inteira, em tamanho reduzido.</p>
+    </div>
+  </div>
+
+  <ol class="story">
+    <!-- 1 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Área de trabalho vazia, DroidNote só na bandeja com ícone cinza">
+        <div class="taskbar"><i></i><i></i><i></i><i></i><div class="tray"><span class="tray-dn"></span><span class="clock">13:58</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">01</span><div><h3>App na bandeja</h3><p>O DroidNote liga com o Windows e espera perto do relógio. Nada na tela.</p></div></div>
+    </li>
+    <!-- 2 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Chamada aberta e aviso do DroidNote no canto, perguntando se deve gravar">
+        <div class="call-win">Chamada<div class="grid"><span></span><span></span><span></span><span></span></div></div>
+        <div class="float toast sc-br" style="right:8px;bottom:42px">
+          <span class="app" aria-hidden="true"></span>
+          <div><div class="meta">DroidNote · agora</div><div class="body">Parece que uma conversa começou. Gravar?</div>
+            <div class="acts"><button class="btn primary" type="button" tabindex="-1"><span class="dot"></span>Gravar</button><button class="btn" type="button" tabindex="-1">Agora não</button></div></div>
+          <span></span>
+        </div>
+        <div class="taskbar"><i></i><i></i><i></i><i></i><div class="tray"><span class="tray-dn warn"></span><span class="clock">14:02</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">02</span><div><h3>Conversa detectada: aviso</h3><p>Sem bolha na tela, o aviso nasce acima da bandeja. Fica 20 s.</p></div></div>
+    </li>
+    <!-- 3 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Chamada aberta e a bolha laranja gravando no canto superior direito">
+        <div class="call-win">Chamada<div class="grid"><span></span><span></span><span></span><span></span></div></div>
+        <span class="bub" style="right:20px;top:20px;--mic:.7;--sys:.4" aria-hidden="true"><span class="core-dot"></span><span class="chipline">00:03:12</span></span>
+        <div class="taskbar"><i></i><i></i><i></i><i></i><div class="tray"><span class="tray-dn on"></span><span class="clock">14:05</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">03</span><div><h3>Gravando: bolha</h3><p>O aviso encolhe e vira a bolha. O anel laranja é a sua voz, o azul é a chamada.</p></div></div>
+    </li>
+    <!-- 4 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="A bolha cresceu e virou o painel com transcrição ao vivo">
+        <div class="call-win">Chamada<div class="grid"><span></span><span></span><span></span><span></span></div></div>
+        <div class="float mini live sc" style="right:12px;top:12px">
+          <div class="mini-head"><span class="led live"></span><span class="state live">Gravando</span><span class="mini-clock">00:08:40</span><span class="icon-btn"><svg class="i"><use href="#i-collapse"/></svg></span></div>
+          <div class="tabs"><button class="on" type="button" tabindex="-1">Ao vivo</button><button type="button" tabindex="-1">Perguntar</button><button type="button" tabindex="-1">Contexto</button></div>
+          <ol class="tail"><li><b style="--v:var(--channel-system)">Marina</b>Fechamos o envio na sexta, então.</li><li><b style="--v:var(--channel-mic)">Você</b>Fechado. Eu aviso o cliente.</li></ol>
+        </div>
+        <div class="taskbar"><i></i><i></i><i></i><i></i><div class="tray"><span class="tray-dn on"></span><span class="clock">14:10</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">04</span><div><h3>Bolha expandida: a mini</h3><p>Um clique e a bolha cresce até o painel. Recolher devolve para a bolha.</p></div></div>
+    </li>
+    <!-- 5 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Janela do DroidNote encolhendo em direção à posição da bolha">
+        <div class="mainwin" style="opacity:.35"><div class="bar"><span class="wd"></span><span class="wctl">— ▢ ✕</span></div><div class="body"><div class="side"></div><div class="content"><i class="o"></i><i></i><i></i></div></div></div>
+        <div class="ghost" style="right:56px;top:34px;width:70px;height:46px;opacity:.7"></div>
+        <svg class="arrow-path" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M48 42 C 62 30, 74 22, 86 18"/></svg>
+        <span class="bub" style="right:20px;top:20px;--mic:.3;--sys:.6" aria-hidden="true"><span class="core-dot"></span></span>
+        <div class="taskbar"><i></i><i class="dn"></i><i></i><i></i><div class="tray"><span class="tray-dn on"></span><span class="clock">14:12</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">05</span><div><h3>Minimizar vira bolha</h3><p>A janela principal encolhe até onde a bolha estava e some. A bolha sobe na hora.</p></div></div>
+    </li>
+    <!-- 6 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Bolha âmbar que cresceu num cartão perguntando se a reunião ainda está acontecendo">
+        <div class="call-win" style="opacity:.6">Chamada<div class="grid"><span></span><span></span><span></span><span></span></div></div>
+        <div class="float qcard warn sc" style="right:12px;top:12px">
+          <div class="qhead"><span class="qicon"><svg class="i"><use href="#i-quiet"/></svg></span><div><div class="qtitle">A reunião ainda está acontecendo?</div><div class="qbody">Ninguém fala há 10 minutos, nem no seu microfone nem no som do computador.</div></div></div>
+          <div class="qacts"><button class="btn primary" type="button" tabindex="-1">Encerrar e gerar nota</button><button class="btn" type="button" tabindex="-1">Continuar</button><button class="btn" type="button" tabindex="-1">Pausar</button></div>
+          <div class="count">Sem resposta, pauso em <b>1:48</b>.</div>
+        </div>
+        <div class="taskbar"><i></i><i class="dn"></i><i></i><i></i><div class="tray"><span class="tray-dn warn"></span><span class="clock">14:58</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">06</span><div><h3>Silêncio ou música: alerta</h3><p>10 min sem fala. A bolha fica âmbar e cresce com a pergunta e a contagem.</p></div></div>
+    </li>
+    <!-- 7 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Bolha branca com anel de progresso gerando a nota">
+        <svg class="bub gen" style="position:absolute;right:20px;top:20px;width:56px;height:56px;padding:0;border-radius:50%;background:var(--surface)" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="25" fill="none" stroke="var(--line-strong)" stroke-width="3"/><circle cx="28" cy="28" r="25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="157" stroke-dashoffset="62" transform="rotate(-90 28 28)" stroke-linecap="round"/><g transform="translate(20 20)" stroke="var(--accent-text)" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l2.5 2.5v8.5H4z"/><path d="M6 7.5h4.5M6 10h4.5"/></g></svg>
+        <span class="chipline" style="position:absolute;right:6px;top:84px;left:auto;transform:none">Gerando nota</span>
+        <div class="taskbar"><i></i><i class="dn"></i><i></i><i></i><div class="tray"><span class="tray-dn on"></span><span class="clock">14:59</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">07</span><div><h3>Encerrar</h3><p>A bolha vira um anel de progresso enquanto a IA local escreve a nota.</p></div></div>
+    </li>
+    <!-- 8 -->
+    <li class="frame">
+      <div class="desk" role="img" aria-label="Aviso de nota pronta no canto, bolha cinza parada">
+        <span class="bub idle" style="right:24px;top:24px" aria-hidden="true"><span class="core-dot"></span></span>
+        <div class="float toast sc-br" style="right:8px;bottom:42px">
+          <span class="app" aria-hidden="true"></span>
+          <div><div class="meta">DroidNote · agora</div><div class="body">Nota pronta</div><div class="sub">Reunião das 14:02, 48 min.</div>
+            <div class="acts"><button class="btn primary" type="button" tabindex="-1">Abrir nota</button></div></div>
+          <span></span>
+        </div>
+        <div class="taskbar"><i></i><i class="dn"></i><i></i><i></i><div class="tray"><span class="tray-dn"></span><span class="clock">15:00</span></div></div>
+      </div>
+      <div class="frame-cap"><span class="n">08</span><div><h3>Nota pronta</h3><p>Aviso com um botão só. A bolha volta ao cinza porque a janela segue minimizada.</p></div></div>
+    </li>
+  </ol>
+</section>
+
+<!-- ===================== B. ANATOMIA E ESTADOS ===================== -->
+<section class="section" id="b" aria-labelledby="b-t">
+  <div class="sec-head">
+    <div class="num">B</div>
+    <div>
+      <h2 id="b-t">Anatomia e estados</h2>
+      <p>A bolha tem quatro partes. Cada estado muda a cor do núcleo, o anel e o selo. Nenhum estado tem mais de uma ação principal.</p>
+    </div>
+  </div>
+
+  <div class="anat">
+    <div class="anat-view" role="img" aria-label="Bolha gravando ampliada, com anel laranja externo, anel azul interno e selo âmbar">
+      <span class="bub" style="--mic:.8;--sys:.5" aria-hidden="true"><span class="core-dot"></span><span class="badge"></span><span class="chipline">00:12:48</span></span>
+    </div>
+    <div class="card">
+      <h3>Partes da bolha</h3>
+      <ul class="anat-list" style="margin-top:12px">
+        <li><span class="sw" style="background:var(--accent)"></span><span><b>Núcleo, 56 px.</b> Laranja gravando, cinza parado ou pausado, âmbar em alerta. Clique abre a mini. Arrastar move. A posição fica guardada por monitor.</span></li>
+        <li><span class="sw" style="border:2px solid var(--channel-mic)"></span><span><b>Anel externo: sua voz.</b> Cresce até 6 px com o nível do microfone. Mesma cor do canal "Você" na transcrição.</span></li>
+        <li><span class="sw" style="border:2px solid var(--channel-system)"></span><span><b>Anel interno: a chamada.</b> Som do computador, até 3 px. Se um dos anéis fica parado com a reunião rolando, você vê na hora que aquele lado caiu.</span></li>
+        <li><span class="sw" style="background:var(--warn)"></span><span><b>Selo âmbar.</b> Aparece quando algo ficou sem resposta: um aviso de conversa que sumiu ou um alerta que virou pausa.</span></li>
+        <li><span class="sw" style="background:var(--surface);border:1px solid var(--line-bright)"></span><span><b>Etiqueta de tempo.</b> Só aparece com o mouse em cima ou durante a gravação nos primeiros 5 s. Some para não ficar piscando números na tela.</span></li>
+      </ul>
+      <div class="legend"><span><i style="border-color:var(--channel-mic)"></i>Microfone</span><span><i style="border-color:var(--channel-system)"></i>Som do computador</span><span><i style="border-color:var(--warn)"></i>Precisa de você</span></div>
+    </div>
+  </div>
+
+  <div class="states" role="list" aria-label="Estados da bolha">
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led"></span>Parada<span class="mono">48 px</span></div>
+      <div class="st-view">
+        <span class="bub idle" aria-hidden="true"><span class="core-dot"></span></span>
+        <div class="float hoverbar"><span class="bub idle" style="width:36px;height:36px" aria-hidden="true"><span class="core-dot"></span></span><button class="btn primary" type="button" tabindex="-1" style="height:28px"><span class="dot"></span>Gravar</button></div>
+      </div>
+      <p>Só existe com a janela minimizada. Cinza, sem anel. <b>Com o mouse em cima</b>, abre "Gravar" ao lado.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Conversa detectada<span class="mono">20 s</span></div>
+      <div class="st-view">
+        <div class="float qcard" style="width:250px;padding:12px">
+          <div class="qhead"><span class="qicon" style="color:var(--warn);border-color:var(--warn-line)"><svg class="i"><use href="#i-wave"/></svg></span><div><div class="qtitle" style="font-size:13px">Parece que uma conversa começou.</div><div class="qbody">Teams está usando o microfone.</div></div></div>
+          <div class="qacts" style="grid-template-columns:1fr 1fr"><button class="btn primary" type="button" tabindex="-1" style="grid-column:auto"><span class="dot"></span>Gravar</button><button class="btn" type="button" tabindex="-1">Agora não</button></div>
+        </div>
+      </div>
+      <p>Com a bolha na tela, <b>a própria bolha cresce</b> com a pergunta. Sem bolha, o aviso nasce acima da bandeja.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led live"></span>Gravando<span class="mono">56 px</span></div>
+      <div class="st-view">
+        <span class="bub" style="--mic:.75;--sys:.35" aria-hidden="true"><span class="core-dot"></span></span>
+        <div class="float hoverbar"><span class="bub" style="--mic:.6;--sys:.3" aria-hidden="true"><span class="core-dot"></span></span><span class="t">12:48</span><button class="icon-btn" type="button" tabindex="-1" aria-label="Pausar"><svg class="i"><use href="#i-pause"/></svg></button><button class="icon-btn" type="button" tabindex="-1" aria-label="Encerrar"><svg class="i"><use href="#i-stop"/></svg></button></div>
+      </div>
+      <p>Anéis reagem à voz. <b>Mouse em cima por 300 ms</b>: abre a cápsula com tempo, pausar e encerrar.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led live"></span>Mouse em cima, sem clicar</div>
+      <div class="st-view">
+        <div class="float caption-card"><div class="who"><i></i>Marina</div>Fechamos o envio na sexta, então. Você avisa o cliente?</div>
+      </div>
+      <p>Abaixo da cápsula, a última frase e quem falou. <b>É o que a mini compacta mostrava</b>, sem precisar de janela.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Pausada</div>
+      <div class="st-view">
+        <span class="bub paused" aria-hidden="true"><svg class="i" style="width:18px;height:18px"><use href="#i-pause"/></svg><span class="chipline">Pausado · 12:48</span></span>
+      </div>
+      <p>Cinza com o símbolo de pausa. <b>Clique continua</b>. O tempo fica parado.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Pausada por silêncio</div>
+      <div class="st-view">
+        <span class="bub paused" aria-hidden="true"><svg class="i" style="width:18px;height:18px"><use href="#i-pause"/></svg><span class="badge"></span><span class="chipline warn">Pausei às 14:58</span></span>
+      </div>
+      <p>Igual à pausa, com selo âmbar. <b>Nada foi apagado.</b> Clique abre o cartão com Continuar e Encerrar.</p>
+    </div>
+    <div class="st wide" role="listitem">
+      <div class="st-name"><span class="led live"></span>Expandida: a mini<span class="mono">320 × 360 px</span></div>
+      <div class="st-view" style="padding-block:var(--s-4)">
+        <div class="float mini live">
+          <div class="mini-head"><span class="led live"></span><span class="state live">Gravando</span><span class="mini-clock">00:12:48</span><button class="icon-btn" type="button" tabindex="-1" aria-label="Copiar aviso de consentimento"><svg class="i"><use href="#i-shield"/></svg></button><button class="icon-btn" type="button" tabindex="-1" aria-label="Abrir o DroidNote"><svg class="i"><use href="#i-arrow"/></svg></button><button class="icon-btn" type="button" tabindex="-1" aria-label="Recolher na bolha"><svg class="i"><use href="#i-collapse"/></svg></button></div>
+          <div class="levels" aria-hidden="true"><span>VOCÊ</span><span class="lv mic"><i style="width:62%"></i></span><span>CHAMADA</span><span class="lv sys"><i style="width:38%"></i></span></div>
+          <div class="tabs" role="tablist"><button class="on" type="button" tabindex="-1">Ao vivo</button><button type="button" tabindex="-1">Perguntar</button><button type="button" tabindex="-1">Contexto</button></div>
+          <ol class="tail"><li><b style="--v:var(--channel-system)">Marina</b>O orçamento novo chegou ontem à noite.</li><li><b style="--v:var(--channel-system)">Rafael</b>Ficou 8% acima, mas inclui o suporte.</li><li><b style="--v:var(--channel-mic)">Você</b>Fechamos o envio na sexta, então.</li></ol>
+          <div class="markers"><span class="mk"><svg class="i"><use href="#i-check"/></svg>Decisão</span><span class="mk"><svg class="i"><use href="#i-tasks"/></svg>Tarefa</span><span class="mk"><svg class="i"><use href="#i-spark"/></svg>Importante</span><span class="mk"><svg class="i"><use href="#i-chat"/></svg>Dúvida</span></div>
+          <div class="mini-foot"><span class="note">Anotar algo da reunião…</span><button class="rec" type="button" tabindex="-1" aria-label="Encerrar gravação"><span class="s"></span></button></div>
+        </div>
+      </div>
+      <p>Tudo o que a mini tem hoje, sem perder nada: abas, quatro marcadores, anotação e parar. <b>Muda o cabeçalho</b>: sai o "fechar" e o "expandir/compactar", entra "Recolher na bolha". A faixa de nível é nova e usa as mesmas cores dos anéis. A mini sempre abre no tamanho grande, porque o tamanho compacto agora é a própria bolha.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Encerrando: gerando nota</div>
+      <div class="st-view">
+        <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true" style="filter:drop-shadow(0 8px 14px rgba(0,0,0,.25))"><circle cx="28" cy="28" r="27" fill="var(--surface)" stroke="var(--line-strong)"/><circle cx="28" cy="28" r="23" fill="none" stroke="var(--line-strong)" stroke-width="3"/><circle cx="28" cy="28" r="23" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="144.5" stroke-dashoffset="50" transform="rotate(-90 28 28)" stroke-linecap="round"/><g transform="translate(20 20)" stroke="var(--accent-text)" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l2.5 2.5v8.5H4z"/><path d="M6 7.5h4.5M6 10h4.5"/></g></svg>
+      </div>
+      <p>O anel vira barra de progresso. Mouse em cima: "Gerando a nota com a IA local". Termina com o aviso "Nota pronta".</p>
+    </div>
+    <div class="st wide" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Alerta: silêncio e só música</div>
+      <div class="st-view" style="padding-block:var(--s-4)">
+        <div class="float qcard warn">
+          <div class="qhead"><span class="qicon"><svg class="i"><use href="#i-quiet"/></svg></span><div><div class="qtitle">A reunião ainda está acontecendo?</div><div class="qbody">Ninguém fala há 10 minutos, nem no seu microfone nem no som do computador.</div></div></div>
+          <div class="qacts"><button class="btn primary" type="button" tabindex="-1">Encerrar e gerar nota</button><button class="btn" type="button" tabindex="-1">Continuar gravando</button><button class="btn" type="button" tabindex="-1">Pausar</button></div>
+          <div class="cbar" aria-hidden="true"><i></i></div>
+          <div class="qfoot"><span class="count">Sem resposta, pauso em <b>1:24</b>.</span><button class="btn link" type="button" tabindex="-1">Não perguntar de novo nesta reunião</button></div>
+        </div>
+        <div class="float qcard warn">
+          <div class="qhead"><span class="qicon"><svg class="i"><use href="#i-music"/></svg></span><div><div class="qtitle">A reunião ainda está acontecendo?</div><div class="qbody">Há 10 minutos só toca música. Ninguém falou nesse tempo.</div></div></div>
+          <div class="qacts"><button class="btn primary" type="button" tabindex="-1">Encerrar e gerar nota</button><button class="btn" type="button" tabindex="-1">Continuar gravando</button><button class="btn" type="button" tabindex="-1">Pausar</button></div>
+          <div class="cbar" aria-hidden="true"><i style="width:40%"></i></div>
+          <div class="qfoot"><span class="count">Sem resposta, pauso em <b>0:48</b>.</span><button class="btn link" type="button" tabindex="-1">Não perguntar de novo nesta reunião</button></div>
+        </div>
+      </div>
+      <p>A bolha fica âmbar, pulsa devagar por 2 s e cresce no cartão. <b>Não rouba o foco do teclado</b>: quem está digitando na chamada continua digitando. Com a mini aberta, o cartão entra no topo da mini. Com a janela principal aberta, vira uma faixa no topo da tela de gravação.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== C. DEMO ===================== -->
+<section class="section" id="c" aria-labelledby="c-t">
+  <div class="sec-head">
+    <div class="num">C</div>
+    <div>
+      <h2 id="c-t">Experimente</h2>
+      <p>Uma área de trabalho de mentira. Use os botões ao lado ou clique direto na bolha, no aviso e nos cartões. Os tempos estão acelerados: 2 minutos de contagem passam em 6 segundos.</p>
+    </div>
+  </div>
+
+  <div class="demo">
+    <div class="desk demo-desk" id="dDesk" aria-label="Simulação da área de trabalho">
+      <div class="call-win" style="left:12%;top:16%;width:70%;height:58%">Chamada<div class="grid"><span></span><span></span><span></span><span></span></div></div>
+
+      <div class="mainwin" id="dWin" role="group" aria-label="Janela principal do DroidNote">
+        <div class="bar"><span class="wd"></span><span style="font:500 9.5px/1 var(--font-body);color:var(--muted)">DroidNote</span><span class="wctl"><button class="icon-btn" type="button" id="dWinMin" aria-label="Minimizar a janela" style="width:20px;height:16px"><svg class="i" style="width:11px;height:11px"><use href="#i-min"/></svg></button></span></div>
+        <div class="body"><div class="side"></div><div class="content">
+          <div class="win-banner" id="dWinBanner"><svg class="i" id="dWinBannerIco"><use href="#i-wave"/></svg><span id="dWinBannerTxt">Parece que uma conversa começou.</span><button class="btn primary" type="button" id="dWinBannerBtn">Gravar</button></div>
+          <div class="win-live" id="dWinLive"><span class="led live"></span><span>GRAVANDO</span><span id="dWinClock">00:00:00</span></div>
+          <i class="o"></i><i></i><i style="width:80%"></i><i></i><i style="width:60%"></i><i></i><i style="width:70%"></i>
+        </div></div>
+      </div>
+
+      <div id="dHover" class="float hoverbar" aria-hidden="true">
+        <span class="t" id="dHoverClock">00:00</span>
+        <button class="icon-btn" type="button" id="dHoverPause" aria-label="Pausar"><svg class="i"><use href="#i-pause"/></svg></button>
+        <button class="icon-btn" type="button" id="dHoverStop" aria-label="Encerrar e gerar nota"><svg class="i"><use href="#i-stop"/></svg></button>
+      </div>
+
+      <div id="dMorph" class="hidden">
+        <div class="panel p-bubble" id="pBubble">
+          <button class="bub idle" type="button" id="dBub" aria-label="Bolha do DroidNote"><span class="core-dot" id="dBubDot"></span><span class="badge" id="dBadge" hidden></span></button>
+        </div>
+        <div class="panel" id="pAsk">
+          <div class="qcard">
+            <div class="qhead"><span class="qicon" style="color:var(--warn);border-color:var(--warn-line)"><svg class="i"><use href="#i-wave"/></svg></span><div><div class="qtitle">Parece que uma conversa começou.</div><div class="qbody">Teams está usando o microfone.</div></div></div>
+            <div class="qacts" style="grid-template-columns:1fr 1fr"><button class="btn primary" type="button" data-act="rec" style="grid-column:auto"><span class="dot"></span>Gravar</button><button class="btn" type="button" data-act="dismiss">Agora não</button></div>
+          </div>
+        </div>
+        <div class="panel" id="pMini">
+          <div class="mini">
+            <div class="mini-head"><span class="led live" id="dMiniLed"></span><span class="state live" id="dMiniState">Gravando</span><span class="mini-clock" id="dMiniClock">00:00:00</span><button class="icon-btn" type="button" data-act="restore" aria-label="Abrir o DroidNote"><svg class="i"><use href="#i-arrow"/></svg></button><button class="icon-btn" type="button" data-act="collapse" aria-label="Recolher na bolha"><svg class="i"><use href="#i-collapse"/></svg></button></div>
+            <div class="levels" aria-hidden="true"><span>VOCÊ</span><span class="lv mic"><i id="dLvMic"></i></span><span>CHAMADA</span><span class="lv sys"><i id="dLvSys"></i></span></div>
+            <div class="tabs"><button class="on" type="button" tabindex="-1">Ao vivo</button><button type="button" tabindex="-1">Perguntar</button><button type="button" tabindex="-1">Contexto</button></div>
+            <ol class="tail" id="dTail"><li><b style="--v:var(--channel-system)">Marina</b>O orçamento novo chegou ontem à noite.</li><li><b style="--v:var(--channel-mic)">Você</b>Fechamos o envio na sexta, então.</li></ol>
+            <div class="markers"><span class="mk"><svg class="i"><use href="#i-check"/></svg>Decisão</span><span class="mk"><svg class="i"><use href="#i-tasks"/></svg>Tarefa</span><span class="mk"><svg class="i"><use href="#i-spark"/></svg>Importante</span><span class="mk"><svg class="i"><use href="#i-chat"/></svg>Dúvida</span></div>
+            <div class="mini-foot"><span class="note">Anotar algo da reunião…</span><button class="rec" type="button" data-act="stop" aria-label="Encerrar e gerar nota"><span class="s"></span></button></div>
+          </div>
+        </div>
+        <div class="panel" id="pAlert">
+          <div class="qcard warn" role="status" aria-live="polite">
+            <div class="qhead"><span class="qicon"><svg class="i"><use href="#i-quiet" id="dAlertIco"/></svg></span><div><div class="qtitle">A reunião ainda está acontecendo?</div><div class="qbody" id="dAlertBody">Ninguém fala há 10 minutos, nem no seu microfone nem no som do computador.</div></div></div>
+            <div class="qacts"><button class="btn primary" type="button" data-act="stop">Encerrar e gerar nota</button><button class="btn" type="button" data-act="continue">Continuar gravando</button><button class="btn" type="button" data-act="pause">Pausar</button></div>
+            <div class="cbar" aria-hidden="true"><i id="dCbar" style="width:100%"></i></div>
+            <div class="qfoot"><span class="count">Sem resposta, pauso em <b id="dCount">2:00</b>.</span><button class="btn link" type="button" data-act="snooze">Não perguntar de novo nesta reunião</button></div>
+          </div>
+        </div>
+        <div class="panel" id="pAuto">
+          <div class="qcard warn">
+            <div class="qhead"><span class="qicon"><svg class="i"><use href="#i-pause"/></svg></span><div><div class="qtitle">Gravação pausada</div><div class="qbody">Ninguém falou por 12 minutos, então pausei. O que já foi gravado está salvo.</div></div></div>
+            <div class="qacts"><button class="btn primary" type="button" data-act="stop">Encerrar e gerar nota</button><button class="btn" type="button" data-act="continue" style="grid-column:1 / -1">Continuar gravando</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="float toast" id="dToast" role="status" aria-live="polite">
+        <span class="app" aria-hidden="true"></span>
+        <div><div class="meta">DroidNote · agora</div><div class="body" id="dToastTitle">Nota pronta</div><div class="sub" id="dToastSub">Reunião das 14:02, 48 min.</div>
+          <div class="acts" id="dToastActs"></div></div>
+        <button class="icon-btn" type="button" data-act="toastclose" aria-label="Fechar aviso"><svg class="i"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="taskbar"><i></i><i class="dn open" id="dTask" role="button" tabindex="0" aria-label="DroidNote na barra de tarefas"></i><i></i><i></i><i></i>
+        <div class="tray"><span class="tray-dn" id="dTray"></span><span class="clock">14:02</span></div>
+      </div>
+    </div>
+
+    <div class="demo-ctrl">
+      <span class="group-title">Janela</span>
+      <div class="demo-btns">
+        <button class="btn" type="button" id="bMin"><svg class="i"><use href="#i-min"/></svg>Minimizar janela</button>
+        <button class="btn" type="button" id="bRestore"><svg class="i"><use href="#i-expand"/></svg>Restaurar</button>
+      </div>
+      <span class="group-title">Reunião</span>
+      <div class="demo-btns">
+        <button class="btn" type="button" id="bDetect"><svg class="i"><use href="#i-wave"/></svg>Detectar conversa</button>
+        <button class="btn" type="button" id="bExpand"><svg class="i"><use href="#i-bubble"/></svg>Abrir a mini</button>
+        <button class="btn" type="button" id="bSilence"><svg class="i"><use href="#i-quiet"/></svg>Silêncio 10 min</button>
+        <button class="btn" type="button" id="bMusic"><svg class="i"><use href="#i-music"/></svg>Só música</button>
+        <button class="btn" type="button" id="bStop"><svg class="i"><use href="#i-stop"/></svg>Encerrar</button>
+        <button class="btn" type="button" id="bReset"><svg class="i"><use href="#i-plus"/></svg>Recomeçar</button>
+      </div>
+      <div class="demo-log" id="dLog" aria-live="polite"><b>Janela aberta.</b> Comece por "Minimizar janela" ou "Detectar conversa".</div>
+      <p class="speed">Tempos acelerados só aqui. Com "reduzir movimento" ligado no sistema, as transformações viram troca direta.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== D. CONFIGURAÇÕES ===================== -->
+<section class="section" id="d" aria-labelledby="d-t">
+  <div class="sec-head">
+    <div class="num">D</div>
+    <div>
+      <h2 id="d-t">Configurações, aba Reuniões</h2>
+      <p>Versão final. Três grupos, na ordem em que a pessoa pensa: o que acontece quando o PC liga, quando uma conversa começa e durante a gravação. Os controles abaixo funcionam.</p>
+    </div>
+  </div>
+
+  <div class="cfg-grid">
+    <div class="card settings">
+      <div class="settings-top"><span class="eyebrow">Configurações <em>/</em> Reuniões</span><h3>Não perder reuniões</h3></div>
+      <div class="settings-body">
+        <span class="group-title">Ao ligar o computador</span>
+        <label class="check"><input type="checkbox" checked id="cStart"><span class="box"></span><span><strong>Iniciar com o Windows</strong><small>O DroidNote abre sozinho quando você entra no Windows.</small></span></label>
+        <label class="check sub" id="cTrayRow"><input type="checkbox" checked><span class="box"></span><span><strong>Abrir na bandeja</strong><small>Fica perto do relógio, sem abrir janela.</small></span></label>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Fechar a janela deixa o app na bandeja</strong><small>Para sair de verdade, use "Sair" no menu da bandeja.</small></span></label>
+
+        <span class="group-title">Quando uma conversa começar</span>
+        <div class="seg-row"><span>Ao perceber uma conversa</span><div class="segmented" role="group" aria-label="Ao perceber uma conversa" data-seg><button type="button" aria-pressed="false">Não fazer nada</button><button type="button" aria-pressed="true">Perguntar</button><button type="button" aria-pressed="false">Gravar</button></div><small>"Perguntar" mostra o aviso por 20 s. "Gravar" começa sozinho e avisa que começou.</small></div>
+        <label class="check"><input type="checkbox" id="cVoice"><span class="box"></span><span><strong>Detectar fala no microfone</strong><small>Para reunião presencial, quando nenhum app usa o microfone. O Windows mostra o microfone em uso enquanto o DroidNote escuta.</small></span></label>
+        <p class="hint"><b>Nada é salvo antes do clique em Gravar.</b> O que o microfone ouve só passa pela memória para decidir se é fala e é descartado em seguida. Nada sai do computador.</p>
+
+        <span class="group-title">Durante a gravação</span>
+        <div class="seg-row"><span>Bolha ao minimizar o DroidNote</span><div class="segmented" role="group" aria-label="Bolha ao minimizar" data-seg><button type="button" aria-pressed="true">Sempre</button><button type="button" aria-pressed="false">Só gravando</button><button type="button" aria-pressed="false">Nunca</button></div><small>A janela encolhe até virar a bolha. Fechar no X durante a gravação também deixa a bolha na tela.</small></div>
+        <label class="check"><input type="checkbox" checked id="cAlert"><span class="box"></span><span><strong>Perguntar se a reunião ainda está acontecendo</strong><small>Quando ninguém fala por um tempo, nem você nem quem está na chamada.</small></span></label>
+        <div class="seg-row sub" id="cAlertTime"><span>Depois de quanto tempo sem fala</span><div class="segmented" role="group" aria-label="Tempo sem fala" data-seg><button type="button" aria-pressed="false">5 min</button><button type="button" aria-pressed="true">10 min</button><button type="button" aria-pressed="false">15 min</button></div></div>
+        <label class="check sub" id="cMusicRow"><input type="checkbox" checked><span class="box"></span><span><strong>Contar música como sala vazia</strong><small>Música de espera ou playlist tocando sem ninguém falar também dispara a pergunta.</small></span></label>
+        <p class="hint" id="cAlertHint"><b>Sem resposta, a gravação pausa em 2 minutos.</b> O DroidNote nunca encerra nem apaga uma gravação sozinho.</p>
+      </div>
+    </div>
+
+    <div class="notes-col">
+      <span class="eyebrow">Texto final da interface <em>/</em> alerta</span>
+      <div class="copy-table">
+        <div class="copy-row"><span class="k">Silêncio nos dois lados</span><span class="t">A reunião ainda está acontecendo?</span><span class="b">Ninguém fala há 10 minutos, nem no seu microfone nem no som do computador.</span></div>
+        <div class="copy-row"><span class="k">Só música</span><span class="t">A reunião ainda está acontecendo?</span><span class="b">Há 10 minutos só toca música. Ninguém falou nesse tempo.</span></div>
+        <div class="copy-row"><span class="k">Ninguém falou desde o início</span><span class="t">A reunião já começou?</span><span class="b">Estou gravando há 10 minutos e ninguém falou ainda.</span></div>
+        <div class="copy-row"><span class="k">Contagem</span><span class="t" style="font-weight:500;font-size:12.5px">Sem resposta, pauso em 1:48.</span></div>
+        <div class="copy-row"><span class="k">Depois da pausa automática</span><span class="t">Gravação pausada</span><span class="b">Ninguém falou por 12 minutos, então pausei. O que já foi gravado está salvo.</span></div>
+        <div class="copy-row"><span class="k">A conversa voltou durante a pausa</span><span class="t">A conversa voltou. Continuar gravando?</span><span class="b">Botões: Continuar gravando · Agora não.</span></div>
+        <div class="copy-row"><span class="k">Silenciar nesta reunião</span><span class="t" style="font-weight:500;font-size:12.5px">Não perguntar de novo nesta reunião</span><span class="b">Depois do clique, a bolha mostra por 3 s: "Certo, não pergunto mais até você encerrar."</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== E. REGRAS ===================== -->
+<section class="section" id="e" aria-labelledby="e-t">
+  <div class="sec-head">
+    <div class="num">E</div>
+    <div>
+      <h2 id="e-t">Regras</h2>
+      <p>O que dispara cada coisa, quanto tempo leva e o que o app faz. Para o tec-frontend e o tec-backend implementarem sem adivinhar.</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Situação</th><th>Gatilho</th><th>Tempo</th><th>O que acontece</th><th>Volta ao normal quando</th></tr></thead>
+      <tbody>
+        <tr><td>Minimizar a janela</td><td>Evento de minimizar da janela principal, com "Bolha ao minimizar" em Sempre, ou em Só gravando com gravação ativa.</td><td><span class="mono">320 ms</span></td><td>A janela encolhe até a última posição da bolha neste monitor e some. A bolha aparece no fim da animação. Parado: bolha cinza de 48 px. Gravando: laranja de 56 px.</td><td>A janela é restaurada pela barra de tarefas, pela bandeja ou pelo botão "Abrir o DroidNote" da mini. A bolha voa até a janela e some.</td></tr>
+        <tr><td>Fechar no X</td><td>Clique no X com "Fechar deixa na bandeja" ligado.</td><td><span class="mono">—</span></td><td>Gravando: igual a minimizar, a bolha fica. Parado: vai só para a bandeja, sem bolha. Quem fechou quer a tela limpa.</td><td>Ícone da bandeja ou atalho.</td></tr>
+        <tr><td>Abrir a mini</td><td>Clique na bolha, Enter com foco nela, ou o atalho global de hoje.</td><td><span class="mono">260 ms</span></td><td>A bolha cresce até 320 × 360 px, presa no canto mais próximo dela. Se não couber na tela, cresce para o lado que cabe.</td><td>Botão "Recolher na bolha" ou Esc com foco na mini. Clicar fora não recolhe, para não fechar no meio de uma anotação.</td></tr>
+        <tr><td>Cápsula de controle</td><td>Mouse parado sobre a bolha.</td><td>abre em <span class="mono">300 ms</span>, fecha <span class="mono">600 ms</span> depois de sair</td><td>Mostra tempo, pausar e encerrar ao lado, e a última frase embaixo.</td><td>Mouse sai.</td></tr>
+        <tr><td>Conversa detectada</td><td>Sinal do Windows de microfone em uso por app de reunião, ou fala detectada (se ligado).</td><td>fica <span class="mono">20 s</span></td><td>Com bolha: a bolha cresce na pergunta. Sem bolha: aviso acima da bandeja. Janela aberta: faixa no topo da janela.</td><td>Sem resposta: some e deixa selo âmbar na bolha e na bandeja até a pessoa clicar ou a conversa acabar.</td></tr>
+        <tr><td>Silêncio</td><td>Nenhum trecho de fala, no microfone e no som do computador, pelo tempo escolhido. Ruído de fundo, teclado e respiração não contam como fala.</td><td><span class="mono">10 min</span> (5, 10 ou 15)</td><td>Bolha âmbar, pulsa 2 s e cresce no cartão do alerta, sem tirar o foco do teclado. Contagem de 2 min começa.</td><td>Qualquer fala de 3 s ou mais, em qualquer lado, fecha o cartão sozinha e zera o tempo.</td></tr>
+        <tr><td>Só música</td><td>Som presente no computador ou no microfone, mas sem fala, pelo mesmo tempo. Só vale com "Contar música como sala vazia" ligado. Desligado, qualquer som conta como reunião em andamento.</td><td><span class="mono">10 min</span></td><td>Mesmo cartão, com o ícone de nota musical e o texto de música.</td><td>Igual ao silêncio.</td></tr>
+        <tr><td>Ninguém falou desde o início</td><td>As mesmas regras, mas sem nenhuma fala desde o clique em Gravar.</td><td><span class="mono">10 min</span></td><td>Texto "A reunião já começou?". Cobre sala de espera com música.</td><td>Igual ao silêncio.</td></tr>
+        <tr><td>Alerta sem resposta</td><td>Contagem chega a zero.</td><td><span class="mono">2 min</span></td><td>Pausa a gravação. Bolha cinza com selo âmbar e etiqueta "Pausei às 14:58". O tempo do relógio para.</td><td>Clique em Continuar. Ou a conversa volta (sinal do Windows, ou fala se ligado): a bolha pergunta "A conversa voltou. Continuar gravando?". Não volta a gravar sozinha.</td></tr>
+        <tr><td>Continuar gravando</td><td>Botão no cartão.</td><td>—</td><td>Cartão recolhe na bolha. O tempo sem fala recomeça do zero a partir do clique.</td><td>—</td></tr>
+        <tr><td>Não perguntar de novo</td><td>Link no cartão.</td><td>—</td><td>Desliga o alerta só para esta gravação. A configuração geral continua como estava.</td><td>Na próxima gravação, o alerta volta.</td></tr>
+        <tr><td>Pausa manual longa</td><td>Pausado pela pessoa ou pelo alerta por muito tempo.</td><td>—</td><td>Nada. A gravação continua pausada até a pessoa decidir. Ver pergunta em aberto 2.</td><td>—</td></tr>
+        <tr><td>Encerrar</td><td>Botão parar na mini, na cápsula ou no cartão.</td><td>—</td><td>Bolha vira anel de progresso. Ao terminar, aviso "Nota pronta" com "Abrir nota". A bolha volta ao cinza se a janela seguir minimizada, ou some se a opção for "Só gravando".</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="never">
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-lock"/></svg></span>Nunca automático</h3><ul style="margin-top:8px">
+      <li>Apagar gravação, trecho ou nota. Nem o trecho em silêncio.</li>
+      <li>Encerrar a gravação. Só pausa, e só depois de 2 min de contagem visível.</li>
+      <li>Voltar a gravar depois de uma pausa sem a pessoa clicar.</li>
+      <li>Tirar o foco do teclado do app da chamada.</li>
+      <li>Abrir a mini sozinha. Ela só cresce quando a pessoa clica.</li>
+    </ul></div>
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-shield"/></svg></span>Privacidade e acessibilidade</h3><ul style="margin-top:8px">
+      <li>O detector de fala e de música roda no computador, sobre o áudio que já está sendo gravado. Nada novo sai da máquina.</li>
+      <li>O cartão do alerta usa região de anúncio educada: o leitor de tela lê a pergunta sem interromper.</li>
+      <li>A bolha tem nome acessível com o estado ("DroidNote, gravando, 12 minutos") e responde a Enter, Espaço e Esc.</li>
+      <li>Cor nunca é o único sinal: âmbar sempre vem com ícone e texto.</li>
+      <li>Com "reduzir movimento", sem pulso e sem encolher a janela: troca direta em 120 ms.</li>
+    </ul></div>
+  </div>
+
+  <div class="open-q">
+    <div>
+      <span class="eyebrow">Para decidir</span>
+      <h2 style="margin-top:8px">Perguntas em aberto</h2>
+      <p style="margin-top:12px">As escolhas da página já estão aplicadas. Estas cinco precisam da sua palavra antes de ir para o código.</p>
+    </div>
+    <ol>
+      <li><b>Corte do silêncio na nota.</b> Ao encerrar depois de um alerta, a nota deve ignorar os minutos finais sem fala? O áudio continua salvo de qualquer jeito.</li>
+      <li><b>Pausa sem fim.</b> Uma gravação pausada pelo alerta fica pausada para sempre, ou o app encerra e gera a nota depois de 30 min, com nova contagem de 2 min?</li>
+      <li><b>Animação de minimizar.</b> A janela só encolhe até a bolha se o DroidNote desenhar a própria barra de título. Com a barra do Windows, o Windows faz a animação dele e a bolha só aparece. Topa trocar a barra?</li>
+      <li><b>Bolha parada com a janela minimizada.</b> "Sempre" como padrão, como você pediu, ou "Só gravando" para quem não gosta de nada flutuando?</li>
+      <li><b>Atalho para a mini.</b> Hoje existe atalho global para a mini janela. Mantemos o mesmo atalho abrindo a bolha já expandida?</li>
+    </ol>
+  </div>
+
+  <footer>Maquete com dados de exemplo. Cores, fontes, raios e espaçamentos vêm de desktop/src/shared/styles/tokens.css. Abas, marcadores e textos da mini vêm do catálogo pt.ts. Os textos novos desta página são o texto final proposto para a interface.</footer>
+</section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- Configurações: segmentados e dependências ---------- */
+  document.querySelectorAll("[data-seg]").forEach(function (group) {
+    group.addEventListener("click", function (e) {
+      var b = e.target.closest("button"); if (!b) return;
+      group.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+    });
+  });
+  function dep(srcId, ids) {
+    var src = $(srcId); if (!src) return;
+    var sync = function () { ids.forEach(function (id) { var el = $(id); if (el) el.classList.toggle("is-off", !src.checked); }); };
+    src.addEventListener("change", sync); sync();
+  }
+  dep("cStart", ["cTrayRow"]);
+  dep("cAlert", ["cAlertTime", "cMusicRow", "cAlertHint"]);
+
+  /* ---------- Demo ---------- */
+  var desk = $("dDesk"), win = $("dWin"), morph = $("dMorph"), bub = $("dBub"), badge = $("dBadge");
+  var hover = $("dHover"), toast = $("dToast"), log = $("dLog"), tray = $("dTray"), task = $("dTask");
+  var panels = { bubble: $("pBubble"), ask: $("pAsk"), mini: $("pMini"), alert: $("pAlert"), auto: $("pAuto") };
+
+  var S = { win: true, mode: "idle", view: "bubble", alertKind: null, elapsed: 0, snoozed: false, badge: false, busy: false };
+  var timers = { tick: null, count: null, ask: null, gen: null, toast: null, hover: null, hoverOut: null };
+
+  function say(html) { log.innerHTML = html; }
+  function clear(name) { if (timers[name]) { clearInterval(timers[name]); clearTimeout(timers[name]); timers[name] = null; } }
+  function fmt(s, long) { var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; var p = function (n) { return String(n).padStart(2, "0"); }; return long ? p(h) + ":" + p(m) + ":" + p(x) : p(m) + ":" + p(x); }
+
+  function shape(view) {
+    if (S.win) { morph.classList.add("hidden"); hover.classList.remove("on"); return; }
+    morph.classList.remove("hidden");
+    Object.keys(panels).forEach(function (k) { panels[k].classList.toggle("on", k === view); });
+    var boxed = view !== "bubble";
+    morph.classList.toggle("boxed", boxed);
+    morph.classList.toggle("warnbox", view === "alert" || view === "auto");
+    morph.classList.toggle("livebox", view === "mini");
+    if (!boxed) {
+      var size = S.mode === "idle" ? 48 : 56;
+      morph.style.width = size + "px"; morph.style.height = size + "px"; morph.style.borderRadius = (size / 2) + "px";
+    } else {
+      var inner = panels[view].firstElementChild;
+      var w = inner.offsetWidth, h = inner.offsetHeight;
+      morph.style.width = (w + 2) + "px"; morph.style.height = (h + 2) + "px"; morph.style.borderRadius = "16px";
+    }
+  }
+
+  function paintBubble() {
+    bub.className = "bub";
+    var label = "DroidNote";
+    if (S.mode === "idle") { bub.classList.add("idle"); label += ", parado. Clique para abrir"; }
+    else if (S.mode === "paused" || S.mode === "autopaused") { bub.classList.add("paused"); label += ", pausado"; }
+    else if (S.mode === "alert") { bub.classList.add("alert"); label += ", precisa de você"; }
+    else if (S.mode === "gen") { bub.classList.add("gen"); label += ", gerando a nota"; }
+    else { label += ", gravando, " + Math.floor(S.elapsed / 60) + " minutos"; }
+    bub.setAttribute("aria-label", label);
+    $("dBubDot").style.display = (S.mode === "paused" || S.mode === "autopaused" || S.mode === "gen") ? "none" : "";
+    var ico = bub.querySelector("svg"); if (ico) ico.remove();
+    if (S.mode === "paused" || S.mode === "autopaused" || S.mode === "gen") {
+      var s = document.createElementNS("http://www.w3.org/2000/svg", "svg"); s.setAttribute("class", "i"); s.style.width = "18px"; s.style.height = "18px";
+      var u = document.createElementNS("http://www.w3.org/2000/svg", "use"); u.setAttribute("href", S.mode === "gen" ? "#i-note" : "#i-pause"); s.appendChild(u); bub.insertBefore(s, badge);
+    }
+    badge.hidden = !(S.badge || S.mode === "autopaused");
+    tray.className = "tray-dn" + (S.mode === "alert" || S.badge || S.mode === "autopaused" ? " warn" : (S.mode === "rec" || S.mode === "alert" ? " on" : ""));
+    if (S.mode === "rec") tray.className = "tray-dn on";
+    task.classList.toggle("open", S.win);
+    // Janela principal
+    var banner = $("dWinBanner"), live = $("dWinLive");
+    live.classList.toggle("show", S.win && (S.mode === "rec" || S.mode === "alert"));
+    banner.className = "win-banner";
+    if (S.win && S.view === "ask") { banner.classList.add("show"); $("dWinBannerTxt").textContent = "Parece que uma conversa começou."; $("dWinBannerBtn").textContent = "Gravar"; $("dWinBannerBtn").dataset.act = "rec"; }
+    if (S.win && S.mode === "alert") { banner.classList.add("show", "warn"); $("dWinBannerTxt").textContent = "A reunião ainda está acontecendo? Pauso em " + $("dCount").textContent + "."; $("dWinBannerBtn").textContent = "Continuar"; $("dWinBannerBtn").dataset.act = "continue"; }
+    if (S.win && S.mode === "autopaused") { banner.classList.add("show", "warn"); $("dWinBannerTxt").textContent = "Gravação pausada porque ninguém falou."; $("dWinBannerBtn").textContent = "Continuar"; $("dWinBannerBtn").dataset.act = "continue"; }
+    // Botões
+    $("bMin").disabled = !S.win; $("bRestore").disabled = S.win;
+    $("bDetect").disabled = S.mode !== "idle" || S.busy;
+    $("bExpand").disabled = S.win || S.mode === "idle" || S.mode === "gen" || S.view === "mini";
+    $("bSilence").disabled = $("bMusic").disabled = !(S.mode === "rec") || S.snoozed;
+    $("bStop").disabled = !(S.mode === "rec" || S.mode === "paused" || S.mode === "alert" || S.mode === "autopaused");
+  }
+
+  function render() { paintBubble(); shape(S.view); }
+
+  /* Nível dos anéis */
+  function levels() {
+    var mic = 0, sys = 0;
+    if (S.mode === "rec") {
+      if (S.alertKind === "music") { sys = .55 + Math.random() * .1; }
+      else if (S.alertKind === "silence") { mic = 0; sys = 0; }
+      else { mic = Math.random() < .5 ? Math.random() * .9 : .08; sys = Math.random() < .6 ? Math.random() * .8 : .05; }
+      if (reduce) { mic = .45; sys = .4; }
+    }
+    bub.style.setProperty("--mic", mic.toFixed(2)); bub.style.setProperty("--sys", sys.toFixed(2));
+    $("dLvMic").style.width = Math.round(mic * 100) + "%"; $("dLvSys").style.width = Math.round(sys * 100) + "%";
+  }
+  function startClock() {
+    clear("tick");
+    timers.tick = setInterval(function () {
+      if (S.mode === "rec" || S.mode === "alert") S.elapsed += 1;
+      $("dMiniClock").textContent = fmt(S.elapsed, true); $("dWinClock").textContent = fmt(S.elapsed, true); $("dHoverClock").textContent = fmt(S.elapsed);
+      levels();
+    }, reduce ? 1000 : 250);
+  }
+
+  /* Animação janela <-> bolha */
+  function flyWindow(toBubble, done) {
+    var dr = desk.getBoundingClientRect(), wr = win.getBoundingClientRect();
+    var size = S.mode === "idle" ? 48 : 56;
+    var bx = dr.right - 20 - size / 2, by = dr.top + 20 + size / 2;
+    var dx = bx - (wr.left + wr.width / 2), dy = by - (wr.top + wr.height / 2), sc = size / wr.width;
+    if (reduce || !win.animate) {
+      win.style.opacity = toBubble ? "0" : "1"; win.style.visibility = toBubble ? "hidden" : "visible"; done(); return;
+    }
+    var full = { transform: "translate(0,0) scale(1)", opacity: 1, borderRadius: "8px" };
+    var small = { transform: "translate(" + dx + "px," + dy + "px) scale(" + sc + ")", opacity: 0, borderRadius: (size / sc / 2) + "px" };
+    win.style.visibility = "visible";
+    var a = win.animate(toBubble ? [full, small] : [small, full], { duration: 320, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" });
+    var finished = false;
+    var finish = function () { if (finished) return; finished = true; win.style.opacity = toBubble ? "0" : "1"; win.style.visibility = toBubble ? "hidden" : "visible"; try { a.cancel(); } catch (err) { /* nada */ } done(); };
+    a.onfinish = finish;
+    setTimeout(finish, 420); /* garante o fim mesmo com a aba em segundo plano */
+  }
+
+  function minimize() {
+    if (!S.win || S.busy) return;
+    S.busy = true; hover.classList.remove("on");
+    flyWindow(true, function () {
+      S.win = false; S.busy = false;
+      if (S.mode === "alert") S.view = "alert"; else if (S.mode === "autopaused") S.view = "auto"; else if (S.view === "ask") S.view = "ask"; else S.view = "bubble";
+      render();
+      say(S.mode === "idle" ? "<b>A janela virou a bolha.</b> Cinza porque nada está gravando. Passe o mouse para ver \"Gravar\"." : "<b>A janela virou a bolha.</b> A gravação segue. Clique na bolha para abrir a mini.");
+    });
+  }
+  function restore() {
+    if (S.win || S.busy) return;
+    S.busy = true;
+    morph.classList.add("hidden"); hover.classList.remove("on");
+    setTimeout(function () {
+      flyWindow(false, function () { S.win = true; S.busy = false; if (S.view === "mini") S.view = "bubble"; render(); say("<b>A janela voltou e engoliu a bolha.</b> Enquanto ela está aberta, a bolha não aparece."); });
+    }, reduce ? 0 : 120);
+  }
+
+  function setView(v) { S.view = v; render(); }
+
+  function detect() {
+    if (S.mode !== "idle") return;
+    S.view = "ask"; S.badge = false; render();
+    say(S.win ? "<b>Janela aberta:</b> o aviso entra como faixa no topo da janela." : "<b>A bolha cresceu com a pergunta.</b> Se ninguém responder em 20 s, ela volta a ser bolha com um selo âmbar.");
+    clear("ask");
+    timers.ask = setTimeout(function () { if (S.view === "ask" && S.mode === "idle") { S.view = "bubble"; S.badge = true; render(); say("<b>Ninguém respondeu.</b> A pergunta virou um selo âmbar na bolha. Clique nela para gravar."); } }, 8000);
+  }
+  function startRec() {
+    clear("ask"); S.mode = "rec"; S.view = "bubble"; S.badge = false; S.alertKind = null; S.elapsed = S.elapsed || 0; render(); startClock();
+    say("<b>Gravando.</b> O anel laranja é você, o azul é a chamada. Passe o mouse para pausar ou encerrar, clique para abrir a mini.");
+  }
+  function alertOn(kind) {
+    if (S.mode !== "rec" || S.snoozed) return;
+    S.alertKind = kind; levels();
+    var body = kind === "music" ? "Há 10 minutos só toca música. Ninguém falou nesse tempo." : "Ninguém fala há 10 minutos, nem no seu microfone nem no som do computador.";
+    $("dAlertBody").textContent = body;
+    $("dAlertIco").setAttribute("href", kind === "music" ? "#i-music" : "#i-quiet");
+    S.mode = "alert"; S.view = "bubble"; render();
+    say(kind === "music" ? "<b>Só música há 10 minutos.</b> A bolha fica âmbar e pulsa antes de crescer." : "<b>Silêncio nos dois lados há 10 minutos.</b> A bolha fica âmbar e pulsa antes de crescer.");
+    setTimeout(function () { if (S.mode === "alert") { S.view = "alert"; render(); countdown(); } }, reduce ? 0 : 1600);
+  }
+  function countdown() {
+    clear("count"); var left = 120; $("dCount").textContent = "2:00"; $("dCbar").style.width = "100%";
+    timers.count = setInterval(function () {
+      left -= 1;
+      $("dCount").textContent = Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0");
+      $("dCbar").style.width = (left / 120 * 100) + "%";
+      if (S.win) paintBubble();
+      if (left <= 0) { clear("count"); S.mode = "autopaused"; S.view = "auto"; render(); say("<b>Ninguém respondeu, então a gravação pausou.</b> Nada foi apagado. A decisão de encerrar fica com você."); }
+    }, 50);
+  }
+  function cont() {
+    clear("count"); S.alertKind = null; S.mode = "rec"; S.view = "bubble"; render();
+    say("<b>Gravação continua.</b> O tempo sem fala recomeça do zero agora.");
+  }
+  function pause() {
+    clear("count"); S.mode = "paused"; S.view = "bubble"; render();
+    say("<b>Pausado.</b> Clique na bolha para continuar.");
+  }
+  function snooze() {
+    clear("count"); S.snoozed = true; S.alertKind = null; S.mode = "rec"; S.view = "bubble"; render();
+    say("<b>Certo, não pergunto mais até você encerrar.</b> Na próxima reunião o alerta volta.");
+  }
+  function stop() {
+    if (S.mode === "idle" || S.mode === "gen") return;
+    clear("count"); S.mode = "gen"; S.view = "bubble"; S.alertKind = null; render();
+    say("<b>Encerrado.</b> A bolha vira um anel de progresso enquanto a IA local escreve a nota.");
+    clear("gen");
+    timers.gen = setTimeout(function () {
+      S.mode = "idle"; S.elapsed = 0; S.snoozed = false; clear("tick"); render();
+      showToast("Nota pronta", "Reunião das 14:02, 48 min.", [["Abrir nota", "opennote", true]]);
+      say("<b>Nota pronta.</b> O aviso tem um botão só. A bolha volta ao cinza porque a janela segue minimizada.");
+    }, reduce ? 800 : 2600);
+  }
+  function showToast(title, sub, acts) {
+    $("dToastTitle").textContent = title; $("dToastSub").textContent = sub;
+    var box = $("dToastActs"); box.innerHTML = "";
+    acts.forEach(function (a) { var b = document.createElement("button"); b.type = "button"; b.className = "btn" + (a[2] ? " primary" : ""); b.textContent = a[0]; b.dataset.act = a[1]; box.appendChild(b); });
+    toast.classList.add("on"); clear("toast"); timers.toast = setTimeout(function () { toast.classList.remove("on"); }, 6000);
+  }
+  function reset() {
+    Object.keys(timers).forEach(clear);
+    S = { win: true, mode: "idle", view: "bubble", alertKind: null, elapsed: 0, snoozed: false, badge: false, busy: false };
+    win.style.opacity = "1"; win.style.visibility = "visible"; toast.classList.remove("on");
+    render(); levels();
+    say("<b>Janela aberta.</b> Comece por \"Minimizar janela\" ou \"Detectar conversa\".");
+  }
+
+  /* Bolha: clique e passar o mouse */
+  bub.addEventListener("click", function () {
+    hover.classList.remove("on");
+    if (S.mode === "idle") { if (S.badge) { startRec(); } else { startRec(); } return; }
+    if (S.mode === "paused") { S.mode = "rec"; render(); say("<b>Gravação continua.</b>"); return; }
+    if (S.mode === "autopaused") { S.view = "auto"; render(); return; }
+    if (S.mode === "alert") { S.view = "alert"; render(); return; }
+    if (S.mode === "rec") { setView("mini"); say("<b>A bolha cresceu e virou a mini.</b> Abas, marcadores e anotação. \"Recolher\" volta para a bolha."); }
+  });
+  function hoverIn() {
+    if (S.win || S.view !== "bubble" || !(S.mode === "rec" || S.mode === "idle")) return;
+    clear("hoverOut"); clear("hover");
+    timers.hover = setTimeout(function () {
+      var idle = S.mode === "idle";
+      hover.innerHTML = idle ? '<button class="btn primary" type="button" data-act="rec" style="height:28px"><span class="dot"></span>Gravar</button>' :
+        '<span class="t">' + fmt(S.elapsed) + '</span><button class="icon-btn" type="button" data-act="pause" aria-label="Pausar"><svg class="i"><use href="#i-pause"/></svg></button><button class="icon-btn" type="button" data-act="stop" aria-label="Encerrar e gerar nota"><svg class="i"><use href="#i-stop"/></svg></button>';
+      hover.style.right = (idle ? 76 : 84) + "px"; hover.style.top = (idle ? 20 : 24) + "px";
+      hover.classList.add("on"); hover.setAttribute("aria-hidden", "false");
+    }, 300);
+  }
+  function hoverOut() { clear("hover"); clear("hoverOut"); timers.hoverOut = setTimeout(function () { hover.classList.remove("on"); hover.setAttribute("aria-hidden", "true"); }, 600); }
+  bub.addEventListener("mouseenter", hoverIn); bub.addEventListener("mouseleave", hoverOut);
+  bub.addEventListener("focus", hoverIn); bub.addEventListener("blur", hoverOut);
+  hover.addEventListener("mouseenter", function () { clear("hoverOut"); }); hover.addEventListener("mouseleave", hoverOut);
+
+  /* Ações por data-act em qualquer lugar da demo */
+  desk.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]"); if (!b) return;
+    var act = b.dataset.act; hover.classList.remove("on");
+    if (act === "rec") startRec();
+    else if (act === "dismiss") { clear("ask"); S.view = "bubble"; render(); say("<b>Agora não.</b> A bolha volta a esperar."); }
+    else if (act === "collapse") { setView("bubble"); say("<b>Recolhida.</b> A mini voltou a ser bolha."); }
+    else if (act === "restore") restore();
+    else if (act === "stop") stop();
+    else if (act === "continue") cont();
+    else if (act === "pause") pause();
+    else if (act === "snooze") snooze();
+    else if (act === "opennote") { toast.classList.remove("on"); restore(); }
+    else if (act === "toastclose") toast.classList.remove("on");
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && S.view === "mini" && !S.win) { setView("bubble"); bub.focus(); } });
+  task.addEventListener("click", function () { S.win ? minimize() : restore(); });
+  task.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.win ? minimize() : restore(); } });
+  $("dWinMin").addEventListener("click", minimize);
+
+  $("bMin").addEventListener("click", minimize);
+  $("bRestore").addEventListener("click", restore);
+  $("bDetect").addEventListener("click", detect);
+  $("bExpand").addEventListener("click", function () { if (S.mode === "rec") { setView("mini"); say("<b>A bolha cresceu e virou a mini.</b>"); } else if (S.mode === "alert") setView("alert"); else if (S.mode === "autopaused") setView("auto"); });
+  $("bSilence").addEventListener("click", function () { alertOn("silence"); });
+  $("bMusic").addEventListener("click", function () { alertOn("music"); });
+  $("bStop").addEventListener("click", stop);
+  $("bReset").addEventListener("click", reset);
+
+  reset();
+})();
+</script>
+</body>
+</html>

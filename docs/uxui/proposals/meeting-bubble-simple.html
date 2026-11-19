@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bolha de reunião, versão simples</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Tokens de desktop/src/shared/styles/tokens.css, iguais a meeting-bubble-final.html. Âmbar ganhou tokens próprios para passar 4.5:1. */
+:root {
+  --font: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  color-scheme: light;
+  --bg: #f3f3f1; --surface: #ffffff; --surface-2: #f8f8f6; --surface-3: #efefec;
+  --line: rgba(10,10,12,.09); --line-strong: rgba(10,10,12,.15); --line-bright: rgba(10,10,12,.32);
+  --text: #0c0c0e; --text-soft: #34343a; --muted: #5f5f67;
+  --accent: #e63d00; --accent-text: #c73600; --accent-fill: #c73600; --accent-ink: #ffffff;
+  --accent-soft: rgba(230,61,0,.09); --accent-line: rgba(230,61,0,.35);
+  --amber: #f5b400; --amber-ink: #1b1300; --amber-text: #8a5300; --amber-soft: rgba(245,180,0,.14); --amber-line: rgba(185,115,0,.5);
+  --idle-core: #dcdcd8; --idle-dot: #6b6b73;
+  --float-shadow: 0 18px 40px -18px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.08);
+  --wall: linear-gradient(160deg, #e7ecf2 0%, #dfe5ec 45%, #eceae6 100%);
+  --taskbar: rgba(243,243,243,.94); --taskbar-line: rgba(0,0,0,.08); --taskbar-ink: #1b1b1f;
+  --callwin: rgba(255,255,255,.6);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #050506; --surface: #0b0b0d; --surface-2: #111114; --surface-3: #1a1a1f;
+    --line: rgba(255,255,255,.07); --line-strong: rgba(255,255,255,.13); --line-bright: rgba(255,255,255,.28);
+    --text: #f4f4f5; --text-soft: #cfcfd4; --muted: #9a9aa4;
+    --accent: #ff4400; --accent-text: #ff6a2b; --accent-fill: #c73600;
+    --accent-soft: rgba(255,68,0,.12); --accent-line: rgba(255,68,0,.4);
+    --amber: #fbbf24; --amber-text: #fbbf24; --amber-soft: rgba(251,191,36,.12); --amber-line: rgba(251,191,36,.5);
+    --idle-core: #2a2a30; --idle-dot: #9a9aa4;
+    --float-shadow: 0 18px 40px -16px rgba(0,0,0,.65), 0 2px 6px rgba(0,0,0,.3);
+    --wall: linear-gradient(160deg, #1a1f27 0%, #141820 45%, #1c1a18 100%);
+    --taskbar: rgba(28,28,30,.94); --taskbar-line: rgba(255,255,255,.08); --taskbar-ink: #f1f1f3;
+    --callwin: rgba(40,44,52,.75);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #050506; --surface: #0b0b0d; --surface-2: #111114; --surface-3: #1a1a1f;
+  --line: rgba(255,255,255,.07); --line-strong: rgba(255,255,255,.13); --line-bright: rgba(255,255,255,.28);
+  --text: #f4f4f5; --text-soft: #cfcfd4; --muted: #9a9aa4;
+  --accent: #ff4400; --accent-text: #ff6a2b; --accent-fill: #c73600;
+  --accent-soft: rgba(255,68,0,.12); --accent-line: rgba(255,68,0,.4);
+  --amber: #fbbf24; --amber-text: #fbbf24; --amber-soft: rgba(251,191,36,.12); --amber-line: rgba(251,191,36,.5);
+  --idle-core: #2a2a30; --idle-dot: #9a9aa4;
+  --float-shadow: 0 18px 40px -16px rgba(0,0,0,.65), 0 2px 6px rgba(0,0,0,.3);
+  --wall: linear-gradient(160deg, #1a1f27 0%, #141820 45%, #1c1a18 100%);
+  --taskbar: rgba(28,28,30,.94); --taskbar-line: rgba(255,255,255,.08); --taskbar-ink: #f1f1f3;
+  --callwin: rgba(40,44,52,.75);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+::selection { background: rgba(255,68,0,.3); }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/1.6 var(--font); padding-inline: 16px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 48px 64px; }
+h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(26px, 4vw, 36px); }
+h2 { font-size: 20px; }
+h3 { font-size: 15px; letter-spacing: -0.01em; }
+p { margin: 0; color: var(--text-soft); }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.lede { margin-top: 12px; max-width: 60ch; font-size: 15px; }
+section { margin-top: 48px; }
+.sec-title { margin-bottom: 16px; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: 500 13px/1 var(--font); cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--line-bright); }
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.sm { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.btn[disabled] { opacity: .4; cursor: not-allowed; }
+.btn.link { border-color: transparent; background: transparent; color: var(--text-soft); text-decoration: underline; text-underline-offset: 3px; padding: 0 4px; }
+.icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; flex: none; }
+.icon-btn:hover { background: var(--surface-3); color: var(--text); }
+
+/* Demo */
+.demo { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: 24px; }
+.step-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: end; margin-bottom: 16px; }
+.step-head h2 { margin-top: 4px; }
+.step-head p { margin-top: 4px; }
+.bars { display: flex; gap: 4px; }
+.bars i { width: 24px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.bars i.on { background: var(--accent); }
+
+.desk { position: relative; height: 440px; border-radius: var(--r-md); overflow: hidden; background: var(--wall); border: 1px solid var(--line-strong); }
+.callwin { position: absolute; left: 4%; top: 6%; width: 52%; height: 60%; border-radius: 8px; background: var(--callwin); border: 1px solid var(--line); padding: 8px 10px; font: 500 11px/1.3 "Segoe UI", system-ui, sans-serif; color: var(--text-soft); }
+.callwin .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; height: calc(100% - 26px); }
+.callwin .grid span { border-radius: 6px; background: rgba(127,127,127,.18); }
+
+.taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: var(--taskbar); border-top: 1px solid var(--taskbar-line); display: flex; align-items: center; justify-content: center; gap: 6px; }
+.taskbar > i { width: 22px; height: 22px; border-radius: 6px; background: rgba(127,127,127,.22); }
+.task-dn { position: relative; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.task-dn:hover { background: rgba(127,127,127,.18); }
+.task-dn span { width: 22px; height: 22px; border-radius: 6px; background: #000; display: grid; place-items: center; }
+.task-dn span::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ff4400; }
+.task-dn.running::before { content: ""; position: absolute; left: 11px; right: 11px; bottom: 1px; height: 2px; border-radius: 2px; background: var(--taskbar-ink); opacity: .5; }
+.task-dn.open::before { left: 8px; right: 8px; opacity: .9; background: #ff4400; }
+.tray { position: absolute; right: 10px; top: 0; bottom: 0; display: flex; align-items: center; gap: 8px; font: 400 11px/1 "Segoe UI", system-ui, sans-serif; color: var(--taskbar-ink); }
+.tray-dn { width: 24px; height: 24px; border: 0; border-radius: 5px; background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.tray-dn:hover { background: rgba(127,127,127,.18); }
+.tray-dn span { width: 16px; height: 16px; border-radius: 4px; background: #111; display: grid; place-items: center; }
+.tray-dn span::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #8b8b95; }
+.tray-dn.rec span::after { background: #ff4400; }
+.tray-dn.warn span::after { background: #fbbf24; }
+.tray-dn.hint { box-shadow: 0 0 0 2px var(--accent); animation: hint 1.6s ease-in-out infinite; }
+@keyframes hint { 50% { box-shadow: 0 0 0 5px var(--accent-line); } }
+
+/* Janela principal */
+.win { position: absolute; left: 6%; top: 6%; width: 70%; height: 72%; z-index: 3; border-radius: 10px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); overflow: hidden; display: grid; grid-template-rows: 34px 1fr; }
+.win-bar { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 12px; font-weight: 500; }
+.win-bar .mark { width: 12px; height: 12px; border-radius: 3px; background: #000; display: grid; place-items: center; }
+.win-bar .mark::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: #ff4400; }
+.win-bar .icon-btn { margin-left: auto; }
+.win-body { display: grid; grid-template-columns: 24% 1fr; min-height: 0; }
+.win-side { border-right: 1px solid var(--line); background: var(--surface-2); }
+.win-main { padding: 16px; display: grid; gap: 8px; align-content: start; }
+.win-main i { display: block; height: 8px; border-radius: 4px; background: var(--surface-3); }
+.win-main i:nth-child(odd) { width: 80%; }
+.win-rec { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--r-sm); border: 1px solid var(--accent-line); background: var(--accent-soft); font-size: 12.5px; color: var(--text); }
+.win-rec b { font-family: var(--mono); font-weight: 500; color: var(--accent-text); margin-left: auto; }
+.win-idle { font-size: 12.5px; color: var(--muted); }
+
+/* Bolha */
+.bub-slot { position: absolute; right: 20px; top: 20px; z-index: 5; display: grid; justify-items: center; gap: 8px; }
+.bub { position: relative; width: 52px; height: 52px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer; flex: none; }
+.bub .dot { width: 14px; height: 14px; border-radius: 50%; }
+.bub .q { font: 600 20px/1 var(--font); }
+.bub.idle { background: var(--idle-core); border: 1px solid var(--line-strong); color: var(--idle-dot); box-shadow: 0 8px 20px -12px rgba(0,0,0,.45); }
+.bub.idle .dot { width: 10px; height: 10px; background: var(--idle-dot); }
+.bub.rec { background: var(--accent); color: #fff; box-shadow: 0 10px 24px -12px rgba(255,68,0,.7); }
+.bub.rec .dot { background: #fff; }
+.bub.rec::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--accent); opacity: .55; animation: level 1.3s ease-in-out infinite; pointer-events: none; }
+.bub.warn { background: var(--amber); color: var(--amber-ink); box-shadow: 0 0 0 0 var(--amber-line); animation: ask 2s ease-out infinite; }
+@keyframes level { 0%, 100% { transform: scale(1); opacity: .35; } 30% { transform: scale(1.12); opacity: .8; } 55% { transform: scale(1.03); opacity: .5; } 75% { transform: scale(1.16); opacity: .85; } }
+@keyframes ask { 0% { box-shadow: 0 0 0 0 var(--amber-line); } 70% { box-shadow: 0 0 0 14px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.chip { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); white-space: nowrap; }
+
+/* Cartões que saem da bolha */
+.pop { position: absolute; right: 16px; top: 88px; z-index: 6; width: min(288px, calc(100% - 32px)); padding: 16px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); display: grid; gap: 12px; transform-origin: top right; }
+.pop.warn { border-color: var(--amber-line); background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface); }
+.pop-top { display: flex; align-items: flex-start; gap: 8px; }
+.pop-title { font-size: 14px; font-weight: 600; line-height: 1.35; }
+.pop-line { font-size: 12.5px; color: var(--text-soft); margin-top: 4px; }
+.pop .acts { display: grid; gap: 8px; }
+.pop .acts.two { grid-template-columns: 1fr 1fr; }
+.pop .icon-btn { margin: -6px -6px 0 auto; }
+
+/* Mini */
+.mini { position: absolute; right: 16px; top: 16px; z-index: 6; width: min(312px, calc(100% - 32px)); border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--accent-line); box-shadow: var(--float-shadow); overflow: hidden; transform-origin: top right; }
+.mini.paused { border-color: var(--line-strong); }
+.mini-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); }
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.mini.paused .led { background: var(--idle-dot); }
+.mini-state { font-size: 12.5px; font-weight: 500; }
+.mini-clock { font-family: var(--mono); font-size: 12.5px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.mini-head .sp { margin-left: auto; }
+.tabs { display: flex; gap: 4px; padding: 8px 12px 0; }
+.tabs [role="tab"] { height: 28px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font: 500 12.5px/1 var(--font); cursor: pointer; }
+.tabs [role="tab"][aria-selected="true"] { background: var(--surface-3); color: var(--text); }
+.tabp { padding: 8px 12px; min-height: 104px; font-size: 12.5px; line-height: 1.5; color: var(--text-soft); }
+.tabp ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tabp b { font-weight: 600; margin-right: 4px; }
+.who-sys { color: #0369a1; }
+.who-me { color: var(--accent-text); }
+:root[data-theme="dark"] .who-sys { color: #38bdf8; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .who-sys { color: #38bdf8; } }
+.field { width: 100%; height: 34px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: 400 12.5px/1 var(--font); }
+.field::placeholder { color: var(--muted); }
+.mark-row { padding: 0 12px 8px; display: grid; gap: 8px; }
+.mark-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mark-done { font-size: 12px; color: var(--muted); }
+.marks { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text-soft); font: 500 12px/1 var(--font); cursor: pointer; }
+.mk svg.i { width: 13px; height: 13px; }
+.mini-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px 12px; border-top: 1px solid var(--line); }
+.mini-foot .field { flex: 1; min-width: 0; }
+.stop { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--accent-fill); display: grid; place-items: center; flex: none; cursor: pointer; }
+.stop span { width: 11px; height: 11px; border-radius: 2px; background: #fff; }
+
+/* Aviso acima da bandeja */
+.toast { position: absolute; right: 12px; bottom: 52px; z-index: 7; width: min(300px, calc(100% - 24px)); padding: 12px 12px 12px 16px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); display: grid; gap: 8px; }
+.toast-meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.toast-meta .app { width: 16px; height: 16px; border-radius: 4px; background: #000; display: grid; place-items: center; }
+.toast-meta .app::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ff4400; }
+.toast-meta .icon-btn { margin-left: auto; width: 26px; height: 26px; }
+.toast .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.toast.warn { border-color: var(--amber-line); background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface); }
+
+.ctrl { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.ctrl .push { margin-left: auto; display: flex; gap: 8px; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); }
+.seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: 500 12.5px/1 var(--font); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tip { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+
+/* Três aparências */
+.looks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.look { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: 16px; display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+.look .stage { width: 72px; height: 72px; border-radius: var(--r-md); background: var(--wall); display: grid; place-items: center; }
+.look .bub { cursor: default; }
+.look p { font-size: 13px; }
+
+/* Configurações */
+.settings { max-width: 600px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); }
+.settings-top { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
+.circ { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-bright); display: grid; place-items: center; color: var(--text-soft); }
+.set-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; padding: 16px 24px; }
+.set-row + .set-row, .set-row + fieldset, fieldset + .set-row { border-top: 1px solid var(--line); }
+.set-row strong, fieldset legend { display: block; font-size: 13.5px; font-weight: 500; color: var(--text); }
+.set-row small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-left: 8px; font-weight: 400; }
+fieldset { margin: 0; padding: 16px 24px; border: 0; display: grid; gap: 8px; }
+fieldset legend { padding: 0; float: left; width: 100%; margin-bottom: 8px; }
+.radios { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); width: fit-content; max-width: 100%; }
+.radios label { position: relative; }
+.radios input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.radios span { display: block; height: 30px; padding: 0 16px; line-height: 30px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.radios input:checked + span { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.radios input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.switch { width: 40px; height: 24px; border-radius: 12px; border: 1px solid var(--line-bright); background: var(--surface-3); position: relative; cursor: pointer; padding: 0; flex: none; margin-top: 2px; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--idle-dot); transition: transform 160ms var(--ease); }
+.switch[aria-checked="true"] { background: var(--accent-fill); border-color: var(--accent-fill); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); background: #fff; }
+footer { margin-top: 48px; font-size: 12.5px; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .looks { grid-template-columns: 1fr; }
+  .step-head { grid-template-columns: 1fr; }
+  .desk { height: 500px; }
+  .win { left: 4%; width: 88%; height: 60%; }
+  .callwin { width: 70%; height: 46%; }
+  .taskbar > i:nth-child(n+4) { display: none; }
+}
+@media (max-width: 480px) {
+  .demo { padding: 16px; }
+  .ctrl .push { margin-left: 0; width: 100%; }
+  .ctrl .push .btn { flex: 1; }
+  .set-row, fieldset, .settings-top { padding-inline: 16px; }
+  .tray .clock { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bub.rec::before, .bub.warn, .tray-dn.hint { animation: none; }
+  .switch::after { transition: none; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-min" viewBox="0 0 16 16"><path d="M3.5 8h9"/></symbol>
+  <symbol id="i-open" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5L8 8M12 9.5v4H2.5V4h4"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M6 4v8M10 4v8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></symbol>
+  <symbol id="i-tasks" viewBox="0 0 16 16"><path d="M6.5 4h7M6.5 8h7M6.5 12h7M2.5 4l1 1 1.5-2M2.5 8.5h2M2.5 12h2"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l1.8 1.8M10.2 10.2L12 12M12 4l-1.8 1.8M5.8 10.2L4 12"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></symbol>
+  <symbol id="i-bubble" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.8"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">DroidNote · proposta simples</span>
+  <h1 style="margin-top:12px">A bolha da reunião</h1>
+  <p class="lede">Uma bolha no canto da tela mostra se o DroidNote está gravando e, quando precisa, faz uma pergunta.</p>
+</header>
+
+<section aria-labelledby="demoTitle">
+  <h2 id="demoTitle" class="sec-title" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Demonstração</h2>
+  <div class="demo">
+    <div class="step-head">
+      <div id="caption" aria-live="polite" aria-atomic="true">
+        <span class="eyebrow" id="stepNum">Passo 1 de 6</span>
+        <h2 id="stepTitle">O app fica na bandeja</h2>
+        <p id="stepText">O DroidNote abriu com o Windows, escondido no ícone em destaque na bandeja. Nada está gravando.</p>
+      </div>
+      <div class="bars" id="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="desk" id="desk">
+      <div class="callwin" id="callwin" aria-hidden="true" hidden>Reunião semanal · Teams<div class="grid"><span></span><span></span><span></span><span></span></div></div>
+
+      <div class="win" id="win" role="group" aria-label="Janela do DroidNote" hidden>
+        <div class="win-bar"><span class="mark" aria-hidden="true"></span>DroidNote
+          <button class="icon-btn" type="button" id="winMin" aria-label="Minimizar"><svg class="i"><use href="#i-min"/></svg></button></div>
+        <div class="win-body"><div class="win-side"></div>
+          <div class="win-main">
+            <div class="win-rec" id="winRec"><span class="led"></span><span id="winRecT">Gravando a reunião semanal</span><b id="winClock">00:12:04</b></div>
+            <div class="win-idle" id="winIdle">Nenhuma reunião gravando agora.</div>
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="bub-slot" id="bubSlot" hidden>
+        <button class="bub idle" type="button" id="bub" aria-label="DroidNote parado. Abrir opção de gravar"><span class="dot"></span></button>
+        <span class="chip" id="pausedChip" hidden>Pausado</span>
+      </div>
+
+      <div class="pop" id="popRec" role="group" aria-labelledby="popRecT" hidden>
+        <div class="pop-top"><div><div class="pop-title" id="popRecT">Nada está gravando.</div></div>
+          <button class="icon-btn" type="button" data-act="close" aria-label="Fechar"><svg class="i"><use href="#i-x"/></svg></button></div>
+        <div class="acts"><button class="btn primary" type="button" data-act="record">Gravar</button></div>
+      </div>
+
+      <div class="pop" id="popAsk" role="group" aria-labelledby="popAskT" hidden>
+        <div><div class="pop-title" id="popAskT">Começou uma conversa. Gravar?</div><div class="pop-line">O Teams está usando o microfone.</div></div>
+        <div class="acts two"><button class="btn primary" type="button" data-act="record">Gravar</button><button class="btn" type="button" data-act="notnow">Agora não</button></div>
+      </div>
+
+      <div class="pop warn" id="popAlert" role="group" aria-labelledby="popAlertT" aria-describedby="popAlertL" hidden>
+        <div><div class="pop-title" id="popAlertT">A reunião ainda está acontecendo?</div><div class="pop-line" id="popAlertL">Ninguém falou nos últimos 5 minutos.</div></div>
+        <div class="acts"><button class="btn" type="button" data-act="continue">Sim, continuar</button><button class="btn primary" type="button" data-act="end">Encerrar e gerar nota</button></div>
+      </div>
+
+      <div class="mini" id="mini" role="group" aria-label="Painel da reunião" hidden>
+        <div class="mini-head"><span class="led" aria-hidden="true"></span><span class="mini-state" id="miniState">Gravando</span><span class="mini-clock" id="miniClock">00:12:04</span>
+          <span class="sp"></span>
+          <button class="icon-btn" type="button" data-act="openwin" aria-label="Abrir o DroidNote"><svg class="i"><use href="#i-open"/></svg></button>
+          <button class="btn sm" type="button" data-act="collapse">Recolher</button></div>
+        <div class="tabs" role="tablist" aria-label="Painel">
+          <button role="tab" type="button" id="t-live" aria-selected="true" aria-controls="p-live">Ao vivo</button>
+          <button role="tab" type="button" id="t-ask" aria-selected="false" aria-controls="p-ask" tabindex="-1">Perguntar</button>
+          <button role="tab" type="button" id="t-ctx" aria-selected="false" aria-controls="p-ctx" tabindex="-1">Contexto</button>
+        </div>
+        <div class="tabp" role="tabpanel" id="p-live" aria-labelledby="t-live">
+          <ol><li><b class="who-sys">Marina</b>O orçamento novo chegou ontem à noite.</li><li><b class="who-me">Você</b>Então fechamos o envio na sexta.</li></ol>
+        </div>
+        <div class="tabp" role="tabpanel" id="p-ask" aria-labelledby="t-ask" hidden>
+          <input class="field" type="text" placeholder="Pergunte algo sobre esta reunião" aria-label="Pergunte algo sobre esta reunião">
+        </div>
+        <div class="tabp" role="tabpanel" id="p-ctx" aria-labelledby="t-ctx" hidden>
+          <p>Pauta: orçamento novo e data de envio. Participantes: Marina e você.</p>
+        </div>
+        <div class="mark-row">
+          <div class="mark-top"><button class="btn sm" type="button" id="markBtn" aria-expanded="false" aria-controls="marks">Marcar</button><span class="mark-done" id="markDone"></span></div>
+          <div class="marks" id="marks" hidden>
+            <button class="mk" type="button" data-mark="Decisão"><svg class="i"><use href="#i-check"/></svg>Decisão</button>
+            <button class="mk" type="button" data-mark="Tarefa"><svg class="i"><use href="#i-tasks"/></svg>Tarefa</button>
+            <button class="mk" type="button" data-mark="Importante"><svg class="i"><use href="#i-spark"/></svg>Importante</button>
+            <button class="mk" type="button" data-mark="Dúvida"><svg class="i"><use href="#i-chat"/></svg>Dúvida</button>
+          </div>
+        </div>
+        <div class="mini-foot">
+          <input class="field" type="text" placeholder="Anotar algo da reunião" aria-label="Anotar algo da reunião">
+          <button class="btn sm" type="button" data-act="resume" id="resumeBtn" hidden>Continuar</button>
+          <button class="stop" type="button" data-act="end" aria-label="Encerrar e gerar nota" title="Encerrar e gerar nota"><span></span></button>
+        </div>
+      </div>
+
+      <div class="toast" id="toast" role="group" aria-labelledby="toastT" hidden>
+        <div class="toast-meta"><span class="app" aria-hidden="true"></span>DroidNote · agora
+          <button class="icon-btn" type="button" id="toastClose" data-act="toastclose" aria-label="Fechar aviso"><svg class="i"><use href="#i-x"/></svg></button></div>
+        <div><div class="pop-title" id="toastT">Começou uma conversa. Gravar?</div><div class="pop-line" id="toastL">O Teams está usando o microfone.</div></div>
+        <div class="acts" id="toastActs"></div>
+      </div>
+
+      <div class="taskbar">
+        <i></i>
+        <button class="task-dn" type="button" id="taskDn" aria-label="DroidNote na barra de tarefas"><span></span></button>
+        <i></i><i></i><i></i><i></i>
+        <div class="tray"><button class="tray-dn" type="button" id="trayDn" aria-label="DroidNote na bandeja. Abrir a janela"><span></span></button><span class="clock" aria-hidden="true">14:02</span></div>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <div class="seg" id="kindSeg" role="group" aria-label="Tipo de aviso" hidden>
+        <button type="button" data-kind="silence" aria-pressed="true">Silêncio</button>
+        <button type="button" data-kind="music" aria-pressed="false">Música</button>
+      </div>
+      <div class="push">
+        <button class="btn" type="button" id="back" disabled>Voltar</button>
+        <button class="btn primary" type="button" id="next">Próximo passo</button>
+      </div>
+    </div>
+    <p class="tip">Você também pode clicar na bolha, nos botões e no ícone do DroidNote na barra de tarefas.</p>
+  </div>
+</section>
+
+<section aria-labelledby="looksTitle">
+  <h2 id="looksTitle" class="sec-title">A bolha só tem três cores</h2>
+  <div class="looks">
+    <div class="look"><div class="stage"><span class="bub idle" aria-hidden="true"><span class="dot"></span></span></div><div><h3>Cinza</h3><p>Parado, nada grava.</p></div></div>
+    <div class="look"><div class="stage"><span class="bub rec" aria-hidden="true"><span class="dot"></span></span></div><div><h3>Laranja</h3><p>Gravando sua reunião.</p></div></div>
+    <div class="look"><div class="stage"><span class="bub warn" aria-hidden="true"><span class="q">?</span></span></div><div><h3>Âmbar</h3><p>Pergunta para você.</p></div></div>
+  </div>
+</section>
+
+<section aria-labelledby="setTitle">
+  <h2 id="setTitle" class="sec-title">Configurações</h2>
+  <div class="settings">
+    <div class="settings-top"><span class="circ" aria-hidden="true"><svg class="i"><use href="#i-bubble"/></svg></span><h3>Reuniões</h3></div>
+    <div class="set-row">
+      <div><strong id="s1">Iniciar com o Windows</strong><small id="s1d">Abre escondido na bandeja. Fechar a janela não fecha o app.</small></div>
+      <button class="switch" type="button" role="switch" aria-checked="true" aria-labelledby="s1" aria-describedby="s1d"></button>
+    </div>
+    <fieldset>
+      <legend>Ao perceber uma conversa</legend>
+      <div class="radios">
+        <label><input type="radio" name="onconv" value="ask" checked><span>Perguntar</span></label>
+        <label><input type="radio" name="onconv" value="rec"><span>Gravar</span></label>
+        <label><input type="radio" name="onconv" value="none"><span>Nada</span></label>
+      </div>
+    </fieldset>
+    <div class="set-row">
+      <div><strong id="s3">Avisar depois de 5 min sem fala</strong><small id="s3d">Sem resposta em 2 minutos, a gravação pausa. Nada é apagado.</small></div>
+      <button class="switch" type="button" role="switch" aria-checked="true" aria-labelledby="s3" aria-describedby="s3d"></button>
+    </div>
+    <div class="set-row">
+      <div><strong><span id="s4">Detectar fala no microfone</span><span class="tag">Opcional</span></strong><small id="s4d">O Windows mostra o microfone em uso. Nada é salvo antes de a gravação começar.</small></div>
+      <button class="switch" type="button" role="switch" aria-checked="false" aria-labelledby="s4" aria-describedby="s4d"></button>
+    </div>
+  </div>
+</section>
+
+<footer>Proposta de UX para o DroidNote. Substitui meeting-bubble-final.html.</footer>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const desk = $('desk'), win = $('win'), bubSlot = $('bubSlot'), bub = $('bub');
+  const els = { popRec: $('popRec'), popAsk: $('popAsk'), popAlert: $('popAlert'), mini: $('mini'), toast: $('toast') };
+
+  const BASE = { win: 'hidden', rec: 'idle', panel: null, alert: false, toast: null, call: false };
+  const STEPS = [
+    { t: 'O app fica na bandeja', c: 'O DroidNote abriu com o Windows, escondido no ícone em destaque na bandeja. Nada está gravando.', s: {} },
+    { t: 'Começou uma conversa', c: 'O Teams pegou o microfone. O DroidNote pergunta uma vez e some em 20 s.', s: { call: true, toast: 'ask' } },
+    { t: 'Gravando', c: 'A bolha fica laranja no canto. O anel fino mexe quando alguém fala.', s: { call: true, rec: 'rec' } },
+    { t: 'Um clique abre a mini', c: 'A bolha cresce e vira a mini. Recolher ou Esc volta a ser bolha.', s: { call: true, rec: 'rec', panel: 'mini' } },
+    { t: 'Minimizar vira bolha', c: 'A janela encolhe até virar a bolha. O ícone na barra de tarefas abre de novo.', s: { call: true, rec: 'rec', win: 'open' }, auto: true },
+    { t: '5 minutos sem fala', c: 'A bolha fica âmbar e pergunta. Se alguém falar, o aviso some sozinho. Sem resposta em 2 min, a gravação pausa sozinha.', s: { call: true, rec: 'rec', win: 'min', alert: true } }
+  ];
+  const ALERT_LINE = { silence: 'Ninguém falou nos últimos 5 minutos.', music: 'Nos últimos 5 minutos só tocou música.' };
+
+  let S = { ...BASE }, step = 0, kind = 'silence', gen = 0, busy = false, secs = 724;
+  let timers = [];
+  const later = (fn, ms) => { const g = gen; timers.push(setTimeout(() => { if (g === gen) fn(); }, ms)); };
+
+  function play(el, frames, ms, fill) {
+    if (RM.matches || !el.animate) return Promise.resolve();
+    return new Promise((res) => {
+      let done = false; const fin = () => { if (!done) { done = true; res(); } };
+      try { const a = el.animate(frames, { duration: ms, easing: 'cubic-bezier(0.2,0.7,0.2,1)', fill: fill || 'none' }); a.onfinish = fin; a.oncancel = fin; } catch (e) { fin(); }
+      setTimeout(fin, ms + 150);
+    });
+  }
+  const grow = (el) => play(el, [{ transform: 'scale(.2)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], 240);
+  const pop = (el) => play(el, [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], 180);
+
+  const fmt = (n) => [Math.floor(n / 3600), Math.floor(n / 60) % 60, n % 60].map((v) => String(v).padStart(2, '0')).join(':');
+  const bubbleOn = () => S.win !== 'open' && (S.rec !== 'idle' || S.win === 'min');
+
+  function render() {
+    const on = bubbleOn();
+    if (!on) S.panel = null;
+    if (S.panel === 'gravar' && S.rec !== 'idle') S.panel = null;
+    if (S.panel === 'mini' && (S.rec === 'idle' || S.alert)) S.panel = null;
+
+    const was = {};
+    for (const k in els) was[k] = !els[k].hidden;
+    const wasBub = !bubSlot.hidden;
+
+    $('callwin').hidden = !S.call;
+    win.hidden = S.win !== 'open';
+    $('winRec').hidden = S.rec === 'idle';
+    $('winIdle').hidden = S.rec !== 'idle';
+    $('winRecT').textContent = S.rec === 'paused' ? 'Pausado' : 'Gravando a reunião semanal';
+
+    const look = S.alert ? 'warn' : S.rec === 'rec' ? 'rec' : 'idle';
+    bubSlot.hidden = !on || S.panel === 'mini';
+    bub.className = 'bub ' + look;
+    bub.innerHTML = look === 'warn' ? '<span class="q" aria-hidden="true">?</span>'
+      : S.rec === 'paused' ? '<svg class="i" aria-hidden="true"><use href="#i-pause"/></svg>' : '<span class="dot" aria-hidden="true"></span>';
+    $('pausedChip').hidden = S.rec !== 'paused' || S.alert;
+    bub.setAttribute('aria-label', S.alert ? 'DroidNote pergunta: a reunião ainda está acontecendo?'
+      : S.rec === 'rec' ? 'DroidNote gravando. Abrir a mini' : S.rec === 'paused' ? 'DroidNote pausado. Abrir a mini' : 'DroidNote parado. Abrir opção de gravar');
+    bub.setAttribute('aria-expanded', String(S.panel !== null || S.alert));
+
+    const askInBubble = S.toast === 'ask' && on;
+    els.popRec.hidden = S.panel !== 'gravar' || S.alert;
+    els.popAsk.hidden = !askInBubble || S.alert;
+    els.popAlert.hidden = !S.alert || !on;
+    $('popAlertL').textContent = ALERT_LINE[kind];
+    els.mini.hidden = S.panel !== 'mini';
+    els.mini.classList.toggle('paused', S.rec === 'paused');
+    $('miniState').textContent = S.rec === 'paused' ? 'Pausado' : 'Gravando';
+    $('resumeBtn').hidden = S.rec !== 'paused';
+
+    const tk = S.toast === 'done' ? 'done' : S.alert && !on ? 'alert' : S.toast === 'ask' && !on ? 'ask' : null;
+    els.toast.hidden = !tk;
+    els.toast.classList.toggle('warn', tk === 'alert');
+    $('toastClose').hidden = tk === 'alert';
+    if (tk === 'ask') {
+      $('toastT').textContent = 'Começou uma conversa. Gravar?';
+      $('toastL').textContent = 'O Teams está usando o microfone.';
+      $('toastActs').innerHTML = '<button class="btn primary sm" type="button" data-act="record">Gravar</button><button class="btn sm" type="button" data-act="notnow">Agora não</button>';
+    } else if (tk === 'done') {
+      $('toastT').textContent = 'Nota pronta';
+      $('toastL').textContent = 'Reunião semanal, ' + Math.max(1, Math.round(secs / 60)) + ' min.';
+      $('toastActs').innerHTML = '<button class="btn sm" type="button" data-act="openwin">Abrir nota</button>';
+    } else if (tk === 'alert') {
+      $('toastT').textContent = 'A reunião ainda está acontecendo?';
+      $('toastL').textContent = ALERT_LINE[kind];
+      $('toastActs').innerHTML = '<button class="btn sm" type="button" data-act="continue">Sim, continuar</button><button class="btn primary sm" type="button" data-act="end">Encerrar e gerar nota</button>';
+    }
+
+    const task = $('taskDn');
+    task.classList.toggle('running', S.win !== 'hidden');
+    task.classList.toggle('open', S.win === 'open');
+    task.setAttribute('aria-label', S.win === 'open' ? 'DroidNote, janela aberta. Minimizar' : 'DroidNote. Abrir a janela');
+    $('trayDn').className = 'tray-dn' + (S.alert ? ' warn' : S.rec === 'rec' ? ' rec' : '') + (step === 0 ? ' hint' : '');
+
+    if (!wasBub && !bubSlot.hidden) pop(bubSlot);
+    if (!was.mini && !els.mini.hidden) grow(els.mini);
+    for (const k of ['popRec', 'popAsk', 'popAlert', 'toast']) if (!was[k] && !els[k].hidden) grow(els[k]);
+
+    // Foco nunca fica preso num elemento escondido.
+    const a = document.activeElement;
+    if (a && a !== document.body && desk.contains(a) && !a.offsetParent && a.closest('[hidden]')) {
+      if (!bubSlot.hidden) bub.focus(); else $('next').focus();
+    }
+  }
+
+  function setCaption(title, text) {
+    $('stepNum').textContent = 'Passo ' + (step + 1) + ' de 6';
+    $('stepTitle').textContent = title;
+    $('stepText').textContent = text;
+  }
+
+  function goStep(n) {
+    gen++; busy = false; timers.forEach(clearTimeout); timers = [];
+    win.getAnimations && win.getAnimations().forEach((x) => x.cancel());
+    step = n;
+    const st = STEPS[n];
+    S = { ...BASE, ...st.s };
+    if (n === 2) secs = 724;
+    setCaption(st.t, st.c);
+    [...$('bars').children].forEach((b, i) => b.classList.toggle('on', i <= n));
+    $('back').disabled = n === 0;
+    $('next').textContent = n === STEPS.length - 1 ? 'Recomeçar' : 'Próximo passo';
+    $('kindSeg').hidden = n !== 5;
+    resetMini();
+    render();
+    if (S.toast === 'ask') later(() => { if (S.toast === 'ask') { S.toast = null; render(); } }, 20000);
+    if (st.auto) later(() => setWin('min'), 1100);
+  }
+
+  function winTarget() {
+    const w = desk.clientWidth;
+    const cx = w - 20 - 26, cy = 20 + 26;
+    const wx = win.offsetLeft + win.offsetWidth / 2, wy = win.offsetTop + win.offsetHeight / 2;
+    return `translate(${cx - wx}px, ${cy - wy}px) scale(${52 / win.offsetWidth}, ${52 / win.offsetHeight})`;
+  }
+
+  async function setWin(t) {
+    if (busy) return;
+    const g = gen;
+    if (S.win === 'open' && t !== 'open') {
+      busy = true;
+      await play(win, [{ transform: 'none', opacity: 1, borderRadius: '10px' }, { transform: winTarget(), opacity: .5, borderRadius: '50%' }], 340, 'forwards');
+      busy = false;
+      if (g !== gen) return;
+      const hadFocus = win.contains(document.activeElement);
+      S.win = t; S.panel = null; render();
+      win.getAnimations && win.getAnimations().forEach((x) => x.cancel());
+      if (hadFocus && !bubSlot.hidden) bub.focus();
+      return;
+    }
+    if (S.win !== 'open' && t === 'open') {
+      S.win = 'open'; S.panel = null; render();
+      play(win, [{ transform: winTarget(), opacity: .5, borderRadius: '50%' }, { transform: 'none', opacity: 1, borderRadius: '10px' }], 340);
+      $('winMin').focus();
+      return;
+    }
+    S.win = t; render();
+  }
+
+  function endMeeting() {
+    S.rec = 'idle'; S.alert = false; S.panel = null; S.toast = 'done'; render();
+    later(() => { if (S.toast === 'done') { S.toast = null; render(); } }, 8000);
+    if (!bubSlot.hidden) bub.focus();
+  }
+  function record() {
+    S.rec = 'rec'; S.toast = null; S.panel = null; S.alert = false; secs = 724; render();
+    if (!bubSlot.hidden) bub.focus();
+  }
+
+  bub.addEventListener('click', () => {
+    if (S.alert) { els.popAlert.querySelector('button').focus(); return; }
+    if (S.rec !== 'idle') { S.panel = 'mini'; S.toast = S.toast === 'ask' ? null : S.toast; render(); els.mini.querySelector('[aria-selected="true"]').focus(); return; }
+    S.panel = S.panel === 'gravar' ? null : 'gravar'; render();
+    if (S.panel) els.popRec.querySelector('.btn.primary').focus();
+  });
+
+  desk.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'record') record();
+    else if (act === 'notnow' || act === 'toastclose') { S.toast = null; render(); }
+    else if (act === 'close' || act === 'collapse') { S.panel = null; render(); if (!bubSlot.hidden) bub.focus(); }
+    else if (act === 'continue') { S.alert = false; render(); if (!bubSlot.hidden) bub.focus(); }
+    else if (act === 'resume') { S.rec = 'rec'; render(); }
+    else if (act === 'end') endMeeting();
+    else if (act === 'openwin') { S.toast = S.toast === 'done' ? null : S.toast; setWin('open'); }
+  });
+
+  desk.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && (S.panel === 'mini' || S.panel === 'gravar')) {
+      e.preventDefault(); S.panel = null; render(); if (!bubSlot.hidden) bub.focus();
+    }
+  });
+
+  $('winMin').addEventListener('click', () => setWin('min'));
+  $('taskDn').addEventListener('click', () => setWin(S.win === 'open' ? 'min' : 'open'));
+  $('trayDn').addEventListener('click', () => { if (S.win !== 'open') setWin('open'); });
+
+  // Abas da mini
+  const tabs = [...els.mini.querySelectorAll('[role="tab"]')];
+  function selectTab(t) {
+    tabs.forEach((x) => { const on = x === t; x.setAttribute('aria-selected', String(on)); x.tabIndex = on ? 0 : -1; $(x.getAttribute('aria-controls')).hidden = !on; });
+    t.focus();
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => selectTab(t));
+    t.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); selectTab(tabs[(i + 1) % tabs.length]); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); selectTab(tabs[(i + tabs.length - 1) % tabs.length]); }
+    });
+  });
+
+  // Marcar: quatro marcadores atrás de um botão
+  const markBtn = $('markBtn'), marks = $('marks');
+  markBtn.addEventListener('click', () => {
+    const open = marks.hidden; marks.hidden = !open; markBtn.setAttribute('aria-expanded', String(open));
+    if (open) marks.querySelector('button').focus();
+  });
+  marks.addEventListener('click', (e) => {
+    const m = e.target.closest('[data-mark]'); if (!m) return;
+    $('markDone').textContent = 'Marcado: ' + m.dataset.mark + ' em ' + fmt(secs);
+    marks.hidden = true; markBtn.setAttribute('aria-expanded', 'false'); markBtn.focus();
+  });
+  marks.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); marks.hidden = true; markBtn.setAttribute('aria-expanded', 'false'); markBtn.focus(); } });
+
+  function resetMini() {
+    $('markDone').textContent = '';
+    marks.hidden = true; markBtn.setAttribute('aria-expanded', 'false');
+    tabs.forEach((x, i) => { x.setAttribute('aria-selected', String(i === 0)); x.tabIndex = i === 0 ? 0 : -1; $(x.getAttribute('aria-controls')).hidden = i !== 0; });
+  }
+
+  // Controles do passo 6
+  $('kindSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-kind]'); if (!b) return;
+    kind = b.dataset.kind;
+    $('kindSeg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (step === 5 && !S.alert && S.rec === 'rec') { S.alert = true; }
+    render();
+  });
+
+  $('next').addEventListener('click', () => goStep(step === STEPS.length - 1 ? 0 : step + 1));
+  $('back').addEventListener('click', () => { if (step > 0) goStep(step - 1); });
+
+  // Relógio: texto comum, sem região viva.
+  setInterval(() => {
+    if (S.rec !== 'rec') return;
+    secs++;
+    $('miniClock').textContent = fmt(secs);
+    $('winClock').textContent = fmt(secs);
+  }, 1000);
+
+  // Interruptores das configurações
+  document.querySelectorAll('.switch').forEach((s) => s.addEventListener('click', () => s.setAttribute('aria-checked', String(s.getAttribute('aria-checked') !== 'true'))));
+
+  goStep(0);
+})();
+</script>
+</body>
+</html>
