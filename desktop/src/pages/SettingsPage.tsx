@@ -902,10 +902,17 @@ export function SettingsPage({
               <h2 className="with-tip">{t("meeting.settingsTitle")}<InfoTip text={t("meeting.settingsHelp")} /></h2>
               {autostart !== null ? (
                 <label className="check-control">
-                  <input type="checkbox" checked={autostart} onChange={(event) => void toggleAutostart(event.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={autostart}
+                    aria-labelledby="autostart-title"
+                    aria-describedby="autostart-hint"
+                    onChange={(event) => void toggleAutostart(event.target.checked)}
+                  />
                   <span className="check-box" aria-hidden />
                   <span>
-                    <strong className="with-tip">{t("mini.autostartTitle")}<InfoTip text={t("mini.autostartHint")} /></strong>
+                    <strong id="autostart-title">{t("mini.autostartTitle")}</strong>
+                    <small id="autostart-hint">{t("mini.autostartHint")}</small>
                   </span>
                 </label>
               ) : null}
@@ -931,6 +938,8 @@ export function SettingsPage({
                 <input
                   type="checkbox"
                   checked={settings.silence_alert !== false}
+                  aria-labelledby="silence-title"
+                  aria-describedby="silence-hint"
                   onChange={(event) => {
                     const checked = event.target.checked;
                     setSettings({ ...settings, silence_alert: checked });
@@ -939,7 +948,8 @@ export function SettingsPage({
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong className="with-tip">{t("mini.silenceTitle")}<InfoTip text={t("mini.silenceHint")} /></strong>
+                  <strong id="silence-title">{t("mini.silenceTitle")}</strong>
+                  <small id="silence-hint">{t("mini.silenceHint")}</small>
                 </span>
               </label>
               <label className="check-control">

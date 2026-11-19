@@ -388,7 +388,12 @@ class CaptureService:
         )
 
     def _track_idle(self, chunk_ms: float, speech: bool, energy: bool) -> None:
-        """Roda na thread de áudio: só anota; quem decide é o idle_tick."""
+        """Roda na thread de áudio: só anota; quem decide é o idle_tick.
+
+        ponytail: sem lock com _reset_idle (loop). São escritas simples de
+        float/int; o pior caso é um tick com contagem velha. Lock se o alerta
+        passar a decidir algo irreversível sem o idle_tick.
+        """
         if speech:
             now = self._clock()
             self._last_speech_at = now
@@ -532,6 +537,9 @@ class CaptureService:
         if not self.state.recording:
             return
         chunk_ms = len(chunk.samples) * 1000 / (chunk.sample_rate or self._settings.sample_rate)
+        # ponytail: pause() roda no loop e este callback na thread de áudio, sem
+        # lock. Um chunk que já passou daqui quando a pausa chega ainda vai ao
+        # WAV/ASR (no máximo um chunk, dezenas de ms); os seguintes caem aqui.
         if self.state.paused:
             # O contador de amostras do driver segue andando: o tempo pausado sai
             # dos timestamps para os trechos continuarem batendo com o WAV.

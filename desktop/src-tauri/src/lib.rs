@@ -86,7 +86,9 @@ fn run_value(exe: &std::path::Path) -> String {
 }
 
 fn reg(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
-    let mut command = Command::new("reg");
+    // Caminho absoluto: um reg.exe plantado na pasta do app não é usado.
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let mut command = Command::new(PathBuf::from(root).join("System32").join("reg.exe"));
     command.args(args).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     {

@@ -925,7 +925,7 @@ export const ru: Messages = {
     pane_ask: "Спросить",
     pane_context: "Контекст",
     askNeedsSession: "Начните запись, чтобы задавать вопросы о встрече.",
-    askPlaceholder: "Вопрос о встрече…",
+    askPlaceholder: "Спросите что-нибудь об этой встрече",
     askAgain: "Новый вопрос",
     askLabel_sofar: "Итоги на сейчас",
     askLabel_decided: "Что решили",
@@ -981,6 +981,8 @@ export const ru: Messages = {
     mark: "Отметить",
     marked: "Отмечено: {marker} в {time}",
     panelAria: "Панель встречи",
+    notePlaceholder: "Запишите что-нибудь о встрече",
+    tabsAria: "Панель",
     trayAsk: "DroidNote: встреча ещё идёт?",
   },
   tasks: {
