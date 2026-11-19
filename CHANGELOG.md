@@ -24,6 +24,10 @@ notes on GitHub are built from them.
 - The separate mini window is replaced by the bubble, and the "Open the mini window when recording" option was removed.
 - Meeting detection options are now "Ask / Record / Nothing".
 
+## [2.3.2] — 2026-11-13
+
+_No notes were written for this release._
+
 ## [2.3.1] — 2026-11-13
 
 ### Added
@@ -208,7 +212,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.3.2...HEAD
+[2.3.2]: https://github.com/droidwerk/droidNote/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/droidwerk/droidNote/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/droidwerk/droidNote/compare/v2.2.10...v2.3.0
 [2.2.10]: https://github.com/droidwerk/droidNote/compare/v2.2.9...v2.2.10
