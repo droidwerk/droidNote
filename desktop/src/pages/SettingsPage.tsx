@@ -115,16 +115,32 @@ export function SettingsPage({
   const [keyTest, setKeyTest] = useState<string | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [tab, setTab] = useState<SettingsTab>(initialTab);
-  const [miniAuto, setMiniAuto] = useState(() => {
-    try {
-      return window.localStorage.getItem("droidnote.miniAuto") !== "0";
-    } catch {
-      return true;
-    }
-  });
+  // Registro do Windows é a fonte; null = sem suporte (build de dev ou fora do Tauri), some da tela.
+  const [autostart, setAutostart] = useState<boolean | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
   const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    if (tab !== "meetings" || !("__TAURI_INTERNALS__" in window)) return undefined;
+    let alive = true;
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) => invoke<boolean | null>("autostart_get"))
+      .then((value) => alive && setAutostart(value ?? null))
+      .catch(() => alive && setAutostart(null));
+    return () => {
+      alive = false;
+    };
+  }, [tab]);
+
+  const toggleAutostart = async (enabled: boolean) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      setAutostart(await invoke<boolean>("autostart_set", { enabled }));
+    } catch (err) {
+      toast.push({ tone: "error", title: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -884,8 +900,18 @@ export function SettingsPage({
           <>
             <Card className="settings-card settings-card-wide">
               <h2 className="with-tip">{t("meeting.settingsTitle")}<InfoTip text={t("meeting.settingsHelp")} /></h2>
-              <div className="segmented" role="radiogroup">
-                {(["off", "ask", "auto"] as const).map((mode) => (
+              {autostart !== null ? (
+                <label className="check-control">
+                  <input type="checkbox" checked={autostart} onChange={(event) => void toggleAutostart(event.target.checked)} />
+                  <span className="check-box" aria-hidden />
+                  <span>
+                    <strong className="with-tip">{t("mini.autostartTitle")}<InfoTip text={t("mini.autostartHint")} /></strong>
+                  </span>
+                </label>
+              ) : null}
+              <strong id="meeting-conv-legend">{t("mini.convLegend")}</strong>
+              <div className="segmented" role="radiogroup" aria-labelledby="meeting-conv-legend">
+                {(["ask", "auto", "off"] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
@@ -904,19 +930,16 @@ export function SettingsPage({
               <label className="check-control">
                 <input
                   type="checkbox"
-                  checked={miniAuto}
+                  checked={settings.silence_alert !== false}
                   onChange={(event) => {
-                    setMiniAuto(event.target.checked);
-                    try {
-                      window.localStorage.setItem("droidnote.miniAuto", event.target.checked ? "1" : "0");
-                    } catch {
-                      /* só neste PC */
-                    }
+                    const checked = event.target.checked;
+                    setSettings({ ...settings, silence_alert: checked });
+                    void persist({ silence_alert: checked });
                   }}
                 />
                 <span className="check-box" aria-hidden />
                 <span>
-                  <strong className="with-tip">{t("mini.autoTitle")}<InfoTip text={t("mini.autoHint")} /></strong>
+                  <strong className="with-tip">{t("mini.silenceTitle")}<InfoTip text={t("mini.silenceHint")} /></strong>
                 </span>
               </label>
               <label className="check-control">

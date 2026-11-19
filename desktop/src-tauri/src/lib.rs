@@ -11,11 +11,17 @@ use serde::{Deserialize, Serialize};
 use tauri_plugin_dialog::DialogExt;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const BACKEND_READY_TIMEOUT: Duration = Duration::from_secs(45);
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "DroidNote";
+const AUTOSTART_ARG: &str = "--autostart";
+/// Janela da bolha: 44 px de bolha + folga para o anel de nível e o chip "Pausado".
+const BUBBLE_WINDOW: f64 = 64.0;
+const BUBBLE_MARGIN: f64 = 24.0;
 
 #[derive(Clone, Serialize)]
 pub struct BackendInfo {
@@ -26,6 +32,8 @@ pub struct BackendInfo {
 pub struct AppState {
     pub backend: Mutex<Option<BackendInfo>>,
     pub backend_pid: Mutex<Option<u32>>,
+    /// Último estado publicado da janela principal; evita repetir o evento a cada Resized.
+    pub main_state: Mutex<&'static str>,
 }
 
 #[tauri::command]
@@ -70,6 +78,59 @@ async fn save_export_file(
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+/// Valor gravado em HKCU\...\Run: exe entre aspas + --autostart.
+fn run_value(exe: &std::path::Path) -> String {
+    format!("\"{}\" {AUTOSTART_ARG}", exe.display())
+}
+
+fn reg(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
+    let mut command = Command::new("reg");
+    command.args(args).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command.status()
+}
+
+fn autostart_registered() -> bool {
+    reg(&["query", RUN_KEY, "/v", RUN_VALUE])
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// None = não suportado (build de debug: nunca registrar target/debug no Run).
+#[tauri::command]
+fn autostart_get() -> Option<bool> {
+    if cfg!(debug_assertions) {
+        return None;
+    }
+    Some(autostart_registered())
+}
+
+#[tauri::command]
+fn autostart_set(enabled: bool) -> Result<bool, String> {
+    if cfg!(debug_assertions) {
+        return Err("unsupported".into());
+    }
+    if enabled {
+        let exe = std::env::current_exe().map_err(|err| err.to_string())?;
+        let value = run_value(&exe);
+        reg(&["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &value, "/f"])
+            .map_err(|err| err.to_string())?;
+    } else {
+        // Apagar valor inexistente falha no reg.exe; o query abaixo decide.
+        let _ = reg(&["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]);
+    }
+    let now = autostart_registered();
+    if now == enabled {
+        Ok(now)
+    } else {
+        Err("Não foi possível alterar a inicialização com o Windows".into())
+    }
 }
 
 fn external_backend() -> Option<BackendInfo> {
@@ -302,20 +363,101 @@ fn focus_main_window(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+    set_main_state(app, "shown");
+}
+
+/// Publica "main-window-state" e mostra/esconde a bolha aqui no Rust: o webview
+/// principal minimizado ou oculto tem JS estrangulado e reagiria tarde.
+fn set_main_state(app: &tauri::AppHandle, state: &'static str) {
+    if let Ok(mut last) = app.state::<AppState>().main_state.lock() {
+        if *last == state {
+            return;
+        }
+        *last = state;
+    }
+    if let Some(bubble) = app.get_webview_window("mini") {
+        let _ = match state {
+            "minimized" | "hidden" => bubble.show(),
+            _ => bubble.hide(),
+        };
+    }
+    let _ = app.emit("main-window-state", serde_json::json!({ "state": state }));
+}
+
+fn on_main_window_event(window: &tauri::Window, event: &WindowEvent) {
+    let app = window.app_handle();
+    match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let _ = window.hide();
+            set_main_state(app, "hidden");
+        }
+        // Windows não tem evento de minimizar: minimizar gera Resized 0x0.
+        WindowEvent::Resized(_) => {
+            if window.is_minimized().unwrap_or(false) {
+                set_main_state(app, "minimized");
+            } else if window.is_visible().unwrap_or(false) {
+                set_main_state(app, "restored");
+            }
+        }
+        WindowEvent::Focused(true) => set_main_state(app, "restored"),
+        _ => {}
+    }
+}
+
+/// Bolha criada oculta no início, para o WS dela já estar conectado quando aparecer.
+fn create_bubble(app: &tauri::App) -> tauri::Result<()> {
+    let mut builder =
+        WebviewWindowBuilder::new(app, "mini", WebviewUrl::App("index.html#mini".into()))
+            .title("DroidNote")
+            .inner_size(BUBBLE_WINDOW, BUBBLE_WINDOW)
+            .visible(false)
+            .always_on_top(true)
+            .decorations(false)
+            .skip_taskbar(true)
+            .transparent(true)
+            .shadow(false)
+            .focusable(false)
+            .resizable(false);
+    if let Some(monitor) = app.primary_monitor()? {
+        let area = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let right = (area.position.x as f64 + area.size.width as f64) / scale;
+        let bottom = (area.position.y as f64 + area.size.height as f64) / scale;
+        builder = builder.position(
+            right - BUBBLE_WINDOW - BUBBLE_MARGIN,
+            bottom - BUBBLE_WINDOW - BUBBLE_MARGIN,
+        );
+    }
+    builder.build()?;
+    Ok(())
 }
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            focus_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if !argv.iter().any(|arg| arg == AUTOSTART_ARG) {
+                focus_main_window(app);
+            }
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             backend: Mutex::new(None),
             backend_pid: Mutex::new(None),
+            main_state: Mutex::new(""),
         })
-        .invoke_handler(tauri::generate_handler![get_backend, save_export_file])
+        .invoke_handler(tauri::generate_handler![
+            get_backend,
+            save_export_file,
+            autostart_get,
+            autostart_set
+        ])
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                on_main_window_event(window, event);
+            }
+        })
         .setup(|app| {
             let resource_dir = app.path().resource_dir().ok();
             let info = match external_backend() {
@@ -339,7 +481,7 @@ pub fn run() {
             let toggle =
                 MenuItem::with_id(app, "toggle", "Ligar/Desligar captura", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &toggle, &quit])?;
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .tooltip("DroidNote")
                 .icon(app.default_window_icon().cloned().expect("icon"))
@@ -371,6 +513,13 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            create_bubble(app)?;
+            // A janela principal nasce oculta (tauri.conf.json): sem flash no --autostart.
+            if std::env::args().any(|arg| arg == AUTOSTART_ARG) {
+                set_main_state(app.handle(), "hidden");
+            } else {
+                focus_main_window(app.handle());
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -390,7 +539,16 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_ready_line, sidecar_candidates};
+    use super::{parse_ready_line, run_value, sidecar_candidates};
+
+    #[test]
+    fn run_value_quotes_exe_and_adds_flag() {
+        let exe = PathBuf::from(r"C:\Program Files\DroidNote\DroidNote.exe");
+        assert_eq!(
+            run_value(&exe),
+            r#""C:\Program Files\DroidNote\DroidNote.exe" --autostart"#
+        );
+    }
     use std::path::PathBuf;
 
     #[test]

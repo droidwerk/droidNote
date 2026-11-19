@@ -63,3 +63,44 @@ export function MeetingBanner({ notice, recording, busy, onRecord, onStop, onDis
     </div>
   );
 }
+
+interface CaptureAlertBannerProps {
+  /** Pergunta "a reunião ainda está acontecendo?" pendente; null = só pausado. */
+  alert: "silence" | "music" | null;
+  busy: boolean;
+  onContinue: () => void;
+  onEnd: () => void;
+  onResume: () => void;
+}
+
+/** Aviso dentro da janela: pergunta de silêncio (dois botões) ou gravação pausada (Continuar). */
+export function CaptureAlertBanner({ alert, busy, onContinue, onEnd, onResume }: CaptureAlertBannerProps) {
+  const t = useT();
+  return (
+    <div className="meeting-banner is-ask" role="status">
+      <span className="meeting-banner-icon" aria-hidden>
+        <Icon name={alert ? "help" : "pause"} size={18} />
+      </span>
+      <div className="meeting-banner-copy">
+        <strong>{alert ? t("mini.alertTitle") : t("mini.paused")}</strong>
+        <small>{alert === "music" ? t("mini.alertMusic") : alert ? t("mini.alertSilence") : t("mini.alertPaused")}</small>
+      </div>
+      <div className="meeting-banner-actions">
+        {alert ? (
+          <>
+            <button type="button" className="button button-ghost button-sm" disabled={busy} onClick={onContinue}>
+              {t("mini.alertContinue")}
+            </button>
+            <button type="button" className="button button-primary button-sm" disabled={busy} onClick={onEnd}>
+              {t("mini.alertEnd")}
+            </button>
+          </>
+        ) : (
+          <button type="button" className="button button-primary button-sm" disabled={busy} onClick={onResume}>
+            {t("mini.resume")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

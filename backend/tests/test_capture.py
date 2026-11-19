@@ -341,3 +341,176 @@ async def test_word_times_drop_repeated_short_phrase(client: AsyncClient, app) -
     segments = await app.state.container.store.list_segments(session_id)
     assert [item.text for item in segments] == ["reunião ok", "seguimos"]
     await client.post("/capture/stop", headers=auth())
+
+
+# --- Bolha de reunião: pausa (C10) e alerta de silêncio (C8, C9) ---
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _chunk(app, seconds: float, level: float, timestamp_ms: int = 0) -> AudioChunk:
+    rate = app.state.container.settings.sample_rate
+    return AudioChunk(samples=[level] * int(rate * seconds), sample_rate=rate, timestamp_ms=timestamp_ms)
+
+
+async def _start_idle(client: AsyncClient, app) -> tuple[_Clock, asyncio.Queue]:
+    clock = _Clock()
+    app.state.container.capture._clock = clock
+    events = await app.state.container.bus.subscribe()
+    started = await client.post("/capture/start", headers=auth(), json={"mic_only": True})
+    assert started.status_code == 200
+    return clock, events
+
+
+def _idle_events(queue: asyncio.Queue) -> list[dict]:
+    out = []
+    while not queue.empty():
+        event = queue.get_nowait()
+        if event.get("type") == "idle_alert":
+            out.append(event)
+    return out
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_asks_silence_then_clears_on_speech(client: AsyncClient, app) -> None:
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+    capture._audio.callback(_chunk(app, 1.0, 0.0))
+    clock.now += 299
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    clock.now += 1
+    await capture.idle_tick()
+    [asked] = _idle_events(events)
+    assert asked["status"] == "asked" and asked["kind"] == "silence"
+    assert asked["session_id"] == capture.state.session_id
+    assert capture.idle_alert == {"kind": "silence"}
+    # 2 s de fala não bastam; 3 s seguidos limpam a pergunta.
+    capture._audio.callback(_chunk(app, 2.0, 0.2))
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    capture._audio.callback(_chunk(app, 1.0, 0.2))
+    await capture.idle_tick()
+    [cleared] = _idle_events(events)
+    assert cleared["status"] == "cleared"
+    assert capture.idle_alert is None
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_kind_music_when_energy_without_speech(client: AsyncClient, app) -> None:
+    import numpy as np
+
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+
+    class _NoSpeech:
+        def mask(self, samples):
+            return np.zeros(len(samples), dtype=bool)
+
+    # Silero dizendo "sem fala" num áudio alto = música.
+    capture._neural_vad = True
+    capture._mic_vad = _NoSpeech()
+    for _ in range(10):
+        capture._audio.callback(_chunk(app, 0.5, 0.2))
+    clock.now += 300
+    await capture.idle_tick()
+    [asked] = _idle_events(events)
+    assert asked["kind"] == "music"
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_auto_pauses_after_unanswered(client: AsyncClient, app) -> None:
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+    clock.now += 300
+    await capture.idle_tick()
+    clock.now += 119
+    await capture.idle_tick()
+    assert [item["status"] for item in _idle_events(events)] == ["asked"]
+    clock.now += 1
+    await capture.idle_tick()
+    assert [item["status"] for item in _idle_events(events)] == ["auto_paused"]
+    assert capture.state.paused is True
+    assert capture.state.recording is True
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_off_by_setting_or_pause(client: AsyncClient, app) -> None:
+    saved = await client.put("/setup/settings", headers=auth(), json={"silence_alert": False})
+    assert saved.json()["silence_alert"] is False
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+    clock.now += 1000
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    await client.post("/capture/stop", headers=auth())
+
+    await client.put("/setup/settings", headers=auth(), json={"silence_alert": True})
+    await client.post("/capture/start", headers=auth(), json={"mic_only": True})
+    await client.post("/capture/pause", headers=auth())
+    clock.now += 1000
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_dismiss_resets_timer(client: AsyncClient, app) -> None:
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+    clock.now += 300
+    await capture.idle_tick()
+    dismissed = await client.post("/capture/idle-alert/dismiss", headers=auth())
+    assert dismissed.status_code == 200
+    assert [item["status"] for item in _idle_events(events)] == ["asked", "dismissed"]
+    assert capture.idle_alert is None
+    clock.now += 299
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    # "Encerrar e gerar nota" é o stop de sempre.
+    stopped = await client.post("/capture/stop", headers=auth())
+    assert stopped.json()["recording"] is False
+
+
+@pytest.mark.asyncio
+async def test_pause_endpoints_require_token(client: AsyncClient) -> None:
+    for path in ("/capture/pause", "/capture/resume", "/capture/idle-alert/dismiss"):
+        assert (await client.post(path)).status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_pause_drops_audio_and_resume_keeps_session(client: AsyncClient, app) -> None:
+    started = await client.post("/capture/start", headers=auth(), json={"mic_only": True})
+    session_id = started.json()["session_id"]
+    capture = app.state.container.capture
+    window = app.state.container.settings.window_seconds
+
+    paused = await client.post("/capture/pause", headers=auth())
+    assert paused.status_code == 200
+    assert paused.json()["paused"] is True
+    assert paused.json()["recording"] is True
+    capture._audio.callback(_chunk(app, window, 0.2, timestamp_ms=0))
+    await asyncio.sleep(0.2)
+    assert await app.state.container.store.list_segments(session_id) == []
+    session = await app.state.container.store.get_session(session_id)
+    assert session.status == "recording"
+
+    resumed = await client.post("/capture/resume", headers=auth())
+    assert resumed.json()["paused"] is False
+    assert resumed.json()["session_id"] == session_id
+    # O relógio do driver andou durante a pausa; o trecho tem que cair no tempo do WAV.
+    capture._audio.callback(_chunk(app, window, 0.2, timestamp_ms=int(window * 1000)))
+    segments = await _wait_segments(app, session_id)
+    assert segments[0].start_ms < 500
+
+    await client.post("/capture/stop", headers=auth())
+    await capture.wait_drain(session_id)
+    path = app.state.container.settings.resolve_recordings_dir() / f"{session_id}.wav"
+    rate = app.state.container.settings.sample_rate
+    # Só o áudio depois do resume foi gravado (cabeçalho 44 B + PCM 16 bits).
+    assert path.stat().st_size == 44 + int(rate * window) * 2

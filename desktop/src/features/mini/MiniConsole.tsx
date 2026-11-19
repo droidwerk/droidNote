@@ -1,21 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 import { api, askChat, openTranscriptSocket, setBackend } from "../../shared/api/client";
-import type { Brief, CaptureState, Person } from "../../shared/api/types";
+import type { Brief, CaptureState } from "../../shared/api/types";
 import { useI18n } from "../../shared/i18n";
-import { closeMiniWindow, focusMainWindow, resizeMiniWindow } from "../../shared/lib/miniWindow";
+import { dragMiniWindow, focusMainWindow, resizeMiniWindow, setMiniFocus } from "../../shared/lib/miniWindow";
 import { clusterToken, voiceName } from "../../shared/lib/voices";
 import { AiThinking } from "../../shared/ui/AiThinking";
 import { Markdown } from "../../shared/ui/Markdown";
 import { Icon, type IconName } from "../../shared/ui/Icon";
-import { copyConsent } from "../consent/consent";
-import { VoicePrint } from "../voices/VoicePrint";
-
-interface LiveVoice {
-  cluster: string;
-  person_id: string | null;
-  name: string | null;
-}
 
 interface Line {
   id: string;
@@ -26,6 +18,9 @@ interface Line {
 
 type Pane = "live" | "ask" | "context";
 type Marker = "decision" | "task" | "important" | "question";
+/** bubble = só a bolha; record = cartão "Gravar" (clique parado); panel = mini painel. */
+type View = "bubble" | "record" | "panel";
+type AlertKind = "silence" | "music";
 
 const MARKERS: { id: Marker; icon: IconName }[] = [
   { id: "decision", icon: "check" },
@@ -35,20 +30,24 @@ const MARKERS: { id: Marker; icon: IconName }[] = [
 ];
 const QUICK_ASKS = ["sofar", "decided", "missed", "suggest"] as const;
 const TAIL = 8;
-const EXPANDED_KEY = "droidnote.miniExpanded";
+const MEETING_CARD_MS = 20_000;
+const IN_TAURI = "__TAURI_INTERNALS__" in window;
 
-/** Janela flutuante: acompanha a reunião, marca momentos e pergunta à IA sem sair da chamada. */
+/** Bolha flutuante: mostra se grava, pergunta quando precisa e cresce até o mini painel. */
 export function MiniConsole() {
   const { t, locale } = useI18n();
   const [ready, setReady] = useState(false);
   const [capture, setCapture] = useState<CaptureState | null>(null);
-  const [voice, setVoice] = useState<LiveVoice | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
   const [note, setNote] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [expanded, setExpanded] = useState(() => readFlag(EXPANDED_KEY));
+  const [view, setView] = useState<View>("bubble");
+  const [meeting, setMeeting] = useState<string | null>(null);
+  const [alert, setAlert] = useState<AlertKind | null>(null);
+  const [level, setLevel] = useState(0);
+  const [marksOpen, setMarksOpen] = useState(false);
+  const [marked, setMarked] = useState("");
   const [pane, setPane] = useState<Pane>("live");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -56,20 +55,22 @@ export function MiniConsole() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   const tail = useRef<HTMLOListElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const bubble = useRef<HTMLButtonElement>(null);
+  const press = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
   const elapsed = useElapsed(capture?.recording ? capture.started_at ?? null : null);
 
   useEffect(() => {
     document.documentElement.classList.add("is-mini");
     let cancelled = false;
     void (async () => {
-      if ("__TAURI_INTERNALS__" in window) {
+      if (IN_TAURI) {
         const { invoke } = await import("@tauri-apps/api/core");
         setBackend(await invoke<{ url: string; token: string }>("get_backend"));
       }
       if (cancelled) return;
       try {
         setCapture(await api.captureState());
-        setPeople(await api.people());
       } catch {
         /* backend ainda subindo */
       }
@@ -80,10 +81,52 @@ export function MiniConsole() {
     };
   }, []);
 
+  // A janela segue o tamanho do conteúdo, presa no canto da bolha.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return undefined;
+    const fit = () => void resizeMiniWindow(el.offsetWidth, el.offsetHeight).catch(() => undefined);
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // O Rust também mostra/esconde; aqui repetimos para não depender da janela principal acordada.
   useEffect(() => {
-    void resizeMiniWindow(expanded).catch(() => undefined);
-    writeFlag(EXPANDED_KEY, expanded);
-  }, [expanded]);
+    if (!IN_TAURI) return undefined;
+    const offs: (() => void)[] = [];
+    let dead = false;
+    void (async () => {
+      const [{ listen }, { getCurrentWindow, Window }] = await Promise.all([
+        import("@tauri-apps/api/event"),
+        import("@tauri-apps/api/window"),
+      ]);
+      const self = getCurrentWindow();
+      const apply = (state: string) => {
+        if (state === "minimized" || state === "hidden") {
+          void self.show();
+        } else if (state === "restored" || state === "shown") {
+          setView("bubble");
+          void self.hide();
+          void setMiniFocus(false);
+        }
+      };
+      offs.push(await listen<{ state: string }>("main-window-state", (event) => apply(event.payload?.state ?? "")));
+      offs.push(
+        await listen("mini-open-panel", () => {
+          setView("panel");
+          void setMiniFocus(true);
+        }),
+      );
+      if (dead) offs.forEach((off) => off());
+      const main = await Window.getByLabel("main");
+      if (main && !dead) apply((await main.isMinimized()) || !(await main.isVisible()) ? "minimized" : "shown");
+    })();
+    return () => {
+      dead = true;
+      offs.forEach((off) => off());
+    };
+  }, []);
 
   useEffect(() => {
     if (!ready) return undefined;
@@ -92,14 +135,30 @@ export function MiniConsole() {
         setCapture((current) => ({
           ...(current ?? { mic_only: false, warning: null }),
           recording: Boolean(event.recording),
+          paused: Boolean(event.paused),
           session_id: typeof event.session_id === "string" ? event.session_id : current?.session_id ?? null,
           started_at: typeof event.started_at === "string" ? event.started_at : null,
         }) as CaptureState);
-        if (!event.recording) setVoice(null);
+        if (!event.recording || event.paused) setLevel(0);
+        if (!event.recording) {
+          setAlert(null);
+          setView((current) => (current === "panel" ? "bubble" : current));
+        }
+        if (event.recording) setMeeting(null);
       }
-      if (event.type === "monitor") {
-        const raw = event.voice as LiveVoice | null | undefined;
-        setVoice(raw && (typeof raw.cluster === "string" || typeof raw.person_id === "string") ? raw : null);
+      if (event.type === "hello" && event.idle_alert && typeof event.idle_alert === "object") {
+        setAlert((event.idle_alert as { kind?: string }).kind === "music" ? "music" : "silence");
+      }
+      if (event.type === "monitor" && typeof event.rms === "number") {
+        // raiz comprime a faixa: fala normal enche o anel sem saturar.
+        setLevel(Math.min(1, Math.sqrt(event.rms) * 2.5));
+      }
+      if (event.type === "meeting") {
+        if (event.status === "detected") setMeeting(typeof event.app === "string" ? event.app : "");
+        else if (event.status === "dismissed" || event.status === "auto-started") setMeeting(null);
+      }
+      if (event.type === "idle_alert") {
+        setAlert(event.status === "asked" ? (event.kind === "music" ? "music" : "silence") : null);
       }
       if (event.type === "segment" && event.segment && typeof event.segment === "object") {
         const segment = event.segment as { id?: string; text?: string; speaker_cluster?: string | null; speaker_name?: string | null };
@@ -117,7 +176,20 @@ export function MiniConsole() {
   }, [ready]);
 
   const recording = Boolean(capture?.recording);
+  const paused = recording && Boolean(capture?.paused);
   const sessionId = capture?.session_id ?? null;
+  const card = alert ? "alert" : meeting !== null && !recording ? "meeting" : view !== "bubble" && !recording ? "record" : null;
+  const panel = view === "panel" && recording && !alert;
+
+  // Cartão de reunião some em 20 s, como o aviso da janela principal.
+  useEffect(() => {
+    if (meeting === null) return undefined;
+    const timer = window.setTimeout(() => {
+      setMeeting(null);
+      void api.dismissMeeting().catch(() => undefined);
+    }, MEETING_CARD_MS);
+    return () => window.clearTimeout(timer);
+  }, [meeting]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -127,17 +199,46 @@ export function MiniConsole() {
     setLines([]);
     setAnswer("");
     setChatId(null);
+    setMarked("");
     void api.brief({ sessionId }).then(setBrief).catch(() => setBrief(null));
   }, [sessionId]);
 
   useEffect(() => {
     tail.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
-  }, [lines, expanded, pane]);
+  }, [lines, panel, pane]);
 
-  const nameOf = (cluster: string | null, name: string | null, personId?: string | null) =>
-    people.find((item) => item.id === personId)?.name ?? name ?? (cluster ? voiceName(cluster) : "");
-  const speaker = voice ? nameOf(voice.cluster, voice.name, voice.person_id) : null;
-  const last = lines[lines.length - 1] ?? null;
+  // Foco segue a vista: painel na aba ativa, cartão no primeiro botão, recolher volta à bolha.
+  const shown = panel ? "panel" : card ?? "bubble";
+  const previous = useRef(shown);
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = shown;
+    if (was === shown) return;
+    const root = box.current;
+    if (shown === "panel") root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+    else if (shown === "record") root?.querySelector<HTMLElement>(".bubble-card .button-primary")?.focus();
+    // O painel some do DOM antes daqui: o foco cai no body e volta para a bolha.
+    else if (shown === "bubble" && (document.activeElement === document.body || root?.contains(document.activeElement))) bubble.current?.focus();
+  }, [shown]);
+
+  const collapse = () => {
+    setView("bubble");
+    setMarksOpen(false);
+  };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (marksOpen) setMarksOpen(false);
+      else if (view !== "bubble") collapse();
+      else return;
+      event.preventDefault();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
+  const nameOf = (cluster: string | null, name: string | null) => name ?? (cluster ? voiceName(cluster) : "");
 
   const blink = (key: string) => {
     setFlash(key);
@@ -156,6 +257,8 @@ export function MiniConsole() {
     const text = note.trim() || t(`mini.markerMoment_${marker}`);
     await saveNote(text, marker, marker);
     setNote("");
+    setMarksOpen(false);
+    setMarked(t("mini.marked", { marker: t(`mini.marker_${marker}`), time: formatTimecode(elapsed) }));
   };
 
   const ask = async (text: string) => {
@@ -177,68 +280,161 @@ export function MiniConsole() {
     }
   };
 
-  const toggle = async () => {
+  const run = async (action: () => Promise<CaptureState | unknown>) => {
     if (busy) return;
     setBusy(true);
     try {
-      setCapture(recording ? await api.stopCapture() : await api.startCapture({ capture_mode: "meeting" }));
+      const result = await action();
+      if (result && typeof result === "object" && "recording" in result) setCapture(result as CaptureState);
+    } catch {
+      /* o estado real chega pelo WS */
     } finally {
       setBusy(false);
     }
   };
 
-  const consent = async () => {
-    if (await copyConsent(t)) blink("consent");
+  const record = (title?: string) => {
+    setMeeting(null);
+    setView("bubble");
+    void run(() => api.startCapture({ capture_mode: "meeting", title }));
+  };
+  const end = () => {
+    setAlert(null);
+    collapse();
+    void run(() => api.stopCapture());
   };
 
-  return (
-    <div className={["mini", recording ? "is-live" : "", expanded ? "is-expanded" : ""].filter(Boolean).join(" ")}>
-      <header className="mini-head" data-tauri-drag-region>
-        <span className="state-led" aria-hidden />
-        <span className="mini-state" data-tauri-drag-region>
-          {recording ? t("status.live") : t("status.standby")}
-        </span>
-        <span className="mini-clock" data-tauri-drag-region>
-          {formatTimecode(elapsed)}
-        </span>
-        <button
-          type="button"
-          className={flash === "consent" ? "mini-icon is-done" : "mini-icon"}
-          title={t("consent.copyHint")}
-          aria-label={t("consent.copyHint")}
-          onClick={() => void consent()}
-        >
-          <Icon name={flash === "consent" ? "check" : "shield"} size={14} />
-        </button>
-        <button
-          type="button"
-          className="mini-icon"
-          title={expanded ? t("mini.collapse") : t("mini.expand")}
-          aria-label={expanded ? t("mini.collapse") : t("mini.expand")}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <Icon name={expanded ? "collapse" : "expand"} size={14} />
-        </button>
-        <button type="button" className="mini-icon" title={t("mini.openMain")} aria-label={t("mini.openMain")} onClick={() => void focusMainWindow()}>
-          <Icon name="arrow" size={14} />
-        </button>
-        <button type="button" className="mini-icon" title={t("mini.close")} aria-label={t("mini.close")} onClick={() => void closeMiniWindow()}>
-          <Icon name="close" size={14} />
-        </button>
-      </header>
+  const onBubble = () => {
+    if (press.current?.dragged) return;
+    void setMiniFocus(true);
+    if (card === "alert" || card === "meeting") {
+      box.current?.querySelector<HTMLElement>(".bubble-card .button")?.focus();
+      return;
+    }
+    setView((current) => (recording ? "panel" : current === "record" ? "bubble" : "record"));
+  };
 
-      {expanded ? (
-        <>
+  const bubbleLook = alert ? "is-ask" : recording && !paused ? "is-rec" : "is-idle";
+  const bubbleLabel = alert
+    ? t("mini.bubbleAsk")
+    : paused
+      ? t("mini.bubblePaused")
+      : recording
+        ? t("mini.bubbleRec")
+        : t("mini.bubbleIdle");
+
+  return (
+    <div className="bubble-box" ref={box}>
+      {card === "record" ? (
+        <div className="bubble-card" role="group" aria-labelledby="bubble-record-title">
+          <div className="bubble-card-top">
+            <strong id="bubble-record-title">{t("mini.idleTitle")}</strong>
+            <button type="button" className="mini-icon" aria-label={t("mini.close")} title={t("mini.close")} onClick={collapse}>
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+          <button type="button" className="button button-primary button-sm" disabled={busy} onClick={() => record()}>
+            {t("mini.record")}
+          </button>
+        </div>
+      ) : null}
+      {card === "meeting" ? (
+        <div className="bubble-card" role="group" aria-labelledby="bubble-meeting-title">
+          <div>
+            <strong id="bubble-meeting-title">{t("mini.meetingTitle")}</strong>
+            {meeting ? <p>{t("mini.meetingLine", { app: meeting })}</p> : null}
+          </div>
+          <div className="bubble-card-acts is-two">
+            <button
+              type="button"
+              className="button button-primary button-sm"
+              disabled={busy}
+              onClick={() =>
+                record(
+                  meeting
+                    ? `${meeting} · ${new Date().toLocaleString(document.documentElement.lang || undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+                    : undefined,
+                )
+              }
+            >
+              {t("mini.record")}
+            </button>
+            <button
+              type="button"
+              className="button button-ghost button-sm"
+              onClick={() => {
+                setMeeting(null);
+                void api.dismissMeeting().catch(() => undefined);
+              }}
+            >
+              {t("mini.notNow")}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {card === "alert" ? (
+        <div className="bubble-card is-ask" role="group" aria-labelledby="bubble-alert-title" aria-describedby="bubble-alert-line">
+          <div>
+            <strong id="bubble-alert-title">{t("mini.alertTitle")}</strong>
+            <p id="bubble-alert-line">{alert === "music" ? t("mini.alertMusic") : t("mini.alertSilence")}</p>
+          </div>
+          <div className="bubble-card-acts">
+            <button
+              type="button"
+              className="button button-ghost button-sm"
+              disabled={busy}
+              onClick={() => {
+                setAlert(null);
+                void run(() => api.dismissIdleAlert());
+              }}
+            >
+              {t("mini.alertContinue")}
+            </button>
+            <button type="button" className="button button-primary button-sm" disabled={busy} onClick={end}>
+              {t("mini.alertEnd")}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {panel ? (
+        <div className={paused ? "mini is-expanded bubble-panel" : "mini is-expanded is-live bubble-panel"} role="group" aria-label={t("mini.panelAria")}>
+          <header className="mini-head" onPointerDown={(event) => !(event.target as HTMLElement).closest("button") && void dragMiniWindow()}>
+            <span className="state-led" aria-hidden />
+            <span className="mini-state">{paused ? t("mini.paused") : t("mini.recording")}</span>
+            <span className="mini-clock">{formatTimecode(elapsed)}</span>
+            <button type="button" className="mini-icon" title={t("mini.openMain")} aria-label={t("mini.openMain")} onClick={() => void focusMainWindow()}>
+              <Icon name="export" size={14} />
+            </button>
+            <button type="button" className="button button-ghost button-sm" onClick={collapse}>
+              {t("mini.collapse")}
+            </button>
+          </header>
           <nav className="mini-tabs" role="tablist">
-            {(["live", "ask", "context"] as const).map((id) => (
-              <button key={id} type="button" role="tab" aria-selected={pane === id} className={pane === id ? "is-on" : ""} onClick={() => setPane(id)}>
+            {(["live", "ask", "context"] as const).map((id, index, all) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={pane === id}
+                tabIndex={pane === id ? 0 : -1}
+                className={pane === id ? "is-on" : ""}
+                onClick={() => setPane(id)}
+                onKeyDown={(event) => {
+                  const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                  if (!step) return;
+                  event.preventDefault();
+                  const next = all[(index + step + all.length) % all.length] ?? id;
+                  setPane(next);
+                  (event.currentTarget.parentElement?.children[all.indexOf(next)] as HTMLElement | undefined)?.focus();
+                }}
+              >
                 {t(`mini.pane_${id}`)}
                 {id === "context" && brief?.pending.length ? <span className="tab-count">{brief.pending.length}</span> : null}
               </button>
             ))}
           </nav>
-          <div className="mini-pane">
+          <div className="mini-pane" role="tabpanel">
             {pane === "live" ? (
               lines.length ? (
                 <ol className="mini-tail" ref={tail}>
@@ -250,7 +446,7 @@ export function MiniConsole() {
                   ))}
                 </ol>
               ) : (
-                <p className="mini-empty">{recording ? t("mini.listening") : t("mini.noLine")}</p>
+                <p className="mini-empty">{paused ? t("mini.alertPaused") : t("mini.listening")}</p>
               )
             ) : null}
             {pane === "ask" ? (
@@ -265,9 +461,7 @@ export function MiniConsole() {
                     ))}
                   </div>
                 ) : null}
-                {asking && !answer ? (
-                  <AiThinking compact lines={3} steps={[t("ai.listenBack"), t("ai.answer")]} />
-                ) : null}
+                {asking && !answer ? <AiThinking compact lines={3} steps={[t("ai.listenBack"), t("ai.answer")]} /> : null}
                 {answer ? (
                   <div className="mini-answer" aria-live="polite">
                     <Markdown text={answer} />
@@ -290,6 +484,7 @@ export function MiniConsole() {
                     value={question}
                     disabled={!sessionId || asking}
                     placeholder={t("mini.askPlaceholder")}
+                    aria-label={t("mini.askPlaceholder")}
                     onChange={(event) => setQuestion(event.target.value)}
                   />
                   <button type="submit" className="mini-send" disabled={!question.trim() || asking || !sessionId} aria-label={t("chat.send")}>
@@ -332,90 +527,106 @@ export function MiniConsole() {
               </div>
             ) : null}
           </div>
-        </>
+
+          <div className="bubble-mark">
+            <div className="bubble-mark-top">
+              <button
+                type="button"
+                className="button button-ghost button-sm"
+                aria-expanded={marksOpen}
+                aria-controls="bubble-marks"
+                onClick={() => setMarksOpen((value) => !value)}
+              >
+                {t("mini.mark")}
+              </button>
+              <span className="bubble-mark-done" aria-live="polite">{marked}</span>
+            </div>
+            {marksOpen ? (
+              <div className="mini-markers" id="bubble-marks" role="group" aria-label={t("mini.markersAria")}>
+                {MARKERS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={flash === item.id ? "mini-marker is-done" : "mini-marker"}
+                    title={t(`mini.markerHint_${item.id}`)}
+                    onClick={() => void mark(item.id)}
+                  >
+                    <Icon name={item.icon} size={12} />
+                    {t(`mini.marker_${item.id}`)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <footer className="mini-foot">
+            <input
+              className={flash === "note" ? "mini-note is-saved" : "mini-note"}
+              value={note}
+              placeholder={t("notes.placeholderLive")}
+              aria-label={t("notes.placeholderLive")}
+              onChange={(event) => setNote(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  const text = note;
+                  setNote("");
+                  void saveNote(text);
+                }
+              }}
+            />
+            {paused ? (
+              <button type="button" className="button button-primary button-sm" disabled={busy} onClick={() => void run(() => api.resumeCapture())}>
+                {t("mini.resume")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="mini-rec is-live"
+              disabled={busy}
+              title={t("mini.alertEnd")}
+              aria-label={t("mini.alertEnd")}
+              onClick={end}
+            >
+              <span className="reactor-stop" />
+            </button>
+          </footer>
+        </div>
       ) : (
-        <div className="mini-body">
-          {speaker && voice ? (
-            <span className="mini-voice" style={{ "--voice": clusterToken(voice.cluster ?? voice.person_id ?? "known") } as CSSProperties}>
-              <VoicePrint seed={voice.cluster ?? voice.person_id ?? "known"} color={clusterToken(voice.cluster ?? voice.person_id ?? "known")} active size="sm" />
-              <strong>{speaker}</strong>
-            </span>
-          ) : (
-            <span className="mini-voice is-idle">{recording ? t("mini.listening") : t("console.ready")}</span>
-          )}
-          <p className="mini-line">
-            {last ? (
-              <>
-                {last.name || last.cluster ? <b>{nameOf(last.cluster, last.name)}: </b> : null}
-                {last.text}
-              </>
+        <div className="bubble-slot">
+          {paused && !alert ? <span className="bubble-chip">{t("mini.paused")}</span> : null}
+          <button
+            ref={bubble}
+            type="button"
+            className={`bubble ${bubbleLook}`}
+            style={{ "--level": level } as CSSProperties}
+            aria-label={bubbleLabel}
+            aria-expanded={card !== null}
+            onPointerDown={(event) => {
+              press.current = { x: event.screenX, y: event.screenY, dragged: false };
+            }}
+            onPointerMove={(event) => {
+              const start = press.current;
+              if (!start || start.dragged || event.buttons !== 1) return;
+              if (Math.hypot(event.screenX - start.x, event.screenY - start.y) < 4) return;
+              start.dragged = true;
+              void dragMiniWindow();
+            }}
+            onClick={onBubble}
+          >
+            {alert ? (
+              <span className="bubble-q" aria-hidden>
+                ?
+              </span>
+            ) : paused ? (
+              <Icon name="pause" size={16} />
             ) : (
-              <span className="muted">{t("mini.noLine")}</span>
+              <span className="bubble-dot" aria-hidden />
             )}
-          </p>
+          </button>
         </div>
       )}
-
-      <div className="mini-markers" role="group" aria-label={t("mini.markersAria")}>
-        {MARKERS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={flash === item.id ? "mini-marker is-done" : "mini-marker"}
-            disabled={!recording}
-            title={t(`mini.markerHint_${item.id}`)}
-            onClick={() => void mark(item.id)}
-          >
-            <Icon name={flash === item.id ? "check" : item.icon} size={12} />
-            {t(`mini.marker_${item.id}`)}
-          </button>
-        ))}
-      </div>
-      <footer className="mini-foot">
-        <input
-          className={flash === "note" ? "mini-note is-saved" : "mini-note"}
-          value={note}
-          disabled={!recording}
-          placeholder={recording ? t("notes.placeholderLive") : t("mini.noteDisabled")}
-          onChange={(event) => setNote(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              const text = note;
-              setNote("");
-              void saveNote(text);
-            }
-          }}
-        />
-        <button
-          type="button"
-          className={recording ? "mini-rec is-live" : "mini-rec"}
-          disabled={busy}
-          title={recording ? t("live.stop") : t("live.start")}
-          aria-label={recording ? t("live.stop") : t("live.start")}
-          onClick={() => void toggle()}
-        >
-          <span className={recording ? "reactor-stop" : "reactor-dot"} />
-        </button>
-      </footer>
     </div>
   );
-}
-
-function readFlag(key: string): boolean {
-  try {
-    return window.localStorage.getItem(key) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeFlag(key: string, value: boolean): void {
-  try {
-    window.localStorage.setItem(key, value ? "1" : "0");
-  } catch {
-    /* só conveniência */
-  }
 }
 
 function useElapsed(startedAt: string | null): number {
