@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-11-19
+
 ### Added
 - Start with Windows: DroidNote can open by itself when you sign in, hidden in the tray (Preferences → Meetings → "Start with Windows").
 - Meeting bubble: a small floating bubble shows whether DroidNote is recording (grey idle, orange recording, amber when it has a question). One click opens the meeting panel (live transcript, ask, context, "Mark", note, stop); Esc or "Collapse" turns it back into the bubble.
@@ -212,7 +214,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.3.2...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/droidwerk/droidNote/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/droidwerk/droidNote/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/droidwerk/droidNote/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/droidwerk/droidNote/compare/v2.2.10...v2.3.0
