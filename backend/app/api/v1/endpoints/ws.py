@@ -12,6 +12,14 @@ router = APIRouter(tags=["realtime"])
 
 @router.websocket("/ws/transcript")
 async def transcript_socket(websocket: WebSocket, token: str | None = None) -> None:
+    from app.main import ALLOWED_ORIGINS
+
+    # Navegador sempre manda Origin: página de outro site não abre o socket nem com o token.
+    # Sem Origin (cliente fora do navegador) o token continua sendo a barreira.
+    origin = websocket.headers.get("origin")
+    if origin is not None and origin not in ALLOWED_ORIGINS:
+        await websocket.close(code=4403)
+        return
     expected = get_settings().token
     provided = token or websocket.headers.get("X-DroidNote-Token")
     if not provided or provided != expected:

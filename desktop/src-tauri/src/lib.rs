@@ -409,7 +409,7 @@ fn on_main_window_event(window: &tauri::Window, event: &WindowEvent) {
 
 /// Bolha criada oculta no início, para o WS dela já estar conectado quando aparecer.
 fn create_bubble(app: &tauri::App) -> tauri::Result<()> {
-    let mut builder =
+    let builder =
         WebviewWindowBuilder::new(app, "mini", WebviewUrl::App("index.html#mini".into()))
             .title("DroidNote")
             .inner_size(BUBBLE_WINDOW, BUBBLE_WINDOW)
@@ -421,17 +421,18 @@ fn create_bubble(app: &tauri::App) -> tauri::Result<()> {
             .shadow(false)
             .focusable(false)
             .resizable(false);
+    let bubble = builder.build()?;
+    // Em px físicos e pela borda externa: posição lógica converte pela escala do monitor
+    // onde a janela nasceu, e a moldura invisível do Windows deixa a borda externa maior que 64.
     if let Some(monitor) = app.primary_monitor()? {
         let area = monitor.work_area();
-        let scale = monitor.scale_factor();
-        let right = (area.position.x as f64 + area.size.width as f64) / scale;
-        let bottom = (area.position.y as f64 + area.size.height as f64) / scale;
-        builder = builder.position(
-            right - BUBBLE_WINDOW - BUBBLE_MARGIN,
-            bottom - BUBBLE_WINDOW - BUBBLE_MARGIN,
-        );
+        let outer = bubble.outer_size()?;
+        let margin = (BUBBLE_MARGIN * monitor.scale_factor()).round() as i32;
+        bubble.set_position(tauri::PhysicalPosition::new(
+            area.position.x + area.size.width as i32 - outer.width as i32 - margin,
+            area.position.y + area.size.height as i32 - outer.height as i32 - margin,
+        ))?;
     }
-    builder.build()?;
     Ok(())
 }
 
