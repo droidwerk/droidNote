@@ -56,6 +56,7 @@ class CaptureStateOut(BaseModel):
     phase: str = "idle"
     loopback_name: str | None = None
     started_at: datetime | None = None
+    paused: bool = False
 
 
 class ActionItemOut(BaseModel):
@@ -618,6 +619,7 @@ class SettingsOut(BaseModel):
     # Com fone o som da reunião não volta pelo microfone: o porteiro de eco fica desligado.
     headphones: bool = False
     auto_summary: bool = True
+    silence_alert: bool = True
 
 
 class SettingsIn(BaseModel):
@@ -644,6 +646,7 @@ class SettingsIn(BaseModel):
     auto_gain: bool | None = None
     headphones: bool | None = None
     auto_summary: bool | None = None
+    silence_alert: bool | None = None
 
 
 class TestKeyIn(BaseModel):

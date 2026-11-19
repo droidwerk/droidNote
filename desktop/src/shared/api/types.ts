@@ -258,6 +258,8 @@ export interface CaptureState {
   phase?: "idle" | "loading" | "listening" | "transcribing";
   loopback_name?: string | null;
   started_at?: string | null;
+  /** Pausado: a sessão segue aberta, o áudio é descartado. */
+  paused?: boolean;
 }
 
 export interface MonitorFrame {
@@ -326,6 +328,7 @@ export interface Settings {
   auto_gain?: boolean;
   headphones?: boolean;
   auto_summary?: boolean;
+  silence_alert?: boolean;
 }
 
 export interface ModelOption {

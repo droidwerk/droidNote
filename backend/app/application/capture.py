@@ -6,7 +6,7 @@ from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
@@ -18,7 +18,7 @@ from app.domain.models import AudioChunk, Person, Session, TranscriptSegment
 from app.domain.ports import AudioCapturePort, AsrPort, SessionRepository
 from app.infrastructure.asr.overlap import drop_covered_words, strip_overlap
 from app.infrastructure.asr.scene import annotate_transcript
-from app.infrastructure.asr.vad import SpeechBuffer, chunk_monitor, has_speech, rms_level
+from app.infrastructure.asr.vad import RMS_THRESHOLD, SpeechBuffer, chunk_monitor, has_speech, rms_level
 from app.infrastructure.asr.whisper_engine import join_words
 from app.infrastructure.audio.wav_writer import SessionWavWriter
 from app.infrastructure.audio.windows_wasapi import WindowsWasapiCapture
@@ -38,6 +38,12 @@ PROBE_EVERY = 0.6
 PROBE_SECONDS = 1.5
 PROBE_FRESH = 1.6
 PendingWindow = tuple[list[float], int, int, str, str]
+# Alerta de silêncio: pergunta após 5 min sem fala, some com 3 s de fala,
+# pausa sozinho 2 min depois da pergunta sem resposta.
+IDLE_ASK_S = 300.0
+IDLE_CLEAR_MS = 3000.0
+IDLE_AUTO_PAUSE_S = 120.0
+IDLE_TICK_S = 1.0
 
 
 @dataclass
@@ -49,6 +55,7 @@ class CaptureState:
     phase: str = "idle"
     loopback_name: str | None = None
     started_at: datetime | None = None
+    paused: bool = False
 
 
 class CaptureService:
@@ -62,8 +69,22 @@ class CaptureService:
         *,
         voices: VoiceService | None = None,
         neural_vad: bool = False,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
+        self._clock = clock
+        self._paused_ms = 0.0
+        self._flush_on_pause = False
+        self._silence_alert = True
+        self._idle_task: asyncio.Task[None] | None = None
+        # Pergunta pendente ({"kind": ...}): o "hello" do WS entrega a quem conectar depois.
+        self.idle_alert: dict[str, str] | None = None
+        self._asked_at = 0.0
+        self._last_speech_at = 0.0
+        self._long_speech_at = 0.0
+        self._speech_run_ms = 0.0
+        self._energy_chunks = 0
+        self._total_chunks = 0
         self._voices = voices
         self._neural_vad = neural_vad
         self._echo = EchoGate()
@@ -177,6 +198,9 @@ class CaptureService:
         self._capture_mode = mode
         self._pending = asyncio.Queue()
         self._transcribing = False
+        self._paused_ms = 0.0
+        self._flush_on_pause = False
+        self._silence_alert = (await self._store.get_setting("silence_alert")) != "0"
         if self._voices is not None:
             try:
                 await self._voices.begin(
@@ -231,6 +255,8 @@ class CaptureService:
                 started_at=session.started_at,
             )
             await self._bus.publish(_capture_event(self.state))
+            self._reset_idle()
+            self._idle_task = asyncio.create_task(self._idle_loop())
             log.info("capture started session=%s mic_only=%s", session.id, mic_only)
             return self.state
         except Exception:
@@ -245,6 +271,7 @@ class CaptureService:
         pending = self._pending
         worker = self._worker_task
         self._worker_task = None
+        self._cancel_idle()
         self.state = CaptureState(
             recording=False, session_id=session_id, mic_only=mic_only, phase="idle"
         )
@@ -275,6 +302,111 @@ class CaptureService:
         asyncio.create_task(self._drain_after_stop(session_id, pending, worker, done))
         log.info("capture stopped session=%s", session_id)
         return self.state
+
+    async def pause(self) -> CaptureState:
+        """Descarta o áudio até o resume: sem ASR, sem WAV; a sessão continua gravando."""
+        if not self.state.recording or self.state.paused:
+            return self.state
+        self._flush_on_pause = True
+        self.state = replace(self.state, paused=True)
+        self.idle_alert = None
+        self._channel_level = {"mic": 0.0, "system": 0.0}
+        self._channel_speech = {"mic": False, "system": False}
+        await self._bus.publish(_capture_event(self.state))
+        log.info("capture paused session=%s", self.state.session_id)
+        return self.state
+
+    async def resume(self) -> CaptureState:
+        if not self.state.recording or not self.state.paused:
+            return self.state
+        self._reset_idle()
+        self.state = replace(self.state, paused=False)
+        await self._bus.publish(_capture_event(self.state))
+        log.info("capture resumed session=%s", self.state.session_id)
+        return self.state
+
+    async def dismiss_idle_alert(self) -> None:
+        """'Sim, continuar': zera o relógio do silêncio."""
+        if not self.state.recording:
+            return
+        kind = (self.idle_alert or {}).get("kind", "silence")
+        self._reset_idle()
+        await self._publish_idle("dismissed", kind)
+
+    def _reset_idle(self) -> None:
+        self.idle_alert = None
+        self._last_speech_at = self._clock()
+        self._long_speech_at = 0.0
+        self._speech_run_ms = 0.0
+        self._energy_chunks = 0
+        self._total_chunks = 0
+
+    def _cancel_idle(self) -> None:
+        task = self._idle_task
+        self._idle_task = None
+        self.idle_alert = None
+        if task is not None:
+            task.cancel()
+
+    async def _idle_loop(self) -> None:
+        while True:
+            await asyncio.sleep(IDLE_TICK_S)
+            try:
+                await self.idle_tick()
+            except Exception:
+                log.exception("idle alert tick failed")
+
+    async def idle_tick(self) -> None:
+        if not self.state.recording or self.state.paused or not self._silence_alert:
+            return
+        now = self._clock()
+        if self.idle_alert is None:
+            if now - self._last_speech_at < IDLE_ASK_S:
+                return
+            # Energia na maior parte da janela sem fala = música; senão, silêncio.
+            kind = "music" if self._energy_chunks * 2 > self._total_chunks else "silence"
+            self.idle_alert = {"kind": kind}
+            self._asked_at = now
+            await self._publish_idle("asked", kind)
+            return
+        kind = self.idle_alert["kind"]
+        if self._long_speech_at >= self._asked_at:
+            self._reset_idle()
+            await self._publish_idle("cleared", kind)
+        elif now - self._asked_at >= IDLE_AUTO_PAUSE_S:
+            await self.pause()
+            await self._publish_idle("auto_paused", kind)
+
+    async def _publish_idle(self, status: str, kind: str) -> None:
+        await self._bus.publish(
+            {
+                "type": "idle_alert",
+                "status": status,
+                "kind": kind,
+                "session_id": self.state.session_id,
+            }
+        )
+
+    def _track_idle(self, chunk_ms: float, speech: bool, energy: bool) -> None:
+        """Roda na thread de áudio: só anota; quem decide é o idle_tick.
+
+        ponytail: sem lock com _reset_idle (loop). São escritas simples de
+        float/int; o pior caso é um tick com contagem velha. Lock se o alerta
+        passar a decidir algo irreversível sem o idle_tick.
+        """
+        if speech:
+            now = self._clock()
+            self._last_speech_at = now
+            self._speech_run_ms += chunk_ms
+            if self._speech_run_ms >= IDLE_CLEAR_MS:
+                self._long_speech_at = now
+            self._energy_chunks = 0
+            self._total_chunks = 0
+            return
+        self._speech_run_ms = 0.0
+        self._total_chunks += 1
+        if energy:
+            self._energy_chunks += 1
 
     async def wait_drain(self, session_id: str, timeout: float | None = None) -> None:
         event = self._drain_events.get(session_id)
@@ -360,6 +492,7 @@ class CaptureService:
             log.exception("audio stop failed during abort")
         await self._cancel_worker(self._worker_task)
         self._worker_task = None
+        self._cancel_idle()
         self._close_writer()
         session = await self._store.get_session(session_id)
         if session:
@@ -403,6 +536,22 @@ class CaptureService:
     def _on_chunk(self, chunk: AudioChunk) -> None:
         if not self.state.recording:
             return
+        chunk_ms = len(chunk.samples) * 1000 / (chunk.sample_rate or self._settings.sample_rate)
+        # ponytail: pause() roda no loop e este callback na thread de áudio, sem
+        # lock. Um chunk que já passou daqui quando a pausa chega ainda vai ao
+        # WAV/ASR (no máximo um chunk, dezenas de ms); os seguintes caem aqui.
+        if self.state.paused:
+            # O contador de amostras do driver segue andando: o tempo pausado sai
+            # dos timestamps para os trechos continuarem batendo com o WAV.
+            self._paused_ms += chunk_ms
+            if self._flush_on_pause:
+                self._flush_on_pause = False
+                for source, buf in (("mic", self._mic_buf), ("loopback", self._loop_buf)):
+                    leftover = buf.flush()
+                    if leftover:
+                        self._enqueue([leftover], source)
+            return
+        ts = chunk.timestamp_ms - int(self._paused_ms)
         if self._writer:
             try:
                 self._writer.write(chunk.samples)
@@ -415,22 +564,27 @@ class CaptureService:
             # Sem fone, o microfone escuta o alto-falante: o eco sai do canal do
             # microfone antes da transcrição (o WAV continua com tudo).
             mic = self._echo.process(np.asarray(mic, dtype=np.float32), np.asarray(loopback, dtype=np.float32)).tolist()
+        # Energia medida antes do AGC: o ganho levanta o ruído da sala acima do limiar.
+        energy = rms_level(mic) >= RMS_THRESHOLD or bool(loopback and rms_level(loopback) >= RMS_THRESHOLD)
         if self._agc.enabled:
             mic = self._agc.process(np.asarray(mic, dtype=np.float32)).tolist()
         mic_mask = self._mic_vad.mask(mic) if self._neural_vad else None
         self._channel_level["mic"] = rms_level(mic)
         self._channel_speech["mic"] = bool(mic_mask.any()) if mic_mask is not None else has_speech(mic)
-        self._enqueue(self._mic_buf.push(mic, chunk.timestamp_ms, mic_mask), "mic")
+        self._enqueue(self._mic_buf.push(mic, ts, mic_mask), "mic")
         if loopback:
             loop_mask = self._loop_vad.mask(loopback) if self._neural_vad else None
             self._channel_level["system"] = rms_level(loopback)
             self._channel_speech["system"] = (
                 bool(loop_mask.any()) if loop_mask is not None else has_speech(loopback)
             )
-            self._enqueue(self._loop_buf.push(loopback, chunk.timestamp_ms, loop_mask), "loopback")
+            self._enqueue(self._loop_buf.push(loopback, ts, loop_mask), "loopback")
         else:
             self._channel_level["system"] = 0.0
             self._channel_speech["system"] = False
+        self._track_idle(
+            chunk_ms, self._channel_speech["mic"] or self._channel_speech["system"], energy
+        )
         self._feed_probe("mic", mic)
         if loopback:
             self._feed_probe("loopback", loopback)
@@ -802,6 +956,7 @@ def _capture_event(state: CaptureState) -> dict[str, object]:
         "warning": state.warning,
         "loopback_name": state.loopback_name,
         "started_at": state.started_at.isoformat() if state.started_at else None,
+        "paused": state.paused,
     }
 
 

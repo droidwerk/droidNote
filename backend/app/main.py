@@ -11,6 +11,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -60,6 +61,9 @@ ALLOWED_ORIGINS = [
     "http://tauri.localhost",
     "tauri://localhost",
 ]
+# Host do backend (não Origin): o app e o dev.ps1 chamam http://127.0.0.1:<porta>.
+# Barra DNS rebinding: um site apontando o próprio domínio para 127.0.0.1 leva Host estranho.
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "[::1]"]
 
 
 async def stop_abandoned_recordings(store: SqliteStore) -> None:
@@ -292,6 +296,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
     app.include_router(api_router)
     return app
 

@@ -1573,6 +1573,10 @@ button.chat-cite:hover {
   gap: 2px;
 }
 
+.welcome-inline-action {
+  margin-top: 6px;
+}
+
 .welcome-icon {
   display: grid;
   place-items: center;

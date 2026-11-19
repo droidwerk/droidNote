@@ -38,6 +38,7 @@ def _state_out(state) -> CaptureStateOut:
         phase=getattr(state, "phase", "idle"),
         loopback_name=getattr(state, "loopback_name", None),
         started_at=getattr(state, "started_at", None),
+        paused=getattr(state, "paused", False),
     )
 
 
@@ -79,6 +80,23 @@ async def stop_capture(request: Request) -> CaptureStateOut:
     if session_id:
         asyncio.create_task(finish_session(container, session_id))
     return _state_out(state)
+
+
+@router.post("/pause", response_model=CaptureStateOut)
+async def pause_capture(request: Request) -> CaptureStateOut:
+    return _state_out(await get_container(request.app).capture.pause())
+
+
+@router.post("/resume", response_model=CaptureStateOut)
+async def resume_capture(request: Request) -> CaptureStateOut:
+    return _state_out(await get_container(request.app).capture.resume())
+
+
+@router.post("/idle-alert/dismiss", response_model=CaptureStateOut)
+async def dismiss_idle_alert(request: Request) -> CaptureStateOut:
+    capture = get_container(request.app).capture
+    await capture.dismiss_idle_alert()
+    return _state_out(capture.state)
 
 
 @router.get("/meeting")

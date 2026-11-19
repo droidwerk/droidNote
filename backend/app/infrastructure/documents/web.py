@@ -62,7 +62,7 @@ def normalize_url(raw: str) -> str:
     return cleaned
 
 
-def _refuse_local_target(host: str) -> None:
+def _refuse_local_target(host: str, *, strict: bool = False) -> None:
     """O leitor roda com os acessos deste PC: não serve para espiar o próprio backend,
     o Ollama ou endereços de metadados (169.254.x.x). Rede local (intranet) continua permitida."""
     import ipaddress
@@ -77,12 +77,20 @@ def _refuse_local_target(host: str) -> None:
     except ValueError:
         try:
             candidates = [info[4][0] for info in socket.getaddrinfo(name, None)]
-        except OSError:
-            return  # sem DNS agora: a leitura em si vai falhar com url_unreachable
+        except OSError as exc:
+            # Na pré-checagem segue (a leitura falha sozinha); no gancho de cada salto, recusa.
+            if strict:
+                raise DocumentError("url_unreachable") from exc
+            return
     for raw in candidates:
         address = ipaddress.ip_address(raw.split("%")[0])
         if address.is_loopback or address.is_link_local or address.is_unspecified or address.is_multicast:
             raise DocumentError("url_invalid")
+
+
+def _guard_request(request: httpx.Request) -> None:
+    """Roda em cada requisição, inclusive nos redirecionamentos: 302 para 127.0.0.1 não passa."""
+    _refuse_local_target(request.url.host, strict=True)
 
 
 def youtube_id(url: str) -> str | None:
@@ -103,7 +111,13 @@ def _default_fetch(url: str, headers: dict[str, str] | None = None) -> tuple[str
     """(texto, content-type). Lê no máximo MAX_BYTES."""
     request_headers = {"User-Agent": USER_AGENT, "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8", **(headers or {})}
     try:
-        with httpx.Client(timeout=TIMEOUT, follow_redirects=True, verify=ssl_verify(), headers=request_headers) as client:
+        with httpx.Client(
+            timeout=TIMEOUT,
+            follow_redirects=True,
+            verify=ssl_verify(),
+            headers=request_headers,
+            event_hooks={"request": [_guard_request]},
+        ) as client:
             with client.stream("GET", url) as response:
                 response.raise_for_status()
                 chunks: list[bytes] = []

@@ -11,6 +11,19 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Added
+- Start with Windows: DroidNote can open by itself when you sign in, hidden in the tray (Preferences → Meetings → "Start with Windows").
+- Meeting bubble: a small floating bubble shows whether DroidNote is recording (grey idle, orange recording, amber when it has a question). One click opens the meeting panel (live transcript, ask, context, "Mark", note, stop); Esc or "Collapse" turns it back into the bubble.
+- The bubble appears when you minimize or close the main window, so the app stays one click away.
+- When a meeting app takes the microphone, the bubble asks "A conversation started. Record?" and goes away after 20 seconds.
+- "Is the meeting still going on?": after 5 minutes without speech, or with only music, during a recording, DroidNote asks whether to continue or end and generate the note. With no answer in 2 minutes the recording pauses by itself; nothing is deleted.
+- Pause and resume a recording.
+
+### Changed
+- Closing the main window keeps DroidNote running in the tray; "Quit" in the tray menu closes it.
+- The separate mini window is replaced by the bubble, and the "Open the mini window when recording" option was removed.
+- Meeting detection options are now "Ask / Record / Nothing".
+
 ## [2.3.2] — 2026-11-13
 
 _No notes were written for this release._

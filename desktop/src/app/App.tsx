@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CommandPalette } from "../features/command/CommandPalette";
-import { MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
+import { CaptureAlertBanner, MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { WelcomeModal, WhatsNewModal } from "../features/onboarding/Onboarding";
 import { Tour, type TourStart } from "../features/onboarding/Tour";
@@ -18,7 +18,7 @@ import { copyConsent } from "../features/consent/consent";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
 import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, NoteTemplate, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
 import { isCaptureLanguage, isUiLanguage, useI18n, type CaptureLanguage } from "../shared/i18n";
-import { openMiniWindow, requestAttention } from "../shared/lib/miniWindow";
+import { openMiniPanel, requestAttention, setTrayHint } from "../shared/lib/miniWindow";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { useFlag } from "../shared/lib/useFlag";
 import { useUpdateNotice } from "../shared/lib/useUpdateNotice";
@@ -91,6 +91,7 @@ export function App() {
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [meetingNotice, setMeetingNotice] = useState<MeetingNotice | null>(null);
+  const [idleAlert, setIdleAlert] = useState<"silence" | "music" | null>(null);
   const [notesRevision, setNotesRevision] = useState(0);
   const [tasksRevision, setTasksRevision] = useState(0);
   const [openTasks, setOpenTasks] = useState(0);
@@ -411,7 +412,11 @@ export function App() {
               typeof event.session_id === "string" ? event.session_id : current.session_id,
             started_at:
               typeof event.started_at === "string" ? event.started_at : current.started_at,
+            paused: typeof event.paused === "boolean" ? event.paused : current.paused,
           }));
+          if (event.idle_alert && typeof event.idle_alert === "object") {
+            setIdleAlert((event.idle_alert as { kind?: string }).kind === "music" ? "music" : "silence");
+          }
           if (event.recording === false) {
             setMonitor(null);
             setLastMonitorAt(null);
@@ -438,6 +443,7 @@ export function App() {
           setCapture((current) => ({
             ...current,
             recording: Boolean(event.recording),
+            paused: Boolean(event.paused),
             session_id: typeof event.session_id === "string" ? event.session_id : current.session_id,
             phase: isPhase(event.phase) ? event.phase : current.phase,
             warning: typeof event.warning === "string" ? event.warning : current.warning,
@@ -487,6 +493,9 @@ export function App() {
           } else if (event.status === "dismissed") {
             setMeetingNotice(null);
           }
+        }
+        if (event.type === "idle_alert") {
+          setIdleAlert(event.status === "asked" ? (event.kind === "music" ? "music" : "silence") : null);
         }
         if (event.type === "note") {
           setNotesRevision((value) => value + 1);
@@ -609,21 +618,19 @@ export function App() {
     }
   }, [busy, capture, loadSessions, micOnly, loopbackId, participantIds, captureMode, templateId, t]);
 
-  // Mini console abre sozinho quando a gravação começa (preferência deste PC).
   useEffect(() => {
     const was = recordingRef.current;
     recordingRef.current = capture.recording;
-    if (!was && capture.recording && "__TAURI_INTERNALS__" in window) {
-      let auto = true;
-      try {
-        auto = window.localStorage.getItem("droidnote.miniAuto") !== "0";
-      } catch {
-        /* padrão: abre */
-      }
-      if (auto) void openMiniWindow();
+    if (was && !capture.recording) {
+      setNotesRevision((value) => value + 1);
+      setIdleAlert(null);
     }
-    if (was && !capture.recording) setNotesRevision((value) => value + 1);
   }, [capture.recording]);
+
+  // A dica da bandeja menciona a pergunta enquanto ela espera resposta.
+  useEffect(() => {
+    void setTrayHint(idleAlert ? t("mini.trayAsk") : "DroidNote");
+  }, [idleAlert, t]);
 
   useEffect(() => {
     if (!ready || needsWizard) return;
@@ -868,6 +875,23 @@ export function App() {
               onCopyConsent={consent}
             />
           ) : null}
+          {capture.recording && (idleAlert || capture.paused) ? (
+            <CaptureAlertBanner
+              alert={idleAlert}
+              busy={busy}
+              onContinue={() => {
+                setIdleAlert(null);
+                void api.dismissIdleAlert().catch(() => undefined);
+              }}
+              onEnd={() => {
+                setIdleAlert(null);
+                void toggle();
+              }}
+              onResume={() => {
+                void api.resumeCapture().then(setCapture).catch(() => undefined);
+              }}
+            />
+          ) : null}
           {view !== "live" && (capture.recording || asrBusy || speakersBusy) ? (
             <button type="button" className="live-banner" onClick={() => setView("live")}>
               <span className="state-led" aria-hidden />
@@ -913,7 +937,7 @@ export function App() {
               templateId={templateId}
               onTemplateChange={setTemplateId}
               notesRevision={notesRevision}
-              onOpenMini={() => void openMiniWindow()}
+              onOpenMini={() => void openMiniPanel()}
               onCopyConsent={consent}
               tasksRevision={tasksRevision}
               onTasksChanged={() => setTasksRevision((value) => value + 1)}
