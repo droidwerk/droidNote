@@ -213,6 +213,9 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   stopCapture: () => request<CaptureState>("/capture/stop", { method: "POST" }),
+  pauseCapture: () => request<CaptureState>("/capture/pause", { method: "POST" }),
+  resumeCapture: () => request<CaptureState>("/capture/resume", { method: "POST" }),
+  dismissIdleAlert: () => request<unknown>("/capture/idle-alert/dismiss", { method: "POST" }),
   sessions: (tagId?: string) => {
     const query = tagId ? `?tag_id=${encodeURIComponent(tagId)}` : "";
     return request<Session[]>(`/sessions${query}`);

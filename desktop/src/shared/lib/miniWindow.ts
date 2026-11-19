@@ -1,62 +1,64 @@
+// A janela "mini" é a bolha: criada escondida pelo Rust, mostrada quando a principal minimiza ou some.
 const MINI_LABEL = "mini";
-const WIDTH = 380;
-const HEIGHT = 236;
-export const MINI_EXPANDED_HEIGHT = 560;
-
-/** Alterna o mini console entre compacto e expandido. */
-export async function resizeMiniWindow(expanded: boolean): Promise<void> {
-  const height = expanded ? MINI_EXPANDED_HEIGHT : HEIGHT;
-  if (!inTauri()) {
-    window.resizeTo(WIDTH, height);
-    return;
-  }
-  const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
-  await getCurrentWindow().setSize(new LogicalSize(WIDTH, height));
-}
 
 function inTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
-/** Abre (ou traz para frente) o mini console sempre no topo. */
-export async function openMiniWindow(): Promise<void> {
-  if (!inTauri()) {
-    window.open(`${location.origin}${location.pathname}#mini`, "droidnote-mini", `width=${WIDTH},height=${HEIGHT}`);
-    return;
-  }
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const existing = await WebviewWindow.getByLabel(MINI_LABEL);
-  if (existing) {
-    await existing.show();
-    await existing.setFocus();
-    return;
-  }
-  const x = Math.max(0, (window.screen.availWidth || 1280) - WIDTH - 24);
-  new WebviewWindow(MINI_LABEL, {
-    url: "index.html#mini",
-    title: "DroidNote",
-    width: WIDTH,
-    height: HEIGHT,
-    x,
-    y: 72,
-    resizable: false,
-    alwaysOnTop: true,
-    decorations: false,
-    skipTaskbar: true,
-    focus: false,
-  });
+// Canto inferior direito da bolha, em px físicos. Fixo enquanto ela cresce e encolhe; zera ao arrastar.
+let corner: { x: number; y: number } | null = null;
+
+/** Redimensiona a bolha mantendo parado o canto inferior direito (onde a bolha mora). */
+export async function resizeMiniWindow(width: number, height: number): Promise<void> {
+  if (!inTauri()) return;
+  const { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } = await import("@tauri-apps/api/window");
+  const win = getCurrentWindow();
+  const [pos, size, scale, monitor] = await Promise.all([win.outerPosition(), win.outerSize(), win.scaleFactor(), currentMonitor()]);
+  const w = Math.round(width * scale);
+  const h = Math.round(height * scale);
+  if (w === size.width && h === size.height) return;
+  const anchor = corner ?? { x: pos.x + size.width, y: pos.y + size.height };
+  corner = anchor;
+  // ponytail: só impede sair pelo topo/esquerda; a bolha mora no canto inferior direito.
+  const x = Math.max(monitor?.position.x ?? 0, anchor.x - w);
+  const y = Math.max(monitor?.position.y ?? 0, anchor.y - h);
+  await win.setPosition(new PhysicalPosition(x, y));
+  await win.setSize(new PhysicalSize(w, h));
 }
 
-export async function closeMiniWindow(): Promise<void> {
-  if (!inTauri()) {
-    window.close();
-    return;
-  }
+/** Arrasta a bolha (ou o painel) e esquece o canto antigo. */
+export async function dragMiniWindow(): Promise<void> {
+  if (!inTauri()) return;
+  corner = null;
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await getCurrentWindow().close();
+  await getCurrentWindow().startDragging();
 }
 
-/** Do mini console de volta para a janela principal. */
+/** Bolha parada não rouba o foco; cartão ou painel aberto pode receber teclado. */
+export async function setMiniFocus(on: boolean): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    await win.setFocusable(on);
+    if (on) await win.setFocus();
+  } catch {
+    /* permissão de foco ausente: segue sem teclado */
+  }
+}
+
+/** Botão "mini" da janela principal: encolhe o DroidNote para a bolha já aberta no painel. */
+export async function openMiniPanel(): Promise<void> {
+  if (!inTauri()) {
+    window.open(`${location.origin}${location.pathname}#mini`, "droidnote-mini", "width=360,height=460");
+    return;
+  }
+  const [{ emitTo }, { getCurrentWindow }] = await Promise.all([import("@tauri-apps/api/event"), import("@tauri-apps/api/window")]);
+  await emitTo(MINI_LABEL, "mini-open-panel");
+  await getCurrentWindow().minimize();
+}
+
+/** Da bolha de volta para a janela principal. */
 export async function focusMainWindow(): Promise<void> {
   if (!inTauri()) {
     window.opener?.focus();
@@ -78,6 +80,17 @@ export async function requestAttention(): Promise<void> {
     await getCurrentWindow().requestUserAttention(UserAttentionType.Informational);
   } catch {
     /* opcional */
+  }
+}
+
+/** Dica da bandeja: menciona a pergunta pendente (o Rust cria a bandeja com id "main"). */
+export async function setTrayHint(text: string): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    const { TrayIcon } = await import("@tauri-apps/api/tray");
+    await (await TrayIcon.getById("main"))?.setTooltip(text);
+  } catch {
+    /* bandeja sem id ou sem permissão */
   }
 }
 
