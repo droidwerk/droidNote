@@ -150,7 +150,7 @@ async def test_client_disconnect_mid_stream_saves_partial(app) -> None:
         if message["type"] == "http.response.body" and b"token" in message.get("body", b""):
             first_chunk.set()
 
-    headers = [(b"content-type", b"application/json"), *((k.lower().encode(), v.encode()) for k, v in auth().items())]
+    headers = [(b"host", b"127.0.0.1"), (b"content-type", b"application/json"), *((k.lower().encode(), v.encode()) for k, v in auth().items())]
     scope = {
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.3"},

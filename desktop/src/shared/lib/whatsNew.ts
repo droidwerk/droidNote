@@ -5,6 +5,7 @@ import type { UiLanguage } from "../i18n";
 export const WHATS_NEW: Record<string, readonly string[]> = {
   "2.3": ["chatMarkdown", "chatCitations", "chatModes", "chatSources", "exports"],
   "2.3.1": ["chatContext", "tour", "memoryFolder", "help", "readability"],
+  "2.4": ["bubble", "autostart", "stillThere", "pause", "detectAsk"],
 };
 
 function clean(version: string): string {

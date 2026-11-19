@@ -561,6 +561,8 @@ class SetupService:
             await self._store.set_setting("headphones", "1" if payload.headphones else "0")
         if payload.auto_summary is not None:
             await self._store.set_setting("auto_summary", "1" if payload.auto_summary else "0")
+        if payload.silence_alert is not None:
+            await self._store.set_setting("silence_alert", "1" if payload.silence_alert else "0")
         if asr_changed:
             self._preload_asr()
 
@@ -606,6 +608,7 @@ class SetupService:
             auto_gain=(await self._store.get_setting("auto_gain")) != "0",
             headphones=(await self._store.get_setting("headphones")) == "1",
             auto_summary=(await self._store.get_setting("auto_summary")) != "0",
+            silence_alert=(await self._store.get_setting("silence_alert")) != "0",
         )
 
     async def _meeting_mode(self) -> str:

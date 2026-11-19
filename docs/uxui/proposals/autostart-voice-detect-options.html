@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Detecção de fala e início com o Windows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Tokens copiados de desktop/src/shared/styles/tokens.css (claro e escuro). */
+:root {
+  --font-display: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace;
+  --r-xs: 4px; --r-sm: 7px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1); --t-fast: 120ms; --t-med: 220ms;
+
+  color-scheme: light;
+  --bg: #f3f3f1; --bg-deep: #e9e9e6;
+  --surface: #ffffff; --surface-2: #f8f8f6; --surface-3: #efefec; --surface-hi: #e6e6e2;
+  --line: rgba(10,10,12,.09); --line-strong: rgba(10,10,12,.15); --line-bright: rgba(10,10,12,.32);
+  --text: #0c0c0e; --text-soft: #34343a; --muted: #6b6b73; --faint: #6c6c74;
+  --accent: #e63d00; --accent-hi: #ff4400; --accent-text: #c73600; --accent-ink: #ffffff;
+  --accent-fill: #c73600; --accent-soft: rgba(230,61,0,.09); --accent-line: rgba(230,61,0,.35);
+  --accent-glow: 0 10px 24px -14px rgba(230,61,0,.6);
+  --ok: #0f9f63; --ok-soft: rgba(15,159,99,.1); --warn: #b97300; --warn-soft: rgba(185,115,0,.1);
+  --danger: #d42f2f;
+  --channel-mic: #e63d00; --channel-system: #0284c7;
+  --float-shadow: 0 18px 40px -18px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.08);
+  /* Papel de parede claro falso, fora do app. */
+  --wall: linear-gradient(160deg, #e7ecf2 0%, #dfe5ec 45%, #eceae6 100%);
+  --taskbar: rgba(243,243,243,.92); --taskbar-line: rgba(0,0,0,.08); --taskbar-ink: #1b1b1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #050506; --bg-deep: #000000;
+    --surface: #0b0b0d; --surface-2: #111114; --surface-3: #18181c; --surface-hi: #1f1f24;
+    --line: rgba(255,255,255,.07); --line-strong: rgba(255,255,255,.12); --line-bright: rgba(255,255,255,.26);
+    --text: #f4f4f5; --text-soft: #cfcfd4; --muted: #8b8b95; --faint: #83838d;
+    --accent: #ff4400; --accent-hi: #ff6a2b; --accent-text: #ff6a2b; --accent-fill: #c73600;
+    --accent-soft: rgba(255,68,0,.12); --accent-line: rgba(255,68,0,.38);
+    --accent-glow: 0 10px 28px -12px rgba(255,68,0,.7);
+    --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --warn: #fbbf24; --warn-soft: rgba(251,191,36,.1);
+    --danger: #ff5c5c; --channel-mic: #ff6a2b; --channel-system: #38bdf8;
+    --float-shadow: 0 18px 40px -16px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #050506; --bg-deep: #000000;
+  --surface: #0b0b0d; --surface-2: #111114; --surface-3: #18181c; --surface-hi: #1f1f24;
+  --line: rgba(255,255,255,.07); --line-strong: rgba(255,255,255,.12); --line-bright: rgba(255,255,255,.26);
+  --text: #f4f4f5; --text-soft: #cfcfd4; --muted: #8b8b95; --faint: #83838d;
+  --accent: #ff4400; --accent-hi: #ff6a2b; --accent-text: #ff6a2b; --accent-fill: #c73600;
+  --accent-soft: rgba(255,68,0,.12); --accent-line: rgba(255,68,0,.38);
+  --accent-glow: 0 10px 28px -12px rgba(255,68,0,.7);
+  --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --warn: #fbbf24; --warn-soft: rgba(251,191,36,.1);
+  --danger: #ff5c5c; --channel-mic: #ff6a2b; --channel-system: #38bdf8;
+  --float-shadow: 0 18px 40px -16px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);
+}
+
+* { box-sizing: border-box; }
+::selection { background: rgba(255,68,0,.3); }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 400 14px/1.6 var(--font-body);
+  padding-inline: var(--s-4);
+}
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: var(--s-10); }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.02em; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(26px, 4vw, 38px); max-width: 22ch; }
+h2 { font-size: clamp(22px, 3vw, 28px); }
+h3 { font-size: 15px; letter-spacing: -0.01em; }
+p { margin: 0; color: var(--text-soft); }
+.eyebrow { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.eyebrow em { font-style: normal; color: var(--accent-text); }
+.lede { max-width: 68ch; margin-top: var(--s-4); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.intro { display: grid; gap: var(--s-6); grid-template-columns: 1.3fr 1fr; align-items: start; margin-bottom: var(--s-10); }
+.card { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-lg); padding: var(--s-5); }
+.card h3 + p, .card h3 + ul { margin-top: var(--s-2); }
+.card ul { margin: 0; padding-left: 18px; color: var(--text-soft); }
+.card li + li { margin-top: var(--s-1); }
+.shared { display: grid; gap: var(--s-4); }
+
+.jump { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-6); }
+.jump a { display: inline-flex; align-items: center; gap: var(--s-2); height: 32px; padding: 0 var(--s-3); border-radius: var(--r-pill); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; font-size: 13px; background: var(--surface); }
+.jump a:hover { border-color: var(--accent-line); }
+.jump b { font-family: var(--font-mono); font-weight: 500; color: var(--accent-text); }
+
+/* Seção de opção */
+.option { padding-block: var(--s-10); border-top: 1px solid var(--line-strong); }
+.option-head { display: grid; grid-template-columns: auto 1fr auto; gap: var(--s-4); align-items: start; margin-bottom: var(--s-6); }
+.num { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line-bright); display: grid; place-items: center; font-family: var(--font-mono); font-size: 13px; color: var(--accent-text); }
+.option-head p { margin-top: var(--s-2); max-width: 70ch; }
+.effort { display: inline-flex; align-items: center; gap: var(--s-2); height: 28px; padding: 0 var(--s-3); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid var(--line); font-size: 12px; color: var(--text-soft); white-space: nowrap; }
+.effort b { font-family: var(--font-mono); color: var(--accent-text); }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: var(--s-6); align-items: start; }
+.label-row { display: flex; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-2); }
+
+/* Área de trabalho falsa */
+.desk { position: relative; min-height: 400px; border-radius: var(--r-lg); overflow: hidden; background: var(--wall); border: 1px solid var(--line-strong); }
+.desk::before { content: ""; position: absolute; left: 6%; top: 8%; width: 58%; height: 58%; border-radius: 8px; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); box-shadow: 0 10px 30px -18px rgba(0,0,0,.3); }
+.desk .app-win { position: absolute; left: 6%; top: 8%; width: 58%; height: 58%; padding: 10px 12px; font: 500 11px/1.4 "Segoe UI", system-ui, sans-serif; color: #444; }
+.app-win .call { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; height: calc(100% - 28px); }
+.app-win .call span { border-radius: 6px; background: rgba(0,0,0,.07); }
+.taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 44px; background: var(--taskbar); border-top: 1px solid var(--taskbar-line); display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; backdrop-filter: blur(12px); }
+.taskbar i { width: 26px; height: 26px; border-radius: 6px; background: rgba(0,0,0,.08); }
+.tray { position: absolute; right: 10px; top: 0; bottom: 0; display: flex; align-items: center; gap: 10px; font: 400 11px/1.2 "Segoe UI", system-ui, sans-serif; color: var(--taskbar-ink); }
+.tray .ico { width: 16px; height: 16px; display: grid; place-items: center; }
+.tray .clock { text-align: right; }
+.tray-dn { width: 16px; height: 16px; border-radius: 4px; background: #111; display: grid; place-items: center; position: relative; }
+.tray-dn::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #8b8b95; }
+.tray-dn.on::after { background: #ff4400; box-shadow: 0 0 6px #ff4400; }
+.win-mic { color: var(--taskbar-ink); }
+
+/* Elementos comuns do DroidNote */
+.led { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.led.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 10px var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.led.heard { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+.state { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.state.live { color: var(--accent-text); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: 500 12.5px/1 var(--font-body); white-space: nowrap; cursor: pointer; }
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); box-shadow: var(--accent-glow); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.icon-btn { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; flex: none; }
+.icon-btn:hover { background: var(--surface-3); color: var(--text); }
+.rec { width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--accent); box-shadow: var(--accent-glow); display: grid; place-items: center; flex: none; cursor: pointer; }
+.rec .d { width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.rec .s { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
+.rec.soft { background: var(--surface-3); box-shadow: none; border: 1px solid var(--line-strong); color: var(--text); }
+.rec.soft .s { background: var(--text); }
+svg.i { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.float { position: absolute; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); box-shadow: var(--float-shadow); }
+.float.live { border-color: var(--accent-line); }
+
+/* Opção 1: pílula */
+.pill { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 6px 0 14px; border-radius: var(--r-pill); overflow: hidden; }
+.pill .txt { font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.pill .txt small { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); line-height: 1.2; }
+.pill .timer { position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px; background: var(--line); }
+.pill .timer::after { content: ""; position: absolute; inset: 0 40% 0 0; background: var(--accent); }
+.pill.rec-state { padding: 0 5px 0 12px; }
+.pos-tray { right: 12px; bottom: 56px; }
+
+/* Opção 2: controle remoto */
+.remote { width: 268px; border-radius: var(--r-lg); overflow: hidden; background: radial-gradient(300px 90px at 0% 0%, var(--accent-soft), transparent 70%), var(--surface); }
+.remote-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+.remote-head .clk { margin-left: auto; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.remote-body { padding: 12px; display: grid; gap: 12px; }
+.meter { display: grid; grid-template-columns: 30px 1fr; gap: 6px 8px; align-items: center; font-family: var(--font-mono); font-size: 9.5px; color: var(--muted); letter-spacing: .08em; }
+.bars { display: flex; gap: 2px; align-items: flex-end; height: 14px; }
+.bars span { flex: 1; border-radius: 1px; background: var(--line-strong); }
+.bars.mic span.on { background: var(--channel-mic); }
+.bars.sys span.on { background: var(--channel-system); }
+.ctrl { display: flex; align-items: center; gap: 8px; }
+.ctrl .btn { flex: 1; }
+.dock-tab { position: absolute; right: 0; width: 30px; height: 88px; border-radius: var(--r-md) 0 0 var(--r-md); border-right: 0; display: grid; place-items: center; gap: 6px; padding: 10px 0; }
+.dock-tab .vt { writing-mode: vertical-rl; transform: rotate(180deg); font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; color: var(--muted); }
+.dock-tab.live .vt { color: var(--accent-text); }
+.pos-edge { right: 0; top: 64px; }
+.pos-edge-r { right: 12px; top: 64px; }
+.mark-menu { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line-strong); font-size: 11.5px; color: var(--text-soft); background: var(--surface-2); }
+
+/* Opção 3: toast e bolha */
+.toast { width: min(340px, calc(100% - 24px)); border-radius: var(--r-md); padding: 12px 12px 12px 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; }
+.toast .app { width: 20px; height: 20px; border-radius: 5px; background: #000; display: grid; place-items: center; }
+.toast .app::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ff4400; }
+.toast .meta { font-size: 11px; color: var(--muted); }
+.toast .body { font-size: 13px; font-weight: 500; margin-top: 2px; }
+.toast .acts { display: flex; gap: 8px; margin-top: 10px; }
+.toast .acts .btn { flex: 1; }
+.bubble { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; cursor: grab; }
+.bubble .ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--accent-line); }
+.bubble .clk { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 11px; padding: 2px 8px; border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line-strong); white-space: nowrap; }
+.bubble-x { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 8px 0 6px; border-radius: var(--r-pill); }
+.bubble-x .core { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; box-shadow: var(--accent-glow); }
+.bubble-x .core.paused { background: var(--surface-3); box-shadow: none; border: 1px solid var(--line-strong); }
+.core .d { width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.pos-toast { right: 12px; bottom: 56px; }
+.pos-bubble { right: 40px; top: 60px; }
+
+/* Configurações */
+.settings { padding: 0; overflow: hidden; }
+.settings-top { padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--line); }
+.settings-top .eyebrow { display: block; margin-bottom: 4px; }
+.settings-body { padding: var(--s-4) var(--s-5) var(--s-5); display: grid; gap: var(--s-4); }
+.group-title { font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; position: relative; }
+.check input { position: absolute; opacity: 0; pointer-events: none; }
+.box { flex: none; width: 18px; height: 18px; margin-top: 2px; border-radius: 5px; border: 1px solid var(--line-bright); background: var(--surface-2); display: grid; place-items: center; }
+.check input:checked + .box { background: var(--accent); border-color: var(--accent); }
+.check input:checked + .box::after { content: ""; width: 9px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+.check input:focus-visible + .box { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check input:disabled + .box { opacity: .5; }
+.check strong { display: block; font-size: 13px; font-weight: 500; }
+.check small { display: block; font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+.check.sub { margin-left: 28px; }
+.tip { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 4px; border-radius: 50%; border: 1px solid var(--line-bright); font-size: 9.5px; color: var(--muted); vertical-align: 1px; }
+.seg-row { display: grid; gap: 6px; margin-left: 28px; }
+.seg-row > span { font-size: 12px; color: var(--muted); }
+.segmented { display: flex; gap: 2px; padding: 3px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); }
+.segmented button { flex: 1; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 500 12px/1 var(--font-body); cursor: pointer; }
+.segmented button.on { background: var(--surface-hi); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; padding: var(--s-3); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+.hint b { color: var(--text-soft); font-weight: 500; }
+
+/* Estados */
+.states { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-3); margin-top: var(--s-6); }
+.st { border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface-2); padding: var(--s-3); display: grid; grid-template-rows: auto 1fr auto; gap: var(--s-3); min-height: 188px; }
+.st-name { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
+.st-view { position: relative; display: grid; place-items: center; min-height: 96px; border-radius: var(--r-md); background: var(--wall); overflow: hidden; padding: var(--s-3); }
+.st-view .float { position: relative; }
+.st p { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.empty-note { font-size: 11.5px; color: #555; text-align: center; font-family: "Segoe UI", system-ui, sans-serif; }
+
+/* Avaliação */
+.eval { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: var(--s-3); margin-top: var(--s-6); }
+.eval .card h3 { display: flex; align-items: center; gap: 8px; }
+.eval .privacy { background: var(--surface-2); }
+.pro::marker { color: var(--ok); }
+.con::marker { color: var(--danger); }
+.circ { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-bright); display: grid; place-items: center; color: var(--text-soft); flex: none; }
+
+.reco { margin-top: var(--s-10); padding: var(--s-6); border-radius: var(--r-lg); border: 1px solid var(--accent-line); background: radial-gradient(500px 160px at 0% 0%, var(--accent-soft), transparent 70%), var(--surface); display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-6); }
+.reco ol { margin: var(--s-3) 0 0; padding-left: 20px; color: var(--text-soft); }
+.reco li + li { margin-top: var(--s-2); }
+footer { margin-top: var(--s-8); font-size: 12px; color: var(--muted); }
+
+@media (max-width: 1000px) {
+  .stage, .intro, .reco { grid-template-columns: 1fr; }
+  .states { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eval { grid-template-columns: 1fr 1fr; }
+  .eval .privacy { grid-column: 1 / -1; }
+}
+@media (max-width: 620px) {
+  .wrap { padding-block: var(--s-8); }
+  .option-head { grid-template-columns: auto 1fr; }
+  .option-head .effort { grid-column: 1 / -1; justify-self: start; }
+  .states, .eval { grid-template-columns: 1fr; }
+  .desk { min-height: 380px; }
+  .desk::before, .desk .app-win { width: 80%; height: 46%; }
+  .taskbar i:nth-child(n+4) { display: none; }
+  .tray .clock { display: none; }
+  .remote { width: 240px; }
+}
+@media (prefers-reduced-motion: reduce) { .led.live, .led.heard { animation: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M6 4v8M10 4v8"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M5.5 3.5l7 4.5-7 4.5z"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 16 16"><path d="M4 14V2.5M4 3h7l-1.5 2.5L11 8H4"/></symbol>
+  <symbol id="i-open" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3L7.5 8.5M11 9.5V13H3V5h3.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></symbol>
+  <symbol id="i-power" viewBox="0 0 16 16"><path d="M8 2v5M4.5 4.5a5 5 0 1 0 7 0"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 16 16"><path d="M2 8h1.5M5 5v6M8 3v10M11 5.5v5M13.5 8H14"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.3-5 6.4-2.8-1.1-5-3.2-5-6.4v-4z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M3 8h10"/></symbol>
+</svg>
+
+<div class="wrap">
+
+<header class="intro">
+  <div>
+    <span class="eyebrow">DroidNote <em>/</em> proposta de interface</span>
+    <h1 style="margin-top:12px">Não perder a reunião porque o app estava fechado</h1>
+    <p class="lede">Duas funções que trabalham juntas. O DroidNote liga com o Windows e espera na bandeja. Quando uma conversa começa, aparece um controle discreto por cima de tudo, e um clique começa a gravar. Abaixo estão três jeitos de fazer esse controle, todos com as cores, fontes e componentes que o app já usa. Escolha um, ou misture partes.</p>
+    <nav class="jump" aria-label="Opções">
+      <a href="#op1"><b>01</b> Pílula discreta</a>
+      <a href="#op2"><b>02</b> Mini controle remoto</a>
+      <a href="#op3"><b>03</b> Aviso e bolha</a>
+      <a href="#reco"><b>&gt;</b> Recomendação</a>
+    </nav>
+  </div>
+  <div class="shared">
+    <div class="card">
+      <h3>Igual nas três opções: ligar com o Windows</h3>
+      <ul>
+        <li>Uma caixa em Configurações, aba Reuniões. Vem desligada e o app oferece ligar no primeiro uso.</li>
+        <li>Ligado, o DroidNote abre direto na bandeja, sem janela na tela.</li>
+        <li>Fechar a janela passa a esconder na bandeja. Sair de verdade fica no menu da bandeja, em "Sair".</li>
+        <li>Se o Ollama ainda não estiver rodando no login, o app espera e avisa só quando for preciso.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Dois níveis de detecção</h3>
+      <ul>
+        <li><b>Sinal do Windows</b> (já existe): percebe que Teams, Zoom, Slack ou o navegador pegaram o microfone. Não abre o microfone.</li>
+        <li><b>Detectar fala</b> (novo, opcional): escuta o microfone para pegar reunião presencial. Liga o ícone de microfone do Windows.</li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== OPÇÃO 1 ===================== -->
+<section class="option" id="op1" aria-labelledby="op1-t">
+  <div class="option-head">
+    <div class="num">01</div>
+    <div>
+      <h2 id="op1-t">Pílula discreta</h2>
+      <p>Uma pílula pequena nasce acima do relógio, perto da bandeja, quando a conversa começa. Um clique grava. Sem resposta, some sozinha em 20 segundos. Gravando, encolhe para o tempo e um botão de parar. A mini janela que já existe continua a um clique de distância para quem quer ver a transcrição.</p>
+    </div>
+    <span class="effort">Esforço <b>P</b></span>
+  </div>
+
+  <div class="stage">
+    <div>
+      <div class="label-row"><span class="eyebrow">Na área de trabalho <em>/</em> fala detectada</span></div>
+      <div class="desk" role="img" aria-label="Área de trabalho com uma chamada aberta e a pílula do DroidNote acima da bandeja, oferecendo gravar">
+        <div class="app-win">Chamada em andamento<div class="call"><span></span><span></span><span></span><span></span></div></div>
+        <div class="float pill live pos-tray">
+          <span class="led heard"></span>
+          <span class="txt">Conversa no Teams<small>Some em 12 s</small></span>
+          <button class="btn primary" type="button"><span class="dot"></span>Gravar</button>
+          <button class="icon-btn" type="button" aria-label="Agora não"><svg class="i"><use href="#i-x"/></svg></button>
+          <span class="timer" aria-hidden="true"></span>
+        </div>
+        <div class="taskbar"><i></i><i></i><i></i><i></i><i></i>
+          <div class="tray"><span class="ico win-mic" title="Microfone em uso pelo Teams"><svg class="i" style="width:13px;height:13px"><use href="#i-mic"/></svg></span><span class="tray-dn"></span><span class="clock">14:02<br>19/11/2026</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card settings">
+      <div class="settings-top"><span class="eyebrow">Configurações <em>/</em> Reuniões</span><h3>Não perder reuniões</h3></div>
+      <div class="settings-body">
+        <span class="group-title">Ao ligar o computador</span>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Iniciar com o Windows</strong><small>O DroidNote abre sozinho quando você entra no Windows.</small></span></label>
+        <label class="check sub"><input type="checkbox" checked><span class="box"></span><span><strong>Abrir minimizado na bandeja</strong><small>Fica perto do relógio, sem abrir janela.</small></span></label>
+        <span class="group-title">Quando uma conversa começar</span>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Mostrar a pílula para gravar<span class="tip" title="Usa o sinal do Windows de que um app de reunião pegou o microfone.">?</span></strong><small>Aparece acima da bandeja e some em 20 s se você não clicar.</small></span></label>
+        <label class="check"><input type="checkbox"><span class="box"></span><span><strong>Detectar fala no microfone<span class="tip" title="Serve para reunião presencial, quando nenhum app usa o microfone.">?</span></strong><small>Escuta o microfone mesmo sem app de reunião. O Windows mostra o microfone em uso.</small></span></label>
+        <div class="seg-row"><span>Sensibilidade</span><div class="segmented" role="group" aria-label="Sensibilidade"><button type="button">Baixa</button><button type="button" class="on">Média</button><button type="button">Alta</button></div></div>
+        <label class="check sub"><input type="checkbox" checked><span class="box"></span><span><strong>Só quando um app de reunião estiver aberto</strong><small>Teams, Zoom, Slack, WhatsApp ou o navegador.</small></span></label>
+        <p class="hint"><b>Nada é salvo antes do clique em Gravar.</b> O que o microfone ouve só passa pela memória para decidir se é fala, e é descartado em seguida.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="states" role="list" aria-label="Estados da pílula">
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led"></span>Parado</div>
+      <div class="st-view"><span class="empty-note">Nada na tela.<br>Ícone da bandeja em cinza.</span></div>
+      <p>O app espera na bandeja. Clique no ícone abre a janela principal.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Fala detectada</div>
+      <div class="st-view"><div class="float pill live"><span class="led heard"></span><span class="txt">Conversa<small>Some em 12 s</small></span><button class="btn primary" type="button"><span class="dot"></span>Gravar</button></div></div>
+      <p>Não rouba o foco do app da chamada. Fechar no X equivale a "Agora não".</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led live"></span>Gravando</div>
+      <div class="st-view"><div class="float pill rec-state live"><span class="led live"></span><span class="mono" style="font-size:12.5px">00:12:48</span><button class="icon-btn" type="button" aria-label="Pausar"><svg class="i"><use href="#i-pause"/></svg></button><button class="icon-btn" type="button" aria-label="Abrir mini janela"><svg class="i"><use href="#i-open"/></svg></button><button class="rec" type="button" aria-label="Parar gravação"><span class="s"></span></button></div></div>
+      <p>Encolhe para 190 px. Passar o mouse mostra "Abrir mini janela" para ver a transcrição.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Pausado</div>
+      <div class="st-view"><div class="float pill rec-state"><span class="state">Pausado</span><span class="mono" style="font-size:12.5px;color:var(--muted)">00:12:48</span><button class="rec" type="button" aria-label="Continuar gravação" style="color:#fff"><svg class="i" style="width:13px;height:13px"><use href="#i-play"/></svg></button></div></div>
+      <p>O tempo fica parado e cinza. O botão laranja volta a gravar.</p>
+    </div>
+  </div>
+
+  <div class="eval">
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-plus"/></svg></span>A favor</h3><ul>
+      <li class="pro">É o menor elemento possível na tela. Não atrapalha a chamada.</li>
+      <li class="pro">Reaproveita a detecção que já existe e a mini janela atual.</li>
+      <li class="pro">Uma ação só por estado. Nada de fileira de botões.</li>
+    </ul></div>
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-minus"/></svg></span>Contra</h3><ul>
+      <li class="con">Some em 20 s. Quem estava longe do micro perde o convite (a bandeja continua avisando).</li>
+      <li class="con">Posição fixa perto do relógio. Não dá para arrastar.</li>
+      <li class="con">Marcar momento exige abrir a mini janela.</li>
+    </ul></div>
+    <div class="card privacy"><h3><span class="circ"><svg class="i"><use href="#i-shield"/></svg></span>Privacidade</h3><p style="margin-top:8px">Com só o sinal do Windows, o DroidNote não abre o microfone e nada muda na bandeja. Com "Detectar fala" ligado, o ícone de microfone do Windows fica aceso enquanto o app escuta. Nada é gravado nem salvo antes do clique em Gravar.</p></div>
+  </div>
+</section>
+
+<!-- ===================== OPÇÃO 2 ===================== -->
+<section class="option" id="op2" aria-labelledby="op2-t">
+  <div class="option-head">
+    <div class="num">02</div>
+    <div>
+      <h2 id="op2-t">Mini controle remoto</h2>
+      <p>A mini janela de hoje vira um controle encaixado na borda da tela. Recolhido, é só uma aba fina de 30 px. Aberto, mostra o tempo, o nível do seu microfone e do áudio do computador, e três controles: pausar, parar e marcar. Os quatro marcadores de hoje ficam agrupados atrás de um botão "Marcar".</p>
+    </div>
+    <span class="effort">Esforço <b>M</b></span>
+  </div>
+
+  <div class="stage">
+    <div>
+      <div class="label-row"><span class="eyebrow">Na área de trabalho <em>/</em> gravando</span></div>
+      <div class="desk" role="img" aria-label="Área de trabalho com o controle remoto do DroidNote encaixado na borda direita, gravando">
+        <div class="app-win">Chamada em andamento<div class="call"><span></span><span></span><span></span><span></span></div></div>
+        <div class="float remote live pos-edge-r">
+          <div class="remote-head"><span class="led live"></span><span class="state live">Gravando</span><span class="clk">00:12:48</span><button class="icon-btn" type="button" aria-label="Recolher na borda"><svg class="i"><use href="#i-chev"/></svg></button></div>
+          <div class="remote-body">
+            <div class="meter" aria-label="Nível de áudio">
+              <span>VOCÊ</span><div class="bars mic"><span class="on" style="height:30%"></span><span class="on" style="height:55%"></span><span class="on" style="height:80%"></span><span class="on" style="height:60%"></span><span class="on" style="height:90%"></span><span class="on" style="height:45%"></span><span class="on" style="height:70%"></span><span style="height:35%"></span><span style="height:20%"></span><span style="height:40%"></span><span style="height:25%"></span><span style="height:15%"></span></div>
+              <span>SALA</span><div class="bars sys"><span class="on" style="height:40%"></span><span class="on" style="height:65%"></span><span class="on" style="height:50%"></span><span class="on" style="height:75%"></span><span style="height:30%"></span><span style="height:45%"></span><span style="height:20%"></span><span style="height:30%"></span><span style="height:15%"></span><span style="height:25%"></span><span style="height:12%"></span><span style="height:10%"></span></div>
+            </div>
+            <div class="ctrl">
+              <button class="icon-btn" type="button" aria-label="Pausar" style="border:1px solid var(--line-strong);width:32px;height:32px"><svg class="i"><use href="#i-pause"/></svg></button>
+              <button class="btn" type="button"><svg class="i"><use href="#i-flag"/></svg>Marcar</button>
+              <button class="rec" type="button" aria-label="Parar gravação"><span class="s"></span></button>
+            </div>
+            <div class="mark-menu" aria-label="Marcar como"><span class="chip">Decisão</span><span class="chip">Tarefa</span><span class="chip">Importante</span><span class="chip">Pergunta</span></div>
+          </div>
+        </div>
+        <div class="taskbar"><i></i><i></i><i></i><i></i><i></i>
+          <div class="tray"><span class="ico win-mic"><svg class="i" style="width:13px;height:13px"><use href="#i-mic"/></svg></span><span class="tray-dn on"></span><span class="clock">14:15<br>19/11/2026</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card settings">
+      <div class="settings-top"><span class="eyebrow">Configurações <em>/</em> Reuniões</span><h3>Não perder reuniões</h3></div>
+      <div class="settings-body">
+        <span class="group-title">Ao ligar o computador</span>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Iniciar com o Windows</strong><small>O DroidNote abre sozinho quando você entra no Windows.</small></span></label>
+        <label class="check sub"><input type="checkbox" checked><span class="box"></span><span><strong>Abrir minimizado na bandeja</strong><small>O controle fica recolhido na borda até a conversa começar.</small></span></label>
+        <span class="group-title">Controle remoto</span>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Manter o controle na borda da tela</strong><small>Substitui a opção "Abrir a mini janela ao gravar".</small></span></label>
+        <div class="seg-row"><span>Lado</span><div class="segmented" role="group" aria-label="Lado da tela"><button type="button">Esquerda</button><button type="button" class="on">Direita</button></div></div>
+        <span class="group-title">Quando uma conversa começar</span>
+        <label class="check"><input type="checkbox"><span class="box"></span><span><strong>Detectar fala no microfone<span class="tip" title="Serve para reunião presencial, quando nenhum app usa o microfone.">?</span></strong><small>Escuta o microfone mesmo sem app de reunião. O Windows mostra o microfone em uso.</small></span></label>
+        <div class="seg-row"><span>Sensibilidade</span><div class="segmented" role="group" aria-label="Sensibilidade"><button type="button">Baixa</button><button type="button" class="on">Média</button><button type="button">Alta</button></div></div>
+        <label class="check sub"><input type="checkbox" checked><span class="box"></span><span><strong>Só quando um app de reunião estiver aberto</strong><small>Teams, Zoom, Slack, WhatsApp ou o navegador.</small></span></label>
+        <p class="hint"><b>Nada é salvo antes do clique em Gravar.</b> O nível mostrado na aba antes de gravar não fica guardado em lugar nenhum.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="states" role="list" aria-label="Estados do controle remoto">
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led"></span>Parado</div>
+      <div class="st-view" style="place-items:center end;padding-right:0"><div class="float dock-tab" style="position:relative"><span class="led"></span><span class="vt">DROIDNOTE</span></div></div>
+      <p>Aba de 30 px na borda, quase transparente. Clique abre o controle.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Fala detectada</div>
+      <div class="st-view" style="place-items:center end;padding-right:0"><div class="float remote live" style="width:210px;border-radius:var(--r-lg) 0 0 var(--r-lg);border-right:0"><div class="remote-head"><span class="led heard"></span><span class="state">Conversa no Zoom</span></div><div class="remote-body" style="padding:10px"><button class="btn primary" type="button" style="width:100%"><span class="dot"></span>Gravar</button></div></div></div>
+      <p>A aba desliza para fora com um botão só. Volta para a borda em 20 s.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led live"></span>Gravando</div>
+      <div class="st-view" style="place-items:center end;padding-right:0"><div class="float dock-tab live" style="position:relative"><span class="led live"></span><span class="vt mono">12:48</span></div></div>
+      <p>Recolhido, mostra só o tempo. Aberto, fica como no quadro grande.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Pausado</div>
+      <div class="st-view"><div class="float remote" style="width:210px"><div class="remote-head"><span class="led heard"></span><span class="state">Pausado</span><span class="clk" style="color:var(--muted)">00:12:48</span></div><div class="remote-body" style="padding:10px"><div class="ctrl"><button class="btn primary" type="button"><svg class="i"><use href="#i-play"/></svg>Continuar</button><button class="rec soft" type="button" aria-label="Parar"><span class="s"></span></button></div></div></div></div>
+      <p>Medidores somem. Continuar vira o botão principal.</p>
+    </div>
+  </div>
+
+  <div class="eval">
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-plus"/></svg></span>A favor</h3><ul>
+      <li class="pro">Tudo da reunião num lugar só: tempo, nível, pausa e marcadores.</li>
+      <li class="pro">O medidor mostra na hora se o seu microfone ou o som da chamada caiu.</li>
+      <li class="pro">Evolui a mini janela que já existe, sem criar uma segunda.</li>
+    </ul></div>
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-minus"/></svg></span>Contra</h3><ul>
+      <li class="con">A aba na borda fica sempre visível, mesmo sem reunião.</li>
+      <li class="con">Encaixe na borda precisa tratar vários monitores e a barra de tarefas em outro lado.</li>
+      <li class="con">Perde a transcrição ao vivo e as perguntas da mini janela atual, ou precisa de um terceiro estado.</li>
+    </ul></div>
+    <div class="card privacy"><h3><span class="circ"><svg class="i"><use href="#i-shield"/></svg></span>Privacidade</h3><p style="margin-top:8px">O medidor só se mexe durante a gravação. Com "Detectar fala" ligado, o ícone de microfone do Windows fica aceso enquanto o app escuta, e a aba não mostra nível para não parecer que já está gravando. Nada é salvo antes do clique em Gravar.</p></div>
+  </div>
+</section>
+
+<!-- ===================== OPÇÃO 3 ===================== -->
+<section class="option" id="op3" aria-labelledby="op3-t">
+  <div class="option-head">
+    <div class="num">03</div>
+    <div>
+      <h2 id="op3-t">Aviso de reunião e bolha</h2>
+      <p>Primeiro vem um aviso no canto, no formato das notificações do Windows, desenhado pelo próprio DroidNote: "Parece que uma conversa começou. Gravar?". Ao aceitar, o aviso some e fica uma bolha redonda que você arrasta para onde quiser. Passar o mouse abre pausa e parar.</p>
+    </div>
+    <span class="effort">Esforço <b>M</b></span>
+  </div>
+
+  <div class="stage">
+    <div>
+      <div class="label-row"><span class="eyebrow">Na área de trabalho <em>/</em> fala detectada, depois gravando</span></div>
+      <div class="desk" role="img" aria-label="Área de trabalho com o aviso do DroidNote no canto inferior direito e a bolha de gravação no canto superior">
+        <div class="app-win">Chamada em andamento<div class="call"><span></span><span></span><span></span><span></span></div></div>
+        <div class="float bubble live pos-bubble" style="background:var(--accent);border:0"><span class="ring" aria-hidden="true"></span><span class="core"><span class="d" style="display:block;width:12px;height:12px;border-radius:50%;background:#fff"></span></span><span class="clk">12:48</span></div>
+        <div class="float toast pos-toast">
+          <span class="app" aria-hidden="true"></span>
+          <div><div class="meta">DroidNote · agora</div><div class="body">Parece que uma conversa começou. Gravar?</div>
+            <div class="acts"><button class="btn primary" type="button"><span class="dot"></span>Gravar</button><button class="btn" type="button">Agora não</button></div></div>
+          <button class="icon-btn" type="button" aria-label="Fechar aviso"><svg class="i"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="taskbar"><i></i><i></i><i></i><i></i><i></i>
+          <div class="tray"><span class="ico win-mic"><svg class="i" style="width:13px;height:13px"><use href="#i-mic"/></svg></span><span class="tray-dn"></span><span class="clock">14:02<br>19/11/2026</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card settings">
+      <div class="settings-top"><span class="eyebrow">Configurações <em>/</em> Reuniões</span><h3>Não perder reuniões</h3></div>
+      <div class="settings-body">
+        <span class="group-title">Ao ligar o computador</span>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Iniciar com o Windows</strong><small>O DroidNote abre sozinho quando você entra no Windows.</small></span></label>
+        <label class="check sub"><input type="checkbox" checked><span class="box"></span><span><strong>Abrir minimizado na bandeja</strong><small>Fica perto do relógio, sem abrir janela.</small></span></label>
+        <span class="group-title">Quando uma conversa começar</span>
+        <div class="seg-row" style="margin-left:0"><span>Ao perceber uma conversa</span><div class="segmented" role="group" aria-label="Ao perceber uma conversa"><button type="button">Não fazer nada</button><button type="button" class="on">Perguntar</button><button type="button">Gravar</button></div></div>
+        <label class="check"><input type="checkbox" checked><span class="box"></span><span><strong>Mostrar bolha enquanto grava</strong><small>Arraste para qualquer canto. A posição fica guardada neste PC.</small></span></label>
+        <label class="check"><input type="checkbox"><span class="box"></span><span><strong>Detectar fala no microfone<span class="tip" title="Serve para reunião presencial, quando nenhum app usa o microfone.">?</span></strong><small>Escuta o microfone mesmo sem app de reunião. O Windows mostra o microfone em uso.</small></span></label>
+        <div class="seg-row"><span>Sensibilidade</span><div class="segmented" role="group" aria-label="Sensibilidade"><button type="button">Baixa</button><button type="button" class="on">Média</button><button type="button">Alta</button></div></div>
+        <label class="check sub"><input type="checkbox" checked><span class="box"></span><span><strong>Só quando um app de reunião estiver aberto</strong><small>Teams, Zoom, Slack, WhatsApp ou o navegador.</small></span></label>
+        <p class="hint"><b>Nada é salvo antes do clique em Gravar.</b> "Perguntar" e "Gravar" já existem hoje como Perguntar e Automático. Só mudam de lugar e de nome.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="states" role="list" aria-label="Estados do aviso e da bolha">
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led"></span>Parado</div>
+      <div class="st-view"><span class="empty-note">Nada na tela.<br>Ícone da bandeja em cinza.</span></div>
+      <p>Igual à opção 1. O app espera na bandeja.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Fala detectada</div>
+      <div class="st-view"><div class="float toast" style="width:100%;padding:10px;grid-template-columns:auto 1fr"><span class="app"></span><div><div class="body" style="margin:0;font-size:12px">Parece que uma conversa começou. Gravar?</div><div class="acts" style="margin-top:8px"><button class="btn primary" type="button" style="height:26px">Gravar</button><button class="btn" type="button" style="height:26px">Agora não</button></div></div></div></div>
+      <p>Fica 20 s. Sem resposta, vira um ponto laranja no ícone da bandeja.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led live"></span>Gravando</div>
+      <div class="st-view"><div class="float bubble-x live"><span class="core"><span class="d"></span></span><span class="mono" style="font-size:12px">12:48</span><button class="icon-btn" type="button" aria-label="Pausar"><svg class="i"><use href="#i-pause"/></svg></button><button class="icon-btn" type="button" aria-label="Parar"><svg class="i"><use href="#i-x"/></svg></button></div></div>
+      <p>Bolha de 60 px. Com o mouse em cima, abre tempo, pausar e parar.</p>
+    </div>
+    <div class="st" role="listitem">
+      <div class="st-name"><span class="led heard"></span>Pausado</div>
+      <div class="st-view"><div class="float bubble-x"><span class="core paused" style="color:var(--text)"><svg class="i"><use href="#i-pause"/></svg></span><span class="state">Pausado</span><button class="icon-btn" type="button" aria-label="Continuar"><svg class="i"><use href="#i-play"/></svg></button></div></div>
+      <p>A bolha fica cinza com o símbolo de pausa. Clique nela continua.</p>
+    </div>
+  </div>
+
+  <div class="eval">
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-plus"/></svg></span>A favor</h3><ul>
+      <li class="pro">O aviso fala em frase completa. Quem nunca viu o recurso entende na hora.</li>
+      <li class="pro">A bolha vai para onde atrapalha menos, inclusive em outro monitor.</li>
+      <li class="pro">Junta "detectar reunião" e "o que fazer" num só controle de três posições.</li>
+    </ul></div>
+    <div class="card"><h3><span class="circ"><svg class="i"><use href="#i-minus"/></svg></span>Contra</h3><ul>
+      <li class="con">Duas janelas novas (aviso e bolha), além da mini que já existe.</li>
+      <li class="con">Parece notificação do Windows, mas não é. O "Não perturbe" do Windows não esconde o aviso.</li>
+      <li class="con">Arrastar uma bolha sem borda pede cuidado com clique e arraste no Tauri.</li>
+    </ul></div>
+    <div class="card privacy"><h3><span class="circ"><svg class="i"><use href="#i-shield"/></svg></span>Privacidade</h3><p style="margin-top:8px">O aviso diz "parece", porque o app não sabe de quem é a voz. Com "Detectar fala" ligado, o ícone de microfone do Windows fica aceso enquanto o app escuta. Nada é gravado nem salvo antes do clique em Gravar.</p></div>
+  </div>
+</section>
+
+<section class="reco" id="reco" aria-labelledby="reco-t">
+  <div>
+    <span class="eyebrow">Recomendação</span>
+    <h2 id="reco-t" style="margin-top:8px">Pílula para chamar, mini janela atual para acompanhar</h2>
+    <p style="margin-top:12px">A opção 1 resolve o problema real com o menor custo: hoje o aviso de reunião só aparece dentro da janela principal, e quem está com ela minimizada não vê. A pílula usa a detecção que já existe, não abre o microfone e não cria um segundo painel de controle, porque a mini janela já faz esse papel durante a gravação.</p>
+  </div>
+  <div>
+    <ol>
+      <li>Primeiro: iniciar com o Windows, abrir na bandeja e fechar a janela para a bandeja. Sem isso, nenhuma das três opções funciona.</li>
+      <li>Depois: a pílula com o sinal do Windows. Sem microfone aberto, sem nova revisão de privacidade.</li>
+      <li>Por último, se você quiser pegar reunião presencial: "Detectar fala", desligado por padrão, com revisão do jurídico antes.</li>
+      <li>O medidor de nível da opção 2 pode entrar depois na mini janela atual, sem trocar o formato.</li>
+    </ol>
+  </div>
+</section>
+
+<footer>Maquete estática. Cores, fontes, raios e espaçamentos vêm de desktop/src/shared/styles/tokens.css. Textos são o texto final proposto para a interface.</footer>
+</div>
+</body>
+</html>

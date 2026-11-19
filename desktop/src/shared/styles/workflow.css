@@ -277,11 +277,12 @@
 
 /* ------------------------------------------------------------ mini console */
 
+/* A janela mini é transparente: só a bolha, o cartão ou o painel aparecem. */
 html.is-mini,
 html.is-mini body,
 html.is-mini #root {
   height: 100%;
-  background: var(--bg-deep);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -318,6 +319,18 @@ html.is-mini #root {
 
 .mini.is-live .mini-state {
   color: var(--accent-hi);
+}
+
+.bubble-panel .mini-state {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.bubble-panel:not(.is-live) .mini-state {
+  color: var(--text);
 }
 
 .mini.is-live .state-led {
@@ -438,6 +451,235 @@ html.is-mini #root {
 .mini-rec .reactor-stop {
   width: 10px;
   height: 10px;
+}
+
+/* ------------------------------------------------------------ bolha */
+
+.meeting-banner.is-ask {
+  border-color: rgba(185, 115, 0, 0.5);
+  background: linear-gradient(90deg, var(--warn-soft), transparent 70%), var(--surface);
+  box-shadow: none;
+}
+
+.meeting-banner.is-ask .meeting-banner-icon {
+  background: #fbbf24;
+  color: #1b1300;
+}
+
+/* Preso no canto inferior direito; a janela mede esta caixa e cresce a partir dali.
+   O padding de 12px cabe o anel de nível e o pulso âmbar. */
+.bubble-box {
+  --amber: #fbbf24;
+  --amber-ink: #1b1300;
+  --amber-line: rgba(185, 115, 0, 0.5);
+  --amber-soft: rgba(245, 180, 0, 0.14);
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: max-content;
+  padding: 12px;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.bubble-slot {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.bubble {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.bubble:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.bubble-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.bubble.is-idle {
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.45);
+}
+
+.bubble.is-idle .bubble-dot {
+  width: 9px;
+  height: 9px;
+}
+
+.bubble.is-rec {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 10px 24px -12px rgba(255, 68, 0, 0.7);
+}
+
+/* Anel fino que segue o nível do áudio (evento monitor). */
+.bubble.is-rec::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: calc(0.35 + var(--level, 0) * 0.5);
+  transform: scale(calc(1 + var(--level, 0) * 0.14));
+  transition: transform 120ms linear, opacity 120ms linear;
+  pointer-events: none;
+}
+
+.bubble.is-ask {
+  background: var(--amber);
+  color: var(--amber-ink);
+  animation: bubble-ask 2s ease-out infinite;
+}
+
+.bubble-q {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.bubble-chip {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bubble-card {
+  display: grid;
+  gap: 12px;
+  width: 288px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.4);
+  transform-origin: bottom right;
+  animation: bubble-grow 200ms var(--ease);
+}
+
+.bubble-card.is-ask {
+  border-color: var(--amber-line);
+  background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface);
+}
+
+.bubble-card strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.bubble-card p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
+.bubble-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bubble-card-top .mini-icon {
+  margin: -6px -6px 0 0;
+}
+
+.bubble-card-acts {
+  display: grid;
+  gap: 8px;
+}
+
+.bubble-card-acts.is-two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.bubble-panel {
+  width: 320px;
+  height: 420px;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  transform-origin: bottom right;
+  animation: bubble-grow 220ms var(--ease);
+}
+
+.bubble-mark {
+  display: grid;
+  gap: 6px;
+  padding: 6px 10px 0 12px;
+}
+
+.bubble-mark-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bubble-mark-done {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble-panel .mini-markers {
+  padding: 0;
+}
+
+@keyframes bubble-grow {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+@keyframes bubble-ask {
+  0% {
+    box-shadow: 0 0 0 0 var(--amber-line);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.is-ask,
+  .bubble-card,
+  .bubble-panel {
+    animation: none;
+  }
+
+  .bubble.is-rec::before {
+    transform: none;
+    transition: none;
+  }
 }
 
 @media (max-width: 860px) {

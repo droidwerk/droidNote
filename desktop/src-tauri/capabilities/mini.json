@@ -1,0 +1,12 @@
+{
+  "identifier": "mini",
+  "description": "Meeting bubble only: resize, move and toggle focus of its own window",
+  "windows": [
+    "mini"
+  ],
+  "permissions": [
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-focusable"
+  ]
+}
