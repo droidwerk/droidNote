@@ -1079,6 +1079,8 @@ export const es: Messages = {
     title: "Próximas reuniones",
     next36: "próximas 36 h",
     refresh: "Actualizar",
+    collapse: "Contraer próximas reuniones",
+    expand: "Mostrar próximas reuniones",
     connectTitle: "Conectar calendario",
     connectHint: "Mira lo que quedó pendiente antes de cada reunión. Solo lectura, sin iniciar sesión.",
     today: "Hoy",

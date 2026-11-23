@@ -4,6 +4,7 @@ import { api } from "../../shared/api/client";
 import type { CalendarEvent, Upcoming } from "../../shared/api/types";
 import { useI18n } from "../../shared/i18n";
 import { bcp47 } from "../../shared/i18n/locales";
+import { useFlag } from "../../shared/lib/useFlag";
 import { Icon } from "../../shared/ui/Icon";
 import { BriefCard } from "./BriefCard";
 
@@ -23,6 +24,7 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
   const [data, setData] = useState<Upcoming | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [later, setLater] = useState<CalendarEvent | null>(null);
+  const [folded, toggleFolded] = useFlag("droidnote.upcomingCollapsed");
 
   const load = useCallback(async () => {
     try {
@@ -85,7 +87,7 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
   };
 
   return (
-    <section data-tour="upcoming" className="upcoming panel">
+    <section data-tour="upcoming" className={folded ? "upcoming panel is-folded" : "upcoming panel"}>
       <div className="panel-head">
         <div className="panel-title">
           <span className="eyebrow">
@@ -94,10 +96,26 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
           <h2>{t("calendar.title")}</h2>
           {data.events.length ? <span className="panel-meta">{t("calendar.next36")}</span> : null}
         </div>
-        <button type="button" className="tool-btn" onClick={() => void load()} title={t("calendar.refresh")}>
-          <Icon name="refresh" size={14} />
-        </button>
+        <div className="panel-actions">
+          {folded ? null : (
+            <button type="button" className="tool-btn" onClick={() => void load()} title={t("calendar.refresh")}>
+              <Icon name="refresh" size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="tool-btn"
+            onClick={toggleFolded}
+            title={folded ? t("calendar.expand") : t("calendar.collapse")}
+            aria-label={folded ? t("calendar.expand") : t("calendar.collapse")}
+            aria-expanded={!folded}
+          >
+            <Icon name={folded ? "expand" : "collapse"} size={14} />
+          </button>
+        </div>
       </div>
+      {folded ? null : (
+        <>
       {data.error ? <p className="upcoming-note">{t("calendar.error", { reason: t(`calendar.err_${errorKey(data.error)}`) })}</p> : null}
       {quiet ? (
         <p className="upcoming-note">
@@ -158,6 +176,8 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
           );
         })}
       </ol>
+        </>
+      )}
     </section>
   );
 }

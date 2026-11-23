@@ -1079,6 +1079,8 @@ export const de: Messages = {
     title: "Nächste Meetings",
     next36: "nächste 36 h",
     refresh: "Aktualisieren",
+    collapse: "Nächste Besprechungen einklappen",
+    expand: "Nächste Besprechungen anzeigen",
     connectTitle: "Kalender verbinden",
     connectHint: "Sieh vor jedem Meeting, was noch offen ist. Nur lesen, ohne Anmeldung.",
     today: "Heute",

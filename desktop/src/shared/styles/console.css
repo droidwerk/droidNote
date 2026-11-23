@@ -1572,3 +1572,13 @@ button.speaker-chip:hover {
 .page-actions-delete {
   margin-left: 12px;
 }
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.upcoming.is-folded .panel-head {
+  border-bottom: 0;
+}

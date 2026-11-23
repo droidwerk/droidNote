@@ -1079,6 +1079,8 @@ export const en: Messages = {
     title: "Upcoming meetings",
     next36: "next 36 h",
     refresh: "Refresh",
+    collapse: "Collapse upcoming meetings",
+    expand: "Show upcoming meetings",
     connectTitle: "Connect a calendar",
     connectHint: "See what's still pending before each meeting. Read-only, no sign-in.",
     today: "Today",

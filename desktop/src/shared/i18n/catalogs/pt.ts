@@ -1081,6 +1081,8 @@ export const pt = {
     title: "Próximas reuniões",
     next36: "próximas 36 h",
     refresh: "Atualizar",
+    collapse: "Recolher próximas reuniões",
+    expand: "Mostrar próximas reuniões",
     connectTitle: "Conectar calendário",
     connectHint: "Veja o que ficou pendente antes de cada reunião. Só leitura, sem login.",
     today: "Hoje",

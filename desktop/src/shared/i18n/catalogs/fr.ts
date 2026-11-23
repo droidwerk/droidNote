@@ -1079,6 +1079,8 @@ export const fr: Messages = {
     title: "Prochaines réunions",
     next36: "36 prochaines h",
     refresh: "Actualiser",
+    collapse: "Replier les prochaines réunions",
+    expand: "Afficher les prochaines réunions",
     connectTitle: "Connecter un agenda",
     connectHint: "Voyez ce qui reste en attente avant chaque réunion. Lecture seule, sans connexion.",
     today: "Aujourd'hui",
