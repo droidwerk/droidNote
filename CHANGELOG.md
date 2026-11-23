@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.4.2] — 2026-11-23
+
 ### Added
 - "Upcoming meetings" on the home screen can now be collapsed with the arrow in its corner, and it stays collapsed the next time you open DroidNote.
 - When nothing is scheduled in the next 36 hours, "Upcoming meetings" now shows when your next meeting is.
@@ -232,7 +234,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/droidwerk/droidNote/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/droidwerk/droidNote/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/droidwerk/droidNote/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/droidwerk/droidNote/compare/v2.3.1...v2.3.2
