@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-11-23
+
 ### Fixed
 - First-time setup now resumes by itself: if DroidNote closes while it is downloading the transcription or note models, it picks up again the next time you open it.
 - "Is the meeting still going on?" now also appears when only music is playing on the computer. Before, a song with vocals counted as speech and the question never came.
@@ -222,7 +224,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/droidwerk/droidNote/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/droidwerk/droidNote/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/droidwerk/droidNote/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/droidwerk/droidNote/compare/v2.3.0...v2.3.1
