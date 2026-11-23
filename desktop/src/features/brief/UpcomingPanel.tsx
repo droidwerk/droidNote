@@ -96,7 +96,7 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
           <h2>{t("calendar.title")}</h2>
           {data.events.length ? <span className="panel-meta">{t("calendar.next36")}</span> : null}
         </div>
-        <div className="panel-actions">
+        <div className="summary-actions">
           {folded ? null : (
             <button type="button" className="tool-btn" onClick={() => void load()} title={t("calendar.refresh")}>
               <Icon name="refresh" size={14} />
@@ -104,79 +104,80 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
           )}
           <button
             type="button"
-            className="tool-btn"
+            className="tool-btn panel-fold"
             onClick={toggleFolded}
             title={folded ? t("calendar.expand") : t("calendar.collapse")}
             aria-label={folded ? t("calendar.expand") : t("calendar.collapse")}
             aria-expanded={!folded}
+            aria-controls="upcoming-body"
           >
             <Icon name={folded ? "expand" : "collapse"} size={14} />
           </button>
         </div>
       </div>
       {folded ? null : (
-        <>
-      {data.error ? <p className="upcoming-note">{t("calendar.error", { reason: t(`calendar.err_${errorKey(data.error)}`) })}</p> : null}
-      {quiet ? (
-        <p className="upcoming-note">
-          {t("calendar.empty")}
-          {later ? (
-            <>
-              <br />
-              {t("calendar.nextLater", { when: `${day(later.start)}, ${time(later.start)}`, title: later.title || t("calendar.untitled") })}
-            </>
-          ) : null}
-        </p>
-      ) : null}
-      <ol className="upcoming-list">
-        {data.events.map((event) => {
-          const key = `${event.uid}-${event.start}`;
-          const expanded = open === key;
-          const now = Date.now();
-          const live = Date.parse(event.start) <= now && Date.parse(event.end) > now;
-          const related = event.brief.related.length;
-          return (
-            <li key={key} className={expanded ? "upcoming-item is-open" : "upcoming-item"}>
-              <div className="upcoming-row">
-                <button
-                  type="button"
-                  className="upcoming-main"
-                  aria-expanded={expanded}
-                  onClick={() => setOpen(expanded ? null : key)}
-                >
-                  <span className="upcoming-when">
-                    <small>{live ? t("calendar.now") : day(event.start)}</small>
-                    <strong>{time(event.start)}</strong>
-                  </span>
-                  <span className="upcoming-copy">
-                    <strong>{event.title || t("calendar.untitled")}</strong>
-                    <small>
-                      {event.attendees.length ? t("calendar.people", { count: event.attendees.length }) : t("calendar.noPeople")}
-                      {related ? ` · ${t("calendar.related", { count: related })}` : ""}
-                      {event.brief.pending.length ? ` · ${t("calendar.pendingCount", { count: event.brief.pending.length })}` : ""}
-                    </small>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="button button-ghost button-sm"
-                  disabled={disabled}
-                  onClick={() => onRecord(event)}
-                >
-                  <span className="dot" />
-                  {t("calendar.record")}
-                </button>
-              </div>
-              {expanded ? (
-                <div className="upcoming-brief">
-                  <BriefCard brief={event.brief} compact onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} />
+        <div id="upcoming-body">
+        {data.error ? <p className="upcoming-note">{t("calendar.error", { reason: t(`calendar.err_${errorKey(data.error)}`) })}</p> : null}
+        {quiet ? (
+          <p className="upcoming-note">
+            {t("calendar.empty")}
+            {later ? (
+              <>
+                <br />
+                {t("calendar.nextLater", { when: `${day(later.start)}, ${time(later.start)}`, title: later.title || t("calendar.untitled") })}
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        <ol className="upcoming-list">
+          {data.events.map((event) => {
+            const key = `${event.uid}-${event.start}`;
+            const expanded = open === key;
+            const now = Date.now();
+            const live = Date.parse(event.start) <= now && Date.parse(event.end) > now;
+            const related = event.brief.related.length;
+            return (
+              <li key={key} className={expanded ? "upcoming-item is-open" : "upcoming-item"}>
+                <div className="upcoming-row">
+                  <button
+                    type="button"
+                    className="upcoming-main"
+                    aria-expanded={expanded}
+                    onClick={() => setOpen(expanded ? null : key)}
+                  >
+                    <span className="upcoming-when">
+                      <small>{live ? t("calendar.now") : day(event.start)}</small>
+                      <strong>{time(event.start)}</strong>
+                    </span>
+                    <span className="upcoming-copy">
+                      <strong>{event.title || t("calendar.untitled")}</strong>
+                      <small>
+                        {event.attendees.length ? t("calendar.people", { count: event.attendees.length }) : t("calendar.noPeople")}
+                        {related ? ` · ${t("calendar.related", { count: related })}` : ""}
+                        {event.brief.pending.length ? ` · ${t("calendar.pendingCount", { count: event.brief.pending.length })}` : ""}
+                      </small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-ghost button-sm"
+                    disabled={disabled}
+                    onClick={() => onRecord(event)}
+                  >
+                    <span className="dot" />
+                    {t("calendar.record")}
+                  </button>
                 </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
-        </>
+                {expanded ? (
+                  <div className="upcoming-brief">
+                    <BriefCard brief={event.brief} compact onOpenSession={onOpenSession} onTasksChanged={onTasksChanged} />
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+        </div>
       )}
     </section>
   );

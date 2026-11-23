@@ -631,3 +631,13 @@
     padding-left: 18px;
   }
 }
+
+.upcoming.is-folded .panel-head {
+  border-bottom: 0;
+}
+
+/* The fold chevron is a disclosure, not a menu: only hover highlights it. */
+.tool-btn.panel-fold[aria-expanded="true"]:not(:hover) {
+  border-color: var(--line);
+  color: var(--text-soft);
+}
