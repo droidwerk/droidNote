@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CommandPalette } from "../features/command/CommandPalette";
-import { CaptureAlertBanner, MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
+import { CaptureAlertBanner, MEETING_DETECTION_ENABLED, MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
 import { WelcomeModal, WhatsNewModal } from "../features/onboarding/Onboarding";
 import { Tour, type TourStart } from "../features/onboarding/Tour";
@@ -483,7 +483,7 @@ export function App() {
         if (event.type === "speakers") {
           setSpeakersBusy(event.status === "start");
         }
-        if (event.type === "meeting") {
+        if (MEETING_DETECTION_ENABLED && event.type === "meeting") {
           const app = typeof event.app === "string" ? event.app : "";
           if (event.status === "detected" || event.status === "auto-started") {
             setMeetingNotice({ status: event.status, app, browser: Boolean(event.browser) });
@@ -852,7 +852,7 @@ export function App() {
           onOpenPalette={() => setPaletteOpen(true)}
         />
         <div className="main-scroll">
-          {meetingNotice ? (
+          {MEETING_DETECTION_ENABLED && meetingNotice ? (
             <MeetingBanner
               notice={meetingNotice}
               recording={capture.recording}

@@ -1,6 +1,10 @@
 import { useT } from "../../shared/i18n";
 import { Icon } from "../../shared/ui/Icon";
 
+/** Detecção de conversa desligada por enquanto (não funcionava): esconde o controle,
+ *  o aviso da janela e o cartão da bolha. Volta a true quando o backend detectar de novo. */
+export const MEETING_DETECTION_ENABLED = false;
+
 export interface MeetingNotice {
   status: "detected" | "ended" | "auto-started";
   app: string;

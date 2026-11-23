@@ -8,6 +8,7 @@ import { clusterToken, voiceName } from "../../shared/lib/voices";
 import { AiThinking } from "../../shared/ui/AiThinking";
 import { Markdown } from "../../shared/ui/Markdown";
 import { Icon, type IconName } from "../../shared/ui/Icon";
+import { MEETING_DETECTION_ENABLED } from "../meeting/MeetingBanner";
 
 interface Line {
   id: string;
@@ -184,7 +185,7 @@ export function MiniConsole() {
   const recording = Boolean(capture?.recording);
   const paused = recording && Boolean(capture?.paused);
   const sessionId = capture?.session_id ?? null;
-  const card = alert ? "alert" : meeting !== null && visible && !recording ? "meeting" : view !== "bubble" && !recording ? "record" : null;
+  const card = alert ? "alert" : MEETING_DETECTION_ENABLED && meeting !== null && visible && !recording ? "meeting" : view !== "bubble" && !recording ? "record" : null;
   const panel = view === "panel" && recording && !alert;
 
   // Cartão de reunião some em 20 s, como o aviso da janela principal; só conta com a bolha à vista.

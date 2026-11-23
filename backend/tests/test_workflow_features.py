@@ -89,6 +89,18 @@ async def _drain(queue) -> list[dict]:
 
 
 @pytest.mark.asyncio
+async def test_meeting_detection_switch_keeps_watcher_off(monkeypatch) -> None:
+    from app.application import meetings
+
+    watcher = _watcher(_Capture(), _Clock(), EventBus())
+    assert watcher.available() is False
+    watcher.start()
+    assert watcher._task is None
+    monkeypatch.setattr(meetings, "MEETING_DETECTION_ENABLED", True)
+    assert watcher.available() is True
+
+
+@pytest.mark.asyncio
 async def test_ask_mode_announces_after_debounce_and_ends() -> None:
     bus, clock, capture = EventBus(), _Clock(), _Capture()
     queue = await bus.subscribe()

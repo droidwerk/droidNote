@@ -11,6 +11,14 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Fixed
+- First-time setup now resumes by itself: if DroidNote closes while it is downloading the transcription or note models, it picks up again the next time you open it.
+- "Is the meeting still going on?" now also appears when only music is playing on the computer. Before, a song with vocals counted as speech and the question never came.
+- Start with Windows now opens the DroidNote window instead of keeping it hidden in the tray.
+
+### Removed
+- "When a conversation starts: Ask / Record / Nothing" is turned off for now, together with the "A conversation started. Record?" card, because it did not work reliably.
+
 ## [2.4.0] — 2026-11-19
 
 ### Added

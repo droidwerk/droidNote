@@ -191,6 +191,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await container.setup.apply_unattended()
         except Exception:
             log.exception("unattended setup failed")
+        try:
+            await container.setup.resume_bootstrap()
+        except Exception:
+            log.exception("setup bootstrap resume failed")
 
         async def _retention_loop() -> None:
             # Primeira passada logo depois de abrir; depois a cada 6 horas.

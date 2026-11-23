@@ -3,6 +3,7 @@ import { useEffect, useId, useState } from "react";
 import { useI18n } from "../../shared/i18n";
 import { openExternal } from "../../shared/lib/openExternal";
 import { RELEASES_PAGE, siteUrl, whatsNewFor } from "../../shared/lib/whatsNew";
+import { MEETING_DETECTION_ENABLED } from "../meeting/MeetingBanner";
 import { Icon, type IconName } from "../../shared/ui/Icon";
 import { Modal } from "../../shared/ui/Modal";
 import { Button } from "../../shared/ui/primitives";
@@ -141,7 +142,7 @@ export function WhatsNewModal({ version, onClose }: { version: string; onClose: 
         <h2 id={titleId}>{t("whatsNew.title", { version })}</h2>
       </div>
       <ul className="whats-new-list">
-        {whatsNewFor(version).map((id) => (
+        {whatsNewFor(version).filter((id) => MEETING_DETECTION_ENABLED || id !== "detectAsk").map((id) => (
           <li key={id}>{t(`whatsNew.items.${id}`)}</li>
         ))}
       </ul>

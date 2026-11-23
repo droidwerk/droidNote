@@ -517,12 +517,9 @@ pub fn run() {
                 })
                 .build(app)?;
             create_bubble(app)?;
-            // A janela principal nasce oculta (tauri.conf.json): sem flash no --autostart.
-            if std::env::args().any(|arg| arg == AUTOSTART_ARG) {
-                set_main_state(app.handle(), "hidden");
-            } else {
-                focus_main_window(app.handle());
-            }
+            // A janela nasce oculta (tauri.conf.json) e aparece aqui, já pronta, sem flash.
+            // Também no --autostart: iniciar com o Windows abre o app, não só a bandeja.
+            focus_main_window(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

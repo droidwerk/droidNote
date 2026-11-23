@@ -18,6 +18,7 @@ import { PrivacyLink } from "../shared/ui/PrivacyPolicy";
 import { Icon } from "../shared/ui/Icon";
 import { KeySeal } from "../shared/ui/KeySeal";
 import { CalendarCard, ConsentCard, RetentionCard } from "../features/meeting/MeetingSettings";
+import { MEETING_DETECTION_ENABLED } from "../features/meeting/MeetingBanner";
 import { TemplateManager } from "../features/templates/TemplateManager";
 import { useToast } from "../shared/ui/Toast";
 import { TourButton } from "../features/onboarding/Tour";
@@ -899,7 +900,10 @@ export function SettingsPage({
         {tab === "meetings" ? (
           <>
             <Card className="settings-card settings-card-wide">
-              <h2 className="with-tip">{t("meeting.settingsTitle")}<InfoTip text={t("meeting.settingsHelp")} /></h2>
+              <h2 className="with-tip">
+                {t("meeting.settingsTitle")}
+                {MEETING_DETECTION_ENABLED ? <InfoTip text={t("meeting.settingsHelp")} /> : null}
+              </h2>
               {autostart !== null ? (
                 <label className="check-control">
                   <input
@@ -916,6 +920,8 @@ export function SettingsPage({
                   </span>
                 </label>
               ) : null}
+              {MEETING_DETECTION_ENABLED ? (
+              <>
               <strong id="meeting-conv-legend">{t("mini.convLegend")}</strong>
               <div className="segmented" role="radiogroup" aria-labelledby="meeting-conv-legend">
                 {(["ask", "auto", "off"] as const).map((mode) => (
@@ -934,6 +940,8 @@ export function SettingsPage({
                   </button>
                 ))}
               </div>
+              </>
+              ) : null}
               <label className="check-control">
                 <input
                   type="checkbox"

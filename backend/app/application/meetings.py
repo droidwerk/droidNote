@@ -26,6 +26,10 @@ DEFAULT_MODE = "ask"
 POLL_SECONDS = 2.0
 START_AFTER_S = 3.0
 END_AFTER_S = 6.0
+# Desligado por decisão do CEO (pós-2.4): a detecção não funcionava bem. Com
+# False o watcher nunca sobe (nem pergunta, nem grava sozinho) e o status diz
+# available=False, seja qual for o ajuste salvo. True religa tudo.
+MEETING_DETECTION_ENABLED = False
 
 
 class MicUsageProbe(Protocol):
@@ -72,7 +76,7 @@ class MeetingWatcher:
         self._task: asyncio.Task[None] | None = None
 
     def available(self) -> bool:
-        return self._probe.available()
+        return MEETING_DETECTION_ENABLED and self._probe.available()
 
     def start(self) -> None:
         if not self.available() or self._task is not None:

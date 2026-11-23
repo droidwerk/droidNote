@@ -44,6 +44,15 @@ IDLE_ASK_S = 300.0
 IDLE_CLEAR_MS = 3000.0
 IDLE_AUTO_PAUSE_S = 120.0
 IDLE_TICK_S = 1.0
+# Só fala seguida de 1 s zera o relógio: o Silero marca pedaços de música com
+# voz (e respiros da sala) como fala por ~100 ms, e isso zerava o alerta.
+IDLE_SPEECH_MIN_MS = 1000.0
+# Música: canal do sistema com energia em >= 90% dos últimos ~20 s (média
+# móvel). Conversa tem pausas; música não. A fala desse canal conta como energia.
+# Só o sistema: no microfone, ruído de sala acima do limiar viraria "música" e
+# pausaria uma reunião presencial.
+MUSIC_WINDOW_MS = 20_000.0
+MUSIC_CONTINUITY = 0.9
 
 
 @dataclass
@@ -85,6 +94,7 @@ class CaptureService:
         self._speech_run_ms = 0.0
         self._energy_chunks = 0
         self._total_chunks = 0
+        self._loop_loud_share = 0.0
         self._voices = voices
         self._neural_vad = neural_vad
         self._echo = EchoGate()
@@ -193,6 +203,7 @@ class CaptureService:
         self._agc = AutoGain(enabled=(await self._store.get_setting("auto_gain")) != "0")
         self._mic_vad = StreamingVad()
         self._loop_vad = StreamingVad()
+        self._loop_loud_share = 0.0
         self._now_voice = None
         self._probe_audio = {"mic": deque(), "loopback": deque()}
         self._capture_mode = mode
@@ -395,15 +406,17 @@ class CaptureService:
         passar a decidir algo irreversível sem o idle_tick.
         """
         if speech:
-            now = self._clock()
-            self._last_speech_at = now
             self._speech_run_ms += chunk_ms
-            if self._speech_run_ms >= IDLE_CLEAR_MS:
-                self._long_speech_at = now
-            self._energy_chunks = 0
-            self._total_chunks = 0
-            return
-        self._speech_run_ms = 0.0
+            if self._speech_run_ms >= IDLE_SPEECH_MIN_MS:
+                now = self._clock()
+                self._last_speech_at = now
+                if self._speech_run_ms >= IDLE_CLEAR_MS:
+                    self._long_speech_at = now
+                self._energy_chunks = 0
+                self._total_chunks = 0
+                return
+        else:
+            self._speech_run_ms = 0.0
         self._total_chunks += 1
         if energy:
             self._energy_chunks += 1
@@ -565,7 +578,13 @@ class CaptureService:
             # microfone antes da transcrição (o WAV continua com tudo).
             mic = self._echo.process(np.asarray(mic, dtype=np.float32), np.asarray(loopback, dtype=np.float32)).tolist()
         # Energia medida antes do AGC: o ganho levanta o ruído da sala acima do limiar.
-        energy = rms_level(mic) >= RMS_THRESHOLD or bool(loopback and rms_level(loopback) >= RMS_THRESHOLD)
+        mic_loud = rms_level(mic) >= RMS_THRESHOLD
+        loop_loud = bool(loopback and rms_level(loopback) >= RMS_THRESHOLD)
+        energy = mic_loud or loop_loud
+        # ponytail: média móvel exponencial em vez de janela exata; um float,
+        # sem deque nem lock (thread de áudio).
+        self._loop_loud_share += (float(loop_loud) - self._loop_loud_share) * min(1.0, chunk_ms / MUSIC_WINDOW_MS)
+        loop_music = self._loop_loud_share >= MUSIC_CONTINUITY
         if self._agc.enabled:
             mic = self._agc.process(np.asarray(mic, dtype=np.float32)).tolist()
         mic_mask = self._mic_vad.mask(mic) if self._neural_vad else None
@@ -582,9 +601,9 @@ class CaptureService:
         else:
             self._channel_level["system"] = 0.0
             self._channel_speech["system"] = False
-        self._track_idle(
-            chunk_ms, self._channel_speech["mic"] or self._channel_speech["system"], energy
-        )
+        # Fala no sistema com música não conta para o alerta (nem para limpá-lo).
+        idle_speech = self._channel_speech["mic"] or (self._channel_speech["system"] and not loop_music)
+        self._track_idle(chunk_ms, idle_speech, energy)
         self._feed_probe("mic", mic)
         if loopback:
             self._feed_probe("loopback", loopback)

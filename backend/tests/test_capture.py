@@ -568,3 +568,132 @@ def _drain(queue: asyncio.Queue) -> list[dict]:
     while not queue.empty():
         out.append(queue.get_nowait())
     return out
+
+
+# --- Alerta de silêncio com música e fala curta (pós-2.4, bug B) ---
+
+
+async def _tick_until_asked(capture, clock, events, feed, limit_s: int) -> tuple[list[dict], float]:
+    """Alimenta 1 s de áudio por segundo do relógio e roda o tick, até a pergunta."""
+    start = clock.now
+    while clock.now - start < limit_s:
+        feed(clock.now - start)
+        clock.now += 1
+        await capture.idle_tick()
+        asked = _idle_events(events)
+        if asked:
+            return asked, clock.now - start
+    return [], clock.now - start
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_music_with_vocals_on_system_channel(client: AsyncClient, app) -> None:
+    import numpy as np
+
+    clock = _Clock()
+    capture = app.state.container.capture
+    capture._clock = clock
+    events = await app.state.container.bus.subscribe()
+    assert (await client.post("/capture/start", headers=auth(), json={})).status_code == 200
+    capture.state.mic_only = False
+    rate = app.state.container.settings.sample_rate
+
+    class _Vad:
+        def __init__(self, speech: bool) -> None:
+            self.speech = speech
+
+        def mask(self, samples):
+            return np.full(len(samples), self.speech, dtype=bool)
+
+    # Silero vê "fala" o tempo todo na música do sistema; o microfone está mudo.
+    capture._neural_vad = True
+    capture._mic_vad = _Vad(False)
+    capture._loop_vad = _Vad(True)
+
+    def feed(_t: float) -> None:
+        capture._audio.callback(
+            AudioChunk(samples=[0.0] * rate, sample_rate=rate, timestamp_ms=0, mic=[0.0] * rate, loopback=[0.2] * rate)
+        )
+
+    asked, elapsed = await _tick_until_asked(capture, clock, events, feed, 420)
+    assert [item["kind"] for item in asked] == ["music"]
+    # ~45 s para reconhecer a música + 300 s do alerta.
+    assert elapsed < 360
+
+    # Fala "no sistema" com música não limpa o alerta; fala no microfone limpa.
+    tenth = rate // 10
+
+    def push(mic_level: float) -> None:
+        capture._audio.callback(
+            AudioChunk(
+                samples=[0.0] * tenth, sample_rate=rate, timestamp_ms=0, mic=[mic_level] * tenth, loopback=[0.2] * tenth
+            )
+        )
+
+    for _ in range(50):
+        push(0.0)
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    assert capture.idle_alert == {"kind": "music"}
+    capture._mic_vad = _Vad(True)
+    for _ in range(31):
+        push(0.2)
+    await capture.idle_tick()
+    assert [item["status"] for item in _idle_events(events)] == ["cleared"]
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_not_asked_for_mic_conversation_over_room_noise(client: AsyncClient, app) -> None:
+    import numpy as np
+
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+
+    class _Vad:
+        speech = False
+
+        def mask(self, samples):
+            return np.full(len(samples), self.speech, dtype=bool)
+
+    vad = _Vad()
+    capture._neural_vad = True
+    capture._mic_vad = vad
+
+    def feed(t: float) -> None:
+        # Ruído de sala contínuo acima do limiar; fala 2 s, pausa 3 s.
+        vad.speech = t % 5 < 2
+        capture._audio.callback(_chunk(app, 1.0, 0.05))
+
+    asked, _ = await _tick_until_asked(capture, clock, events, feed, 420)
+    assert asked == []
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_not_asked_during_conversation_with_pauses(client: AsyncClient, app) -> None:
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+
+    def feed(t: float) -> None:
+        # 2 s falando, 3 s de pausa, o tempo todo.
+        capture._audio.callback(_chunk(app, 1.0, 0.2 if t % 5 < 2 else 0.0))
+
+    asked, _ = await _tick_until_asked(capture, clock, events, feed, 420)
+    assert asked == []
+
+
+@pytest.mark.asyncio
+async def test_idle_alert_short_blips_do_not_reset_silence(client: AsyncClient, app) -> None:
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+
+    def feed(t: float) -> None:
+        if t % 30 == 0:
+            # Estalo de ~100 ms que o VAD chama de fala.
+            capture._audio.callback(_chunk(app, 0.1, 0.2))
+            capture._audio.callback(_chunk(app, 0.9, 0.0))
+        else:
+            capture._audio.callback(_chunk(app, 1.0, 0.0))
+
+    asked, elapsed = await _tick_until_asked(capture, clock, events, feed, 320)
+    assert [item["kind"] for item in asked] == ["silence"]
+    assert elapsed == 300

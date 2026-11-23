@@ -174,6 +174,7 @@ class SetupService:
         summarize_ready = llm.status == "ready"
         if capture_ready and summarize_ready:
             await self._store.set_setting("setup_complete", "1")
+            await self._store.set_setting("bootstrap_pending", "0")
         setup_complete = (await self._store.get_setting("setup_complete")) == "1"
         return SetupStatus(
             llm=llm,
@@ -266,13 +267,10 @@ class SetupService:
         except (OSError, ValueError):
             raw = {}
         payload = raw if isinstance(raw, dict) else {}
-        try:
-            marker.unlink()
-        except OSError:
-            log.warning("unattended marker could not be removed: %s", marker)
         already_done = (await self._store.get_setting("setup_complete")) == "1"
         accepted = (await self._store.get_setting("disclaimer_accepted")) == "1"
         if already_done or accepted:
+            self._remove_marker(marker)
             log.info("unattended setup skipped: this PC was already set up")
             return False
         language = str(payload.get("language") or "").strip().lower()[:2]
@@ -284,8 +282,8 @@ class SetupService:
         ram = max(available_ram_gb(), total_ram_gb() * 0.7)
         note_model = suggest_note_model(ram, vram=vram_gb())
         whisper_model = suggest_whisper_model(ram, vram=vram_gb())
-        await self.accept_disclaimer("local")
-        await self._store.set_setting("unattended_source", str(payload.get("agent") or "install.ps1")[:60])
+        # Ordem importa: start_bootstrap grava bootstrap_pending antes do aviso aceito e
+        # o marcador só some no fim. Se o app cair no meio, a próxima abertura retoma.
         await self.start_bootstrap(
             BootstrapIn(
                 provider="neste_pc",
@@ -294,10 +292,32 @@ class SetupService:
                 save_recordings=True,
             )
         )
+        await self.accept_disclaimer("local")
+        await self._store.set_setting("unattended_source", str(payload.get("agent") or "install.ps1")[:60])
+        self._remove_marker(marker)
         log.info("unattended setup started: %s + %s", whisper_model, note_model)
         return True
 
+    @staticmethod
+    def _remove_marker(marker: Path) -> None:
+        try:
+            marker.unlink()
+        except OSError:
+            log.warning("unattended marker could not be removed: %s", marker)
+
+    async def resume_bootstrap(self) -> bool:
+        """Retoma na subida um bootstrap que ficou pela metade (app fechou durante o download)."""
+        if (await self._store.get_setting("setup_complete")) == "1":
+            return False
+        if (await self._store.get_setting("bootstrap_pending")) != "1":
+            return False
+        await self.start_bootstrap()
+        log.info("setup bootstrap resumed after restart")
+        return True
+
     async def start_bootstrap(self, payload: BootstrapIn | None = None) -> None:
+        # Gravado antes de tudo: se o processo cair, resume_bootstrap sabe que falta terminar.
+        await self._store.set_setting("bootstrap_pending", "1")
         if payload is not None:
             await self.apply_settings(
                 SettingsIn(
@@ -309,7 +329,18 @@ class SetupService:
             )
         if self._task and not self._task.done():
             return
-        self._task = asyncio.create_task(self._bootstrap())
+        if self._settings.provider != "openai" and not self._asr.is_ready():
+            # Já marca "baixando": o assistente abre na tela de progresso mesmo se consultar
+            # o status antes de a tarefa chegar ao Whisper (ela checa o disco primeiro).
+            self._whisper_status = SetupComponentStatus(status="downloading", progress=1, message="Baixando modelo de transcrição")
+        self._task = asyncio.create_task(self._run_bootstrap())
+
+    async def _run_bootstrap(self) -> None:
+        await self._bootstrap()
+        # Falha mantém bootstrap_pending=1, e a próxima abertura tenta de novo.
+        if self._asr.is_ready() and (await self._llm.status_component()).status == "ready":
+            await self._store.set_setting("setup_complete", "1")
+            await self._store.set_setting("bootstrap_pending", "0")
 
     async def _bootstrap(self) -> None:
         def whisper_progress(progress: int, message: str) -> None:
