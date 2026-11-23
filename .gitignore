@@ -128,3 +128,12 @@ graphify-out/
 
 # Internal company records (kept local, never public)
 docs/secretaria/
+docs/cmi/
+docs/mercado/
+docs/backend/
+docs/frontend/
+docs/specs/
+docs/uxui/
+docs/eog/
+docs/melhorias.md
+marketing/

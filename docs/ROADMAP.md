@@ -1,6 +1,6 @@
 # Roadmap
 
-Where DroidNote is going, in rough order. Dates are not promises; items move when users show us something more useful. Shipped items go to the [changelog](../CHANGELOG.md); the detailed engineering notes behind the recent work are in [melhorias.md](melhorias.md) (Portuguese).
+Where DroidNote is going, in rough order. Dates are not promises; items move when users show us something more useful. Shipped items go to the [changelog](../CHANGELOG.md).
 
 ## Principles that do not move
 
