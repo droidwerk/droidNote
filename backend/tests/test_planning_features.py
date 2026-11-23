@@ -229,6 +229,57 @@ def test_ics_expands_recurrence_overrides_and_skips_noise() -> None:
     assert events[1].location == "https://meet.example.com/x"
 
 
+BUSY_ICS = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:b1
+SUMMARY:Ocupado
+DTSTART:20261027T130000Z
+DTEND:20261027T140000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:b2
+SUMMARY:Provisório
+DTSTART:20261028T130000Z
+DTEND:20261028T140000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:b3
+SUMMARY:Ocupado
+DTSTART:20261029T130000Z
+DTEND:20261029T140000Z
+END:VEVENT
+END:VCALENDAR
+"""
+
+PLAIN_ICS = BUSY_ICS.replace("SUMMARY:Provisório", "SUMMARY:Daily").replace(
+    "UID:b3\nSUMMARY:Ocupado", "UID:b3\nSUMMARY:Retro"
+)
+
+
+class _FakeCalendar:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    async def upcoming(self, url: str, **_: object) -> list:
+        return expand(
+            parse_events(self.text),
+            datetime(2026, 10, 26, tzinfo=UTC),
+            datetime(2026, 11, 9, tzinfo=UTC),
+        )
+
+
+async def test_calendar_test_flags_busy_only_links(tmp_path) -> None:
+    store = await _store(tmp_path)
+    url = "https://calendar.example.com/a.ics"
+    assert await BriefService(store, _FakeCalendar(BUSY_ICS)).test(url) == (3, True)
+    # Títulos variados (sem convidados) e agenda completa com convidados/local: não é limitada.
+    assert await BriefService(store, _FakeCalendar(PLAIN_ICS)).test(url) == (3, False)
+    assert await BriefService(store, _FakeCalendar(ICS)).test(url) == (4, False)
+    empty = "BEGIN:VCALENDAR\nVERSION:2.0\nEND:VCALENDAR\n"
+    assert await BriefService(store, _FakeCalendar(empty)).test(url) == (0, False)
+
+
 # ------------------------------------------------------------- briefing
 
 

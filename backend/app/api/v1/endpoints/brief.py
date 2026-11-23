@@ -89,7 +89,7 @@ async def upcoming(request: Request, hours: float = Query(default=36, ge=1, le=2
 @router.post("/calendar/test", response_model=CalendarTestOut)
 async def test_calendar(payload: CalendarTestIn, request: Request) -> CalendarTestOut:
     try:
-        count = await _service(request).test(payload.url)
+        count, limited = await _service(request).test(payload.url)
     except CalendarError as exc:
         return CalendarTestOut(ok=False, error=str(exc))
-    return CalendarTestOut(ok=True, events=count)
+    return CalendarTestOut(ok=True, events=count, limited=limited)

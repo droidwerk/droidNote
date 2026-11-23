@@ -418,6 +418,7 @@ class CalendarTestIn(BaseModel):
 class CalendarTestOut(BaseModel):
     ok: bool
     events: int = 0
+    limited: bool = False
     error: str | None = None
 
 

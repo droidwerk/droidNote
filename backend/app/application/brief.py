@@ -210,6 +210,16 @@ class BriefService:
             out.append((event, brief))
         return True, None, out
 
-    async def test(self, url: str) -> int:
+    async def test(self, url: str) -> tuple[int, bool]:
         events = await self._calendar.upcoming(url, hours=24 * 14)
-        return len(events)
+        return len(events), busy_only(events)
+
+
+def busy_only(events: Sequence[CalendarEvent]) -> bool:
+    """Calendário publicado só com livre/ocupado: sem convidados, sem local e no
+    máximo dois títulos distintos (ex.: "Ocupado" e "Provisório"). Não olha o
+    texto do título, então vale para qualquer idioma."""
+    # ponytail: heurística; agenda real com 1-2 títulos repetidos e sem convidados também cai aqui.
+    if not events or any(event.attendees or event.location for event in events):
+        return False
+    return len({event.title for event in events}) <= 2
