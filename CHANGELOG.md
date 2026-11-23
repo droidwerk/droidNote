@@ -11,6 +11,14 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Added
+- "Upcoming meetings" on the home screen can now be collapsed with the arrow in its corner, and it stays collapsed the next time you open DroidNote.
+- When nothing is scheduled in the next 36 hours, "Upcoming meetings" now shows when your next meeting is.
+
+### Fixed
+- The Outlook steps in "Where do I find this address?" now say to publish the calendar with "Can view all details". With "Can view when I'm busy", meetings arrive only as "Busy", with no title or guests.
+- Testing a calendar link now warns you when the link only shows busy times, and tells you how to publish it again with all details.
+
 ## [2.4.1] — 2026-11-23
 
 ### Fixed
