@@ -303,7 +303,7 @@ export const api = {
     request<Memory>(`/sessions/${sessionId}/memory${force ? "?force=true" : ""}`, { method: "POST" }),
   upcoming: (hours = 36) => request<Upcoming>(`/calendar/upcoming?hours=${hours}`),
   testCalendar: (url: string) =>
-    request<{ ok: boolean; events: number; error: string | null }>("/calendar/test", {
+    request<{ ok: boolean; events: number; error: string | null; limited?: boolean }>("/calendar/test", {
       method: "POST",
       body: JSON.stringify({ url }),
     }),

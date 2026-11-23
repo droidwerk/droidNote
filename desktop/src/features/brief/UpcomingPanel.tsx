@@ -22,6 +22,7 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
   const { t, locale } = useI18n();
   const [data, setData] = useState<Upcoming | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [later, setLater] = useState<CalendarEvent | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +39,25 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
     const timer = window.setInterval(() => void load(), REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [load]);
+
+  // Lista de 36 h vazia: olha 14 dias à frente uma vez para dizer quando é a próxima reunião.
+  const quiet = Boolean(data?.configured && !data.error && !data.events.length);
+  useEffect(() => {
+    if (!quiet) {
+      setLater(null);
+      return;
+    }
+    let alive = true;
+    api
+      .upcoming(336)
+      .then((ahead) => {
+        if (alive) setLater(ahead.events[0] ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [quiet]);
 
   if (!data) return null;
 
@@ -79,7 +99,17 @@ export function UpcomingPanel({ disabled, onRecord, onOpenSession, onConnect, on
         </button>
       </div>
       {data.error ? <p className="upcoming-note">{t("calendar.error", { reason: t(`calendar.err_${errorKey(data.error)}`) })}</p> : null}
-      {!data.error && !data.events.length ? <p className="upcoming-note">{t("calendar.empty")}</p> : null}
+      {quiet ? (
+        <p className="upcoming-note">
+          {t("calendar.empty")}
+          {later ? (
+            <>
+              <br />
+              {t("calendar.nextLater", { when: `${day(later.start)}, ${time(later.start)}`, title: later.title || t("calendar.untitled") })}
+            </>
+          ) : null}
+        </p>
+      ) : null}
       <ol className="upcoming-list">
         {data.events.map((event) => {
           const key = `${event.uid}-${event.start}`;

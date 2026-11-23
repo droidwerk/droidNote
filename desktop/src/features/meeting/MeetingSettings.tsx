@@ -20,14 +20,17 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
   const [url, setUrl] = useState("");
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [limited, setLimited] = useState(false);
 
   useEffect(() => setEditing(!settings.has_calendar), [settings.has_calendar]);
 
   const test = async () => {
     setTesting(true);
     setResult(null);
+    setLimited(false);
     try {
       const outcome = await api.testCalendar(url.trim());
+      setLimited(outcome.ok && Boolean(outcome.limited));
       setResult(
         outcome.ok
           ? t("calendar.testOk", { count: outcome.events })
@@ -95,6 +98,11 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
         </>
       )}
       {result ? <p className="field-help">{result}</p> : null}
+      {limited ? (
+        <p className="field-help" role="status" style={{ color: "var(--warn)" }}>
+          {t("calendar.limited")}
+        </p>
+      ) : null}
     </Card>
   );
 }
