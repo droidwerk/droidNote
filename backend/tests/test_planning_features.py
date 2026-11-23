@@ -280,6 +280,24 @@ async def test_calendar_test_flags_busy_only_links(tmp_path) -> None:
     assert await BriefService(store, _FakeCalendar(empty)).test(url) == (0, False)
 
 
+class _BrokenCalendar:
+    async def upcoming(self, url: str, **_: object) -> list:
+        raise CalendarError("unreachable")
+
+
+async def test_calendar_test_route_returns_limited(client: AsyncClient, app) -> None:
+    container = app.state.container
+    body = {"url": "https://calendar.example.com/a.ics"}
+    container.brief = BriefService(container.store, _FakeCalendar(BUSY_ICS))
+    resp = await client.post("/calendar/test", headers=auth(), json=body)
+    assert resp.status_code == 200
+    assert resp.json()["limited"] is True and resp.json()["events"] == 3
+    container.brief = BriefService(container.store, _BrokenCalendar())
+    resp = await client.post("/calendar/test", headers=auth(), json=body)
+    assert resp.json()["ok"] is False and resp.json()["limited"] is False
+    assert (await client.post("/calendar/test", json=body)).status_code == 401
+
+
 # ------------------------------------------------------------- briefing
 
 
