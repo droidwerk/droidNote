@@ -125,3 +125,6 @@ marketing/
 
 # Mapa do projeto (graphify), memória local
 graphify-out/
+
+# Internal company records (kept local, never public)
+docs/secretaria/
