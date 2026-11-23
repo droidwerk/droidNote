@@ -674,6 +674,12 @@ textarea::placeholder {
   color: var(--muted);
 }
 
+/* Aviso em texto normal; a cor de alerta fica só na borda (contraste AA). */
+.field-warn {
+  border-left: 3px solid var(--warn);
+  padding-left: 8px;
+}
+
 /* Checkbox com descrição */
 .check-control {
   display: flex;

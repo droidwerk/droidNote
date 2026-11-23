@@ -1111,7 +1111,7 @@ export const it: Messages = {
     disconnect: "Scollega",
     whereTitle: "Dove trovo questo indirizzo?",
     whereGoogle: "Google Calendar: Impostazioni → il tuo calendario → “Indirizzo segreto in formato iCal”.",
-    whereOutlook: "Outlook.com: Impostazioni → Calendario → Calendari condivisi → Pubblica un calendario → scegli il calendario e “Può visualizzare tutti i dettagli” → Pubblica → copia il link ICS. Con “Può vedere quando sono occupato” le riunioni arrivano solo come “Occupato”, senza titolo. Un account di lavoro (Microsoft 365, Teams) ha un suo calendario: pubblicalo da quell'account, se l'azienda lo consente.",
+    whereOutlook: "Outlook.com: Impostazioni → Calendario → Calendari condivisi → Pubblica un calendario → scegli il calendario e “Può visualizzare tutti i dettagli” → Pubblica → copia il link ICS. Con “Può visualizzare quando sono occupato” le riunioni arrivano solo come “Occupato”, senza titolo. Un account di lavoro (Microsoft 365, Teams) ha un suo calendario: pubblicalo da quell'account, se l'azienda lo consente.",
     whereApple: "iCloud: Calendario → condividi → Calendario pubblico → copia link (webcal://).",
   },
   consent: {

@@ -99,7 +99,7 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
       )}
       {result ? <p className="field-help">{result}</p> : null}
       {limited ? (
-        <p className="field-help" role="status" style={{ color: "var(--warn)" }}>
+        <p className="field-help field-warn" role="status">
           {t("calendar.limited")}
         </p>
       ) : null}
