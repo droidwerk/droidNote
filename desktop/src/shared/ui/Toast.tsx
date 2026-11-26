@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -15,6 +16,8 @@ export type ToastTone = "success" | "error" | "info";
 export interface ToastAction {
   label: string;
   onClick: () => void;
+  /** Ctrl+Z (fora de campo de texto) roda esta ação enquanto o aviso está na tela. */
+  undo?: boolean;
 }
 
 export interface ToastInput {
@@ -22,6 +25,10 @@ export interface ToastInput {
   title: string;
   description?: string;
   action?: ToastAction;
+  /** Tempo na tela; padrão 5 s. Para enquanto o ponteiro ou o foco estão no aviso. */
+  durationMs?: number;
+  /** Um aviso novo com a mesma chave substitui o anterior. */
+  key?: string;
 }
 
 interface ToastItem extends ToastInput {
@@ -52,22 +59,56 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((current) => current.filter((item) => item.id !== id));
   }, []);
 
+  const schedule = useCallback(
+    (toast: ToastItem) => {
+      if (toast.tone === "error") return;
+      window.clearTimeout(timers.current.get(toast.id));
+      timers.current.set(toast.id, window.setTimeout(() => dismiss(toast.id), toast.durationMs ?? AUTO_DISMISS_MS));
+    },
+    [dismiss],
+  );
+
+  const pause = (id: number) => {
+    window.clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+  };
+
   const push = useCallback(
     (toast: ToastInput) => {
       const id = nextId.current;
       nextId.current += 1;
-      const tone = toast.tone ?? "info";
+      const item: ToastItem = { ...toast, id, tone: toast.tone ?? "info" };
       setToasts((current) => {
-        const next = [...current, { ...toast, id, tone }];
-        return next.slice(-MAX_TOASTS);
+        const kept = toast.key ? current.filter((old) => old.key !== toast.key) : current;
+        return [...kept, item].slice(-MAX_TOASTS);
       });
-      if (tone !== "error") {
-        const timer = window.setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
-        timers.current.set(id, timer);
-      }
+      schedule(item);
+    },
+    [schedule],
+  );
+
+  const run = useCallback(
+    (toast: ToastItem) => {
+      toast.action?.onClick();
+      dismiss(toast.id);
     },
     [dismiss],
   );
+
+  // Ctrl+Z desfaz pelo aviso mais recente com "Desfazer"; em campo de texto, o Ctrl+Z é do texto.
+  useEffect(() => {
+    const undoable = [...toasts].reverse().find((item) => item.action?.undo);
+    if (!undoable) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "z") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      run(undoable);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toasts, run]);
 
   const value = useMemo(() => ({ push }), [push]);
 
@@ -76,7 +117,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-region" aria-live="polite" aria-relevant="additions text">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast-${toast.tone}`} role="status">
+          <div
+            key={toast.id}
+            className={`toast toast-${toast.tone}`}
+            onMouseEnter={() => pause(toast.id)}
+            onMouseLeave={() => schedule(toast)}
+            onFocus={() => pause(toast.id)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) schedule(toast);
+            }}
+          >
             <div className="toast-copy">
               <strong>{toast.title}</strong>
               {toast.description ? <p>{toast.description}</p> : null}
@@ -86,10 +136,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   className="toast-action"
-                  onClick={() => {
-                    toast.action?.onClick();
-                    dismiss(toast.id);
-                  }}
+                  onClick={() => run(toast)}
                 >
                   {toast.action.label}
                 </button>

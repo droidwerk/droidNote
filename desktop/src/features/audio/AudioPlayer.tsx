@@ -54,10 +54,9 @@ export function AudioPlayer({ sessionId, seekMs, onSeeked, onTimeMs }: AudioPlay
           peaksRef.current = [];
         }
         if (!cancelled) setReady(true);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : t("audio.missing"));
-        }
+      } catch {
+        // Nunca o texto cru da rede ("Failed to fetch"): só o aviso amigável.
+        if (!cancelled) setError(t("audio.missing"));
       }
     })();
     return () => {

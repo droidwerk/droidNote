@@ -14,7 +14,8 @@ import type {
   SolveTarget,
 } from "../shared/api/types";
 import { DOCUMENT_ACCEPT, DocumentTray, hasFiles } from "../features/chat/DocumentTray";
-import { ChatTune, readSolveTarget, readStyle } from "../features/chat/ChatTune";
+import { ChatTune, readSolveTarget } from "../features/chat/ChatTune";
+import { splitReveal } from "../features/chat/studyReveal";
 import { ContextBar, MAX_CONTEXT, pickOf, type PickedSession } from "../features/chat/ContextBar";
 import { IMAGE_ACCEPT, MAX_IMAGES, isImageFile, prepareImage } from "../features/chat/images";
 import { EngineBanner } from "../features/document/EngineBanner";
@@ -40,6 +41,8 @@ const MAX_NOTE_CHARS = 4000;
 /** Comandos com "/" e materiais de estudo: ids fixos, rótulos e perguntas traduzidos. */
 const COMMANDS = ["summary", "tasks", "decisions", "glossary", "flashcards", "exercises", "onepage", "exam"] as const;
 type CommandId = (typeof COMMANDS)[number];
+// Mesmos do backend (STUDY_COMMANDS): a resposta sai no modo Estudar, com o gabarito fechado.
+const STUDY_COMMANDS: readonly CommandId[] = ["flashcards", "exercises", "exam"];
 /** Item do menu "/": comando fixo ou pergunta salva. */
 type SlashItem = { kind: "cmd"; id: CommandId } | { kind: "recipe"; item: NoteTemplate };
 const SUGGESTIONS = ["suggest_1", "suggest_2", "suggest_3"] as const;
@@ -50,6 +53,7 @@ interface TurnFailure {
   reason: string;
   question: string;
   images: ChatImageDraft[];
+  command?: CommandId;
 }
 
 interface ChatPageProps {
@@ -89,7 +93,8 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
   const [docs, setDocs] = useState<ChatDocument[]>([]);
   const [images, setImages] = useState<ChatImageDraft[]>([]);
   const [localPreviews, setLocalPreviews] = useState<Record<string, string[]>>({});
-  const [style, setStyle] = useState<ChatStyle>(readStyle);
+  // Modo vale por conversa: conversa nova começa em normal; abrir uma retoma o modo da última resposta.
+  const [style, setStyle] = useState<ChatStyle>("normal");
   const [solveTarget, setSolveTarget] = useState<SolveTarget>(readSolveTarget);
   const [grounded, setGrounded] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -178,6 +183,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     setMessages([]);
     setDocs([]);
     setImages([]);
+    setStyle("normal");
     if (focus.prompt) setDraft(focus.prompt);
     onFocusConsumed();
     window.setTimeout(() => input.current?.focus(), 40);
@@ -220,12 +226,11 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("droidnote.chatStyle", style);
       window.localStorage.setItem("droidnote.chatSolveTarget", solveTarget);
     } catch {
       /* só conveniência */
     }
-  }, [style, solveTarget]);
+  }, [solveTarget]);
 
   useEffect(() => {
     if (!attachOpen) return undefined;
@@ -266,6 +271,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     setActiveId(detail.chat.id);
     setActiveThread(detail.chat);
     setMessages(detail.messages);
+    setStyle([...detail.messages].reverse().find((item) => item.role === "assistant")?.style ?? "normal");
     setPendingFocus(null);
     setFailures({});
     // Os chips da última pergunta voltam todos. Conversa apagada some da lista.
@@ -289,6 +295,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
     setMessages([]);
     setDocs([]);
     setImages([]);
+    setStyle("normal");
     setPendingFocus(null);
     setSelected([]);
     setFailures({});
@@ -299,7 +306,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
 
   const focusSessionId = pendingFocus?.sessionId ?? (selected.length === 1 ? selected[0]!.sessionId : null);
 
-  const send = async (text: string, attached: ChatImageDraft[] = images, retry = false) => {
+  const send = async (text: string, attached: ChatImageDraft[] = images, retry = false, command?: CommandId) => {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
     setDraft("");
@@ -325,6 +332,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
       content: "",
       created_at: new Date().toISOString(),
       citations: [],
+      style: command && STUDY_COMMANDS.includes(command) ? "study" : style,
     };
     pinRef.current = optimistic.id;
     setMessages((current) => [...current, optimistic, streaming]);
@@ -346,6 +354,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
           scope: ids.length ? { session_ids: ids } : null,
           images: attached.map((item) => ({ name: item.name, mime: item.mime, data: item.data })),
           retry,
+          command: command ?? null,
         },
         (token) => {
           setMessages((current) =>
@@ -377,7 +386,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
             : err instanceof Error && err.message
               ? err.message
               : t("chat.fail");
-        setFailures((current) => ({ ...current, [streaming.id]: { reason, question: cleaned, images: attached } }));
+        setFailures((current) => ({ ...current, [streaming.id]: { reason, question: cleaned, images: attached, command } }));
       }
       // Chat novo: adota pelo id do primeiro evento. Parado antes de gravar a pergunta, o id dá 404 e fica de fora.
       if (!activeId && streamedChatId) {
@@ -406,7 +415,7 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
       const index = current.findIndex((item) => item.id === failedId);
       return index < 0 ? current : current.filter((_, i) => i !== index && i !== index - 1);
     });
-    void send(failure.question, failure.images, true);
+    void send(failure.question, failure.images, true, failure.command);
   };
 
   const lastQuestion = [...messages].reverse().find((item) => item.role === "user")?.content ?? "";
@@ -548,7 +557,8 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
   const commandLabel = (id: CommandId) => t(`chat.cmd_${id}`);
   const runCommand = (id: CommandId) => {
     setDraft("");
-    void send(t(`chat.cmdAsk_${id}`));
+    // O id vai junto: o backend lê o conteúdo inteiro em vez de buscar pelo texto da instrução.
+    void send(t(`chat.cmdAsk_${id}`), images, false, id);
   };
   const runSlash = (entry: SlashItem) => {
     if (entry.kind === "cmd") {
@@ -769,12 +779,10 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
                     />
                   ) : item.role === "assistant" ? (
                     item.content ? (
-                      <Markdown
-                        text={item.content}
+                      <AnswerBody
+                        item={item}
                         renderStamp={stampRenderer(item.citations, onOpenSession, t("chat.stampNoSource"))}
                         renderCite={citeRenderer(item.citations, onOpenSession, t)}
-                        chartTableLabel={t("chat.chartTable")}
-                        promptLabels={{ title: t("chat.promptReady"), copy: t("chat.promptCopy"), copied: t("common.copied") }}
                       />
                     ) : null
                   ) : (
@@ -1050,6 +1058,23 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
                 }
               }}
             />
+            {style !== "normal" ? (
+              <span className="chat-chip chat-mode-chip" title={t("chat.modeLabel")}>
+                <span>{t(`chat.mode_${style}`)}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("chat.modeOff")}
+                  title={t("chat.modeOff")}
+                  onClick={() => {
+                    setStyle("normal");
+                    input.current?.focus();
+                  }}
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </span>
+            ) : null}
             <ChatTune
               style={style}
               grounded={grounded}
@@ -1072,6 +1097,39 @@ export function ChatPage({ recipes = [], focus, onOpenSession, onFocusConsumed, 
         </div>
       </section>
     </div>
+  );
+}
+
+/** Corpo da resposta. No modo Estudar, o gabarito (depois do último "---") fica fechado até a pessoa abrir. */
+function AnswerBody({
+  item,
+  renderStamp,
+  renderCite,
+}: {
+  item: ChatMessage;
+  renderStamp?: (stamp: string) => ReactNode;
+  renderCite?: (index: number) => ReactNode;
+}) {
+  const t = useT();
+  const md = (text: string) => (
+    <Markdown
+      text={text}
+      renderStamp={renderStamp}
+      renderCite={renderCite}
+      chartTableLabel={t("chat.chartTable")}
+      promptLabels={{ title: t("chat.promptReady"), copy: t("chat.promptCopy"), copied: t("common.copied") }}
+    />
+  );
+  const parts = item.style === "study" ? splitReveal(item.content) : null;
+  if (!parts?.hidden) return md(item.content);
+  return (
+    <>
+      {md(parts.visible)}
+      <details className="chat-reveal">
+        <summary>{t("chat.revealAnswers")}</summary>
+        {md(parts.hidden)}
+      </details>
+    </>
   );
 }
 

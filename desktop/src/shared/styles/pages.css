@@ -1956,6 +1956,36 @@ button.chat-cite:hover {
   font-size: 12.5px;
 }
 
+/* Modo ativo (Estudar, Resolver...) ao lado do campo; o x volta para normal. */
+.chat-mode-chip {
+  flex: none;
+  align-self: center;
+}
+
+/* O x é a única saída do modo na linha do input: alvo de 24px, chip continua com 28px. */
+.chat-mode-chip button {
+  width: 24px;
+  height: 24px;
+}
+
+/* Gabarito do modo Estudar, fechado até a pessoa abrir. */
+.chat-reveal {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+}
+
+.chat-reveal summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.chat-reveal[open] summary {
+  margin-bottom: 8px;
+}
+
 .chat-pick-wrap {
   display: contents;
 }

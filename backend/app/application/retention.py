@@ -3,6 +3,7 @@
 Dois prazos independentes, em dias (0 = guardar para sempre). A transcrição
 apagada leva junto as vozes da sessão; ata, notas e tarefas continuam — é o
 que a pessoa quer guardar de uma reunião. Gravação em andamento nunca entra.
+Também esvazia a lixeira: conversa apagada há mais de 30 dias sai de vez (linhas e áudio).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.application.sessions import TRASH_DAYS, purge_session
 from app.core.logging import get_logger
 from app.infrastructure.persistence.sqlite import SqliteStore
 
@@ -28,6 +30,7 @@ class RetentionReport:
     transcripts: int
     audio_days: int
     transcript_days: int
+    trash_purged: int = 0
 
 
 def parse_days(raw: str | int | None) -> int:
@@ -87,6 +90,13 @@ class RetentionService:
                 transcript_count += 1
                 if not dry_run:
                     await self._store.purge_transcript(session.id)
-        if not dry_run and (audio_count or transcript_count):
-            log.info("retention removed audio=%d transcripts=%d", audio_count, transcript_count)
-        return RetentionReport(audio_count, transcript_count, audio, transcript)
+        trash_count = 0
+        for session in await self._store.list_sessions("trash"):
+            if session.deleted_at and now - session.deleted_at > timedelta(days=TRASH_DAYS):
+                if dry_run or await purge_session(self._store, session.id, self._recordings_path(session.id)):
+                    trash_count += 1
+        if not dry_run and (audio_count or transcript_count or trash_count):
+            log.info(
+                "retention removed audio=%d transcripts=%d trash=%d", audio_count, transcript_count, trash_count
+            )
+        return RetentionReport(audio_count, transcript_count, audio, transcript, trash_count)

@@ -16,6 +16,7 @@ export type IconName =
   | "export"
   | "trash"
   | "folder"
+  | "archive"
   | "check"
   | "spark"
   | "refresh"
@@ -125,6 +126,11 @@ const PATHS: Record<IconName, ReactElement> = {
   folder: (
     <>
       <path d="M3.5 7V18.5h17V8.5h-9L9.5 6h-6z" />
+    </>
+  ),
+  archive: (
+    <>
+      <path d="M3.5 5h17v4h-17zM5 9v10h14V9M10 13h4" />
     </>
   ),
   check: <path d="m5.5 12.5 4 4 9-9" />,

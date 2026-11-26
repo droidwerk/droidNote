@@ -28,7 +28,10 @@ async def list_tasks(
     status_filter: str = Query(default="all", alias="status", pattern="^(open|done|all)$"),
     session_id: str | None = Query(default=None),
 ) -> list[TaskOut]:
-    return await to_out(request, await _service(request).list(status_filter, session_id))
+    items = await _service(request).list(status_filter, session_id)
+    # Tarefa de conversa na lixeira some da lista (list_sessions já vem sem a lixeira).
+    live = {item.id for item in await get_container(request.app).store.list_sessions()}
+    return await to_out(request, [item for item in items if not item.session_id or item.session_id in live])
 
 
 @router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED)

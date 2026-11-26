@@ -16,6 +16,7 @@ import type {
   SessionDetail,
   Summary,
 } from "../shared/api/types";
+import { activeElapsedMs } from "../shared/lib/format";
 import { BriefCard } from "../features/brief/BriefCard";
 import { MindMapPanel } from "../features/mindmap/MindMapPanel";
 import { MemoryPanel } from "../features/memory/MemoryPanel";
@@ -161,7 +162,7 @@ export function LivePage({
   const [dockMin, toggleDock] = useTranscriptDock();
   const [refining, setRefining] = useState(false);
   const [brief, setBrief] = useState<Brief | null>(null);
-  const elapsedMs = useElapsed(capture.started_at ?? null, capture.recording);
+  const elapsedMs = useElapsed(capture);
 
   useEffect(() => {
     setSide(capture.recording ? "notes" : "doc");
@@ -756,22 +757,18 @@ function emptyHint(recording: boolean, asrBusy: boolean, t: TranslateFn): string
   return t("live.emptyListening");
 }
 
-function useElapsed(startedAt: string | null, active: boolean): number {
+function useElapsed(capture: CaptureState): number {
   const [ms, setMs] = useState(0);
+  const { recording: active, started_at: startedAt = null, paused_ms: pausedMs = 0, paused_at: pausedAt = null } = capture;
   useEffect(() => {
     if (!active || !startedAt) {
       setMs(0);
       return undefined;
     }
-    const origin = Date.parse(startedAt);
-    if (!Number.isFinite(origin)) {
-      setMs(0);
-      return undefined;
-    }
-    const tick = () => setMs(Math.max(0, Date.now() - origin));
+    const tick = () => setMs(activeElapsedMs(startedAt, pausedMs, pausedAt));
     tick();
     const timer = window.setInterval(tick, 250);
     return () => window.clearInterval(timer);
-  }, [active, startedAt]);
+  }, [active, startedAt, pausedMs, pausedAt]);
   return ms;
 }

@@ -37,6 +37,8 @@ async def transcript_socket(websocket: WebSocket, token: str | None = None) -> N
                 "session_id": state.session_id,
                 "started_at": state.started_at.isoformat() if state.started_at else None,
                 "paused": state.paused,
+                "paused_ms": state.paused_ms,
+                "paused_at": state.paused_at.isoformat() if state.paused_at else None,
                 # Janela aberta depois da pergunta ainda recebe o alerta pendente.
                 "idle_alert": container.capture.idle_alert,
             }

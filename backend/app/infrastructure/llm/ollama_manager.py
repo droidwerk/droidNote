@@ -56,7 +56,7 @@ def context_window(chars: int) -> int:
 # Até o primeiro token: carregar o modelo e avaliar a transcrição inteira (lento na CPU).
 FIRST_TOKEN_TIMEOUT_S = 900.0
 # Entre tokens: sem nada por este tempo, o modelo travou.
-STALL_TIMEOUT_S = 120.0
+STALL_TIMEOUT_S = 45.0  # igual ao vigia do chat (app.application.chat.STREAM_STALL_S)
 
 
 class OllamaManager:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import re
 from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
 
+from app.application.chat import ChatService
 from app.domain.models import Session, TranscriptSegment
 from app.infrastructure.asr.whisper_engine import _segment_is_speech
 from app.infrastructure.persistence.sqlite import SqliteStore, new_id
@@ -145,7 +148,7 @@ async def test_chat_numbers_excerpts_and_applies_style(client: AsyncClient, app)
         assert response.status_code == 200
         async for _ in response.aiter_lines():
             pass
-    assert "[1] [search] Aula de limites" in llm.last_prompt
+    assert "[1] Aula de limites" in llm.last_prompt
     assert "Reply mode: study" in (llm.last_system or "")
     assert "Sources only" in (llm.last_system or "")
     assert "[3]" in (llm.last_system or "")  # instrução de citar com número
@@ -259,3 +262,46 @@ async def test_chat_answer_exports_as_markdown_pdf_and_docx(client: AsyncClient,
     docx = await client.get(f"/chat/{chat_id}/messages/{answer}/export?format=docx", headers=auth())
     assert docx.status_code == 200 and docx.content[:2] == b"PK"
     assert "filename=" in docx.headers["content-disposition"]
+
+
+class _CiteLlm:
+    """Modelo falso que empilha 5 [n] numa linha; `hang` para no meio do stream."""
+
+    def __init__(self, hang: bool = False) -> None:
+        self.hang = hang
+        self.started = asyncio.Event()
+
+    async def generate_text(self, prompt: str, *, system: str | None = None) -> str:
+        return "Linha [1] [2] [3] [4] [5]"
+
+    async def generate_text_stream(self, prompt: str, on_token, *, system: str | None = None) -> str:
+        on_token("Linha [1] [2] [3] [4] [5]")
+        if self.hang:
+            self.started.set()
+            await asyncio.Event().wait()
+        return "Linha [1] [2] [3] [4] [5]"
+
+
+async def test_reply_caps_citations_in_saved_message(tmp_path) -> None:
+    store = SqliteStore(tmp_path / "db.sqlite")
+    await store.initialize()
+    chat, message, _ = await ChatService(_CiteLlm(), store).ask("Pergunta")
+    stored = (await store.list_chat_messages(chat.id))[-1]
+    assert len(re.findall(r"\[\d+\]", message.content)) == 3
+    assert stored.content == message.content
+
+
+async def test_interrupted_partial_caps_citations(tmp_path) -> None:
+    store = SqliteStore(tmp_path / "db.sqlite")
+    await store.initialize()
+    llm = _CiteLlm(hang=True)
+    task = asyncio.create_task(ChatService(llm, store).ask("Pergunta", on_token=lambda _t: None))
+    await llm.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.05)  # a gravação protegida termina fora do cancelamento
+    chat = (await store.list_chats())[0]
+    stored = (await store.list_chat_messages(chat.id))[-1]
+    assert stored.interrupted is True
+    assert len(re.findall(r"\[\d+\]", stored.content)) == 3

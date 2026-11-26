@@ -298,6 +298,16 @@ async def test_calendar_test_route_returns_limited(client: AsyncClient, app) -> 
     assert (await client.post("/calendar/test", json=body)).status_code == 401
 
 
+async def test_upcoming_route_flags_busy_only(client: AsyncClient, app) -> None:
+    container = app.state.container
+    await container.store.set_setting("calendar_ics_url", "https://calendar.example.com/a.ics")
+    container.brief = BriefService(container.store, _FakeCalendar(BUSY_ICS))
+    assert (await client.get("/calendar/upcoming", headers=auth())).json()["busy_only"] is True
+    container.brief = BriefService(container.store, _FakeCalendar(ICS))
+    assert (await client.get("/calendar/upcoming", headers=auth())).json()["busy_only"] is False
+    assert (await client.get("/calendar/upcoming")).status_code == 401
+
+
 # ------------------------------------------------------------- briefing
 
 
@@ -351,7 +361,7 @@ async def test_brief_endpoint_for_session_excludes_itself(client: AsyncClient, a
     assert response.status_code == 200
     assert [item["session_id"] for item in response.json()["related"]] == [before.id]
     empty = await client.get("/calendar/upcoming", headers=auth())
-    assert empty.json() == {"configured": False, "error": None, "events": []}
+    assert empty.json() == {"configured": False, "error": None, "busy_only": False, "events": []}
 
 
 # ------------------------------------------------------------- retenção

@@ -22,6 +22,18 @@ export interface Session {
   has_audio?: boolean;
   template_id?: string | null;
   transcript_purged_at?: string | null;
+  /** ISO quando arquivada: some de Recentes, segue na busca e no chat. */
+  archived_at?: string | null;
+  /** ISO quando foi para a lixeira: apagada de vez 30 dias depois. */
+  deleted_at?: string | null;
+}
+
+export type SessionScope = "active" | "archived" | "trash";
+export type SessionBulkAction = "archive" | "unarchive" | "trash" | "restore" | "purge";
+
+export interface SessionBulkResult {
+  done: string[];
+  failed: { id: string; reason: string }[];
 }
 
 export type NoteKind = "decision" | "task" | "important" | "question";
@@ -140,6 +152,7 @@ export interface CalendarEvent {
 export interface Upcoming {
   configured: boolean;
   error: string | null;
+  busy_only?: boolean;
   events: CalendarEvent[];
 }
 
@@ -161,6 +174,9 @@ export interface MeetingStatus {
   dismissed?: boolean;
   auto_session_id?: string | null;
 }
+
+/** Pergunta pendente da gravação: silêncio, só música ou fim do horário do evento. */
+export type IdleAlertKind = "silence" | "music" | "event_end";
 
 export type CaptureMode = "dictation" | "lecture" | "meeting";
 
@@ -260,6 +276,9 @@ export interface CaptureState {
   started_at?: string | null;
   /** Pausado: a sessão segue aberta, o áudio é descartado. */
   paused?: boolean;
+  /** Pausa acumulada em ms; paused_at marca a pausa em curso. O timer desconta os dois. */
+  paused_ms?: number;
+  paused_at?: string | null;
 }
 
 export interface MonitorFrame {
@@ -329,6 +348,12 @@ export interface Settings {
   headphones?: boolean;
   auto_summary?: boolean;
   silence_alert?: boolean;
+  /** Gravar automaticamente quando um evento da agenda começa (padrão ligado com agenda conectada). */
+  calendar_auto_record?: boolean;
+  /** Atualizou com agenda conectada: a tela oferece a gravação automática uma vez. */
+  calendar_auto_record_offer?: boolean;
+  /** Agenda só livre/ocupado: gravar esses blocos também (padrão desligado). */
+  calendar_record_busy?: boolean;
 }
 
 export interface ModelOption {

@@ -14,7 +14,10 @@ import type {
   SearchResult,
   Segment,
   Session,
+  SessionBulkAction,
+  SessionBulkResult,
   SessionDetail,
+  SessionScope,
   Settings,
   SetupComponent,
   SetupPlan,
@@ -207,6 +210,8 @@ export const api = {
     participant_ids?: string[];
     capture_mode?: CaptureMode;
     template_id?: string | null;
+    /** Fim planejado (ISO com fuso): no horário, o backend pergunta se continua. */
+    planned_end?: string;
   }) =>
     request<CaptureState>("/capture/start", {
       method: "POST",
@@ -216,18 +221,25 @@ export const api = {
   pauseCapture: () => request<CaptureState>("/capture/pause", { method: "POST" }),
   resumeCapture: () => request<CaptureState>("/capture/resume", { method: "POST" }),
   dismissIdleAlert: () => request<unknown>("/capture/idle-alert/dismiss", { method: "POST" }),
-  sessions: (tagId?: string) => {
-    const query = tagId ? `?tag_id=${encodeURIComponent(tagId)}` : "";
-    return request<Session[]>(`/sessions${query}`);
+  sessions: (tagId?: string, scope: SessionScope = "active") => {
+    const params = new URLSearchParams({ scope });
+    if (tagId) params.set("tag_id", tagId);
+    return request<Session[]>(`/sessions?${params}`);
   },
-  session: (id: string) => request<SessionDetail>(`/sessions/${id}`),
+  /** includeTrash: a página da conversa abre também a que está na lixeira, para mostrar o aviso. */
+  session: (id: string, includeTrash = false) =>
+    request<SessionDetail>(`/sessions/${id}${includeTrash ? "?include=trash" : ""}`),
   renameSession: (id: string, title: string) =>
     request<Session>(`/sessions/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }),
-  deleteSession: (id: string) =>
-    request<void>(`/sessions/${id}`, { method: "DELETE" }),
+  /** Arquivar, lixeira, restaurar e apagar de vez: uma chamada para uma ou várias conversas. */
+  bulkSessions: (ids: string[], action: SessionBulkAction) =>
+    request<SessionBulkResult>("/sessions/bulk", {
+      method: "POST",
+      body: JSON.stringify({ ids, action }),
+    }),
   search: (q: string, sessionId?: string) => {
     const path = sessionId
       ? `/sessions/${sessionId}/search?q=${encodeURIComponent(q)}`
@@ -349,6 +361,8 @@ export async function askChat(
     images?: { name: string; mime: string; data: string }[];
     /** Reenvio depois de erro: o backend reaproveita a pergunta já gravada. */
     retry?: boolean;
+    /** Comando "/" escolhido (flashcards, exam...); o backend valida numa lista e ignora o resto. */
+    command?: string | null;
   },
   onToken: (token: string) => void,
   signal?: AbortSignal,

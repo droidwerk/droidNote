@@ -7,15 +7,6 @@ import { Icon } from "../../shared/ui/Icon";
 export const STYLES: ChatStyle[] = ["normal", "fast", "study", "solve"];
 export const SOLVE_TARGETS: SolveTarget[] = ["generic", "claude", "codex", "cursor"];
 
-export function readStyle(): ChatStyle {
-  try {
-    const stored = window.localStorage.getItem("droidnote.chatStyle");
-    return STYLES.includes(stored as ChatStyle) ? (stored as ChatStyle) : "normal";
-  } catch {
-    return "normal";
-  }
-}
-
 export function readSolveTarget(): SolveTarget {
   try {
     const stored = window.localStorage.getItem("droidnote.chatSolveTarget");

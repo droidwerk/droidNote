@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 import { api, askChat, openTranscriptSocket, setBackend } from "../../shared/api/client";
-import type { Brief, CaptureState } from "../../shared/api/types";
+import type { Brief, CaptureState, IdleAlertKind } from "../../shared/api/types";
 import { useI18n } from "../../shared/i18n";
-import { dragMiniWindow, focusMainWindow, resizeMiniWindow, setMiniFocus } from "../../shared/lib/miniWindow";
+import { dragMiniWindow, focusMainWindow, idleKind, resizeMiniWindow, setMiniFocus, surfaceMini } from "../../shared/lib/miniWindow";
 import { clusterToken, voiceName } from "../../shared/lib/voices";
+import { activeElapsedMs } from "../../shared/lib/format";
 import { AiThinking } from "../../shared/ui/AiThinking";
 import { Markdown } from "../../shared/ui/Markdown";
 import { Icon, type IconName } from "../../shared/ui/Icon";
 import { MEETING_DETECTION_ENABLED } from "../meeting/MeetingBanner";
+import { copyConsent } from "../consent/consent";
 
 interface Line {
   id: string;
@@ -21,7 +23,7 @@ type Pane = "live" | "ask" | "context";
 type Marker = "decision" | "task" | "important" | "question";
 /** bubble = só a bolha; record = cartão "Gravar" (clique parado); panel = mini painel. */
 type View = "bubble" | "record" | "panel";
-type AlertKind = "silence" | "music";
+type AlertKind = IdleAlertKind;
 
 const MARKERS: { id: Marker; icon: IconName }[] = [
   { id: "decision", icon: "check" },
@@ -32,7 +34,13 @@ const MARKERS: { id: Marker; icon: IconName }[] = [
 const QUICK_ASKS = ["sofar", "decided", "missed", "suggest"] as const;
 const TAIL = 8;
 const MEETING_CARD_MS = 20_000;
+/** Fim do evento: sem resposta nesse prazo o backend encerra (deadline_s do WS manda). */
+const EVENT_END_WAIT_S = 120;
 const IN_TAURI = "__TAURI_INTERNALS__" in window;
+/** Duração do morph da cápsula; igual a --morph em workflow.css. */
+const MORPH_MS = 260;
+/** Altura da linha da cápsula; igual ao grid-template-rows de .cap-shell. */
+const CAP_ROW = 32;
 
 /** Bolha flutuante: mostra se grava, pergunta quando precisa e cresce até o mini painel. */
 export function MiniConsole() {
@@ -48,7 +56,14 @@ export function MiniConsole() {
   // Com a janela principal à vista a bolha fica escondida e o aviso de reunião é dela.
   const [visible, setVisible] = useState(!IN_TAURI);
   const [alert, setAlert] = useState<AlertKind | null>(null);
-  const [level, setLevel] = useState(0);
+  // Prazo da pergunta (epoch ms) e duração total, para a barra regressiva.
+  const [deadline, setDeadline] = useState<{ at: number; total: number } | null>(null);
+  const alertRef = useRef<AlertKind | null>(null);
+  alertRef.current = alert;
+  // Gravação que a agenda começou sozinha: o painel mostra o botão do aviso aos participantes.
+  const [calendarStart, setCalendarStart] = useState(false);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const [marksOpen, setMarksOpen] = useState(false);
   const [marked, setMarked] = useState("");
   const [pane, setPane] = useState<Pane>("live");
@@ -60,9 +75,12 @@ export function MiniConsole() {
   const tail = useRef<HTMLOListElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const bubble = useRef<HTMLButtonElement>(null);
+  const shell = useRef<HTMLDivElement>(null);
+  // Nível do áudio vai direto na variável CSS da cápsula: sem render a cada evento monitor.
+  const setLevel = (value: number) => shell.current?.style.setProperty("--level", value.toFixed(2));
   const press = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
   const markBtn = useRef<HTMLButtonElement>(null);
-  const elapsed = useElapsed(capture?.recording ? capture.started_at ?? null : null);
+  const elapsed = useElapsed(capture?.recording ? capture : null);
 
   useEffect(() => {
     document.documentElement.classList.add("is-mini");
@@ -85,14 +103,31 @@ export function MiniConsole() {
     };
   }, []);
 
-  // A janela segue o tamanho do conteúdo, presa no canto da bolha.
+  // A janela segue o tamanho final da cápsula, presa no canto: cresce antes da animação e só encolhe depois dela.
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return undefined;
-    const fit = () => void resizeMiniWindow(el.offsetWidth, el.offsetHeight).catch(() => undefined);
+    let last = { w: 0, h: 0 };
+    let timer = 0;
+    const resize = (size: { w: number; h: number }) => void resizeMiniWindow(size.w, size.h).catch(() => undefined);
+    const fit = () => {
+      const target = capsuleTarget(el);
+      const grown = { w: Math.max(target.w, last.w), h: Math.max(target.h, last.h) };
+      if (grown.w !== last.w || grown.h !== last.h) resize(grown);
+      last = grown;
+      window.clearTimeout(timer);
+      if (target.w === grown.w && target.h === grown.h) return;
+      timer = window.setTimeout(() => {
+        last = target;
+        resize(target);
+      }, MORPH_MS + 40);
+    };
     const observer = new ResizeObserver(fit);
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
   }, []);
 
   // O Rust também mostra/esconde; aqui repetimos para não depender da janela principal acordada.
@@ -110,6 +145,10 @@ export function MiniConsole() {
         if (state === "minimized" || state === "hidden") {
           setVisible(true);
           void self.show();
+        } else if (alertRef.current && (state === "restored" || state === "shown")) {
+          // Pergunta pendente: a bolha continua à frente até alguém responder.
+          setVisible(false);
+          void surfaceMini();
         } else if (state === "restored" || state === "shown") {
           setVisible(false);
           setView("bubble");
@@ -142,21 +181,29 @@ export function MiniConsole() {
           ...(current ?? { mic_only: false, warning: null }),
           recording: Boolean(event.recording),
           paused: Boolean(event.paused),
+          paused_ms: typeof event.paused_ms === "number" ? event.paused_ms : 0,
+          paused_at: typeof event.paused_at === "string" ? event.paused_at : null,
           session_id: typeof event.session_id === "string" ? event.session_id : current?.session_id ?? null,
           started_at: typeof event.started_at === "string" ? event.started_at : null,
         }) as CaptureState);
         if (!event.recording || event.paused) setLevel(0);
         if (!event.recording) {
+          setCalendarStart(false);
           setAlert(null);
+          setDeadline(null);
           setView((current) => (current === "panel" ? "bubble" : current));
         }
         if (event.recording) setMeeting(null);
       }
-      if (event.type === "hello" && event.idle_alert && typeof event.idle_alert === "object") {
-        setAlert((event.idle_alert as { kind?: string }).kind === "music" ? "music" : "silence");
+      if (event.type === "hello") {
+        // Reconexão sem pergunta pendente limpa o cartão antigo.
+        const pending = event.idle_alert && typeof event.idle_alert === "object" ? (event.idle_alert as { kind?: unknown; deadline_s?: unknown }) : null;
+        setAlert(pending ? idleKind(pending.kind) : null);
+        setDeadline(pending ? toDeadline(idleKind(pending.kind), pending.deadline_s) : null);
       }
       if (event.type === "monitor" && typeof event.rms === "number") {
-        // raiz comprime a faixa: fala normal enche o anel sem saturar.
+        if (document.hidden) return;
+        // raiz comprime a faixa: fala normal enche as barras sem saturar.
         setLevel(Math.min(1, Math.sqrt(event.rms) * 2.5));
       }
       if (event.type === "meeting") {
@@ -164,8 +211,11 @@ export function MiniConsole() {
         if (event.status === "detected" && event.mode === "ask") setMeeting(typeof event.app === "string" ? event.app : "");
         else if (event.status === "dismissed" || event.status === "auto-started") setMeeting(null);
       }
+      if (event.type === "calendar" && event.status === "auto-started") setCalendarStart(true);
       if (event.type === "idle_alert") {
-        setAlert(event.status === "asked" ? (event.kind === "music" ? "music" : "silence") : null);
+        const asked = event.status === "asked";
+        setAlert(asked ? idleKind(event.kind) : null);
+        setDeadline(asked ? toDeadline(idleKind(event.kind), event.deadline_s) : null);
       }
       if (event.type === "segment" && event.segment && typeof event.segment === "object") {
         const segment = event.segment as { id?: string; text?: string; speaker_cluster?: string | null; speaker_name?: string | null };
@@ -181,6 +231,24 @@ export function MiniConsole() {
       }
     });
   }, [ready]);
+
+  // Toda pergunta traz a bolha à frente (desminimiza, mostra, reafirma topmost); respondida, volta ao normal.
+  // Só esconde na passagem pergunta -> nada: no mount a bolha pode já estar à vista pelo Rust.
+  const prevAlert = useRef<AlertKind | null>(null);
+  useEffect(() => {
+    const was = prevAlert.current;
+    prevAlert.current = alert;
+    if (!IN_TAURI) return;
+    if (alert) {
+      void surfaceMini();
+      return;
+    }
+    if (!was || visibleRef.current) return;
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().hide()).catch(() => undefined);
+  }, [alert]);
+
+  const now = useNow(deadline !== null);
+  const left = deadline ? Math.max(0, Math.ceil((deadline.at - now) / 1000)) : 0;
 
   const recording = Boolean(capture?.recording);
   const paused = recording && Boolean(capture?.paused);
@@ -224,7 +292,7 @@ export function MiniConsole() {
     if (was === shown) return;
     const root = box.current;
     if (shown === "panel") root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
-    else if (shown === "record") root?.querySelector<HTMLElement>(".bubble-card .button-primary")?.focus();
+    else if (shown === "record") root?.querySelector<HTMLElement>(".cap-body-in .cap-btn.is-primary")?.focus();
     // O painel some do DOM antes daqui: o foco cai no body e volta para a bolha.
     else if (shown === "bubble" && (document.activeElement === document.body || root?.contains(document.activeElement))) bubble.current?.focus();
   }, [shown]);
@@ -290,6 +358,8 @@ export function MiniConsole() {
         (token) => setAnswer((current) => current + token),
       );
       setChatId(result.chat.id);
+      // O backend corta citações empilhadas: o texto gravado substitui o que veio em tokens.
+      setAnswer(result.message.content);
     } catch (err) {
       setAnswer(err instanceof Error ? err.message : t("chat.fail"));
     } finally {
@@ -317,6 +387,7 @@ export function MiniConsole() {
   };
   const end = () => {
     setAlert(null);
+    setDeadline(null);
     collapse();
     void run(() => api.stopCapture());
   };
@@ -325,101 +396,129 @@ export function MiniConsole() {
     if (press.current?.dragged) return;
     void setMiniFocus(true);
     if (card === "alert" || card === "meeting") {
-      box.current?.querySelector<HTMLElement>(".bubble-card .button")?.focus();
+      box.current?.querySelector<HTMLElement>(".cap-body-in .cap-btn")?.focus();
       return;
     }
     setView((current) => (recording ? "panel" : current === "record" ? "bubble" : "record"));
   };
 
-  const bubbleLook = alert ? "is-ask" : recording && !paused ? "is-rec" : "is-idle";
+  const look = alert ? (alert === "event_end" ? "is-end" : "is-ask") : paused ? "is-paused" : recording ? "is-rec" : "is-idle";
   const bubbleLabel = alert
-    ? t("mini.bubbleAsk")
+    ? t(alert === "event_end" ? "mini.bubbleAskEventEnd" : "mini.bubbleAsk")
     : paused
       ? t("mini.bubblePaused")
       : recording
-        ? t("mini.bubbleRec")
-        : t("mini.bubbleIdle");
+        ? t("mini.bubbleRec", { minutes: formatMinutes(locale, Math.max(1, Math.floor(elapsed / 60_000))) })
+        : t(card === "record" ? "mini.bubbleIdleClose" : "mini.bubbleIdle");
+
+  const cardBody =
+    card === "record" ? (
+      <div className="cap-body-in" role="group" aria-labelledby="bubble-record-title">
+        <div className="cap-card-top">
+          <strong id="bubble-record-title">{t("mini.idleTitle")}</strong>
+          <button type="button" className="mini-icon" aria-label={t("mini.close")} title={t("mini.close")} onClick={collapse}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+        <button type="button" className="cap-btn is-primary" disabled={busy} onClick={() => record()}>
+          {t("mini.record")}
+        </button>
+      </div>
+    ) : card === "meeting" ? (
+      <div className="cap-body-in" role="group" aria-labelledby="bubble-meeting-title">
+        <div>
+          <strong id="bubble-meeting-title">{t("mini.meetingTitle")}</strong>
+          {meeting ? <p>{t("mini.meetingLine", { app: meeting })}</p> : null}
+        </div>
+        <div className="cap-acts is-two">
+          <button
+            type="button"
+            className="cap-btn is-primary"
+            disabled={busy}
+            onClick={() =>
+              record(
+                meeting
+                  ? `${meeting} · ${new Date().toLocaleString(document.documentElement.lang || undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+                  : undefined,
+              )
+            }
+          >
+            {t("mini.record")}
+          </button>
+          <button
+            type="button"
+            className="cap-btn"
+            onClick={() => {
+              setMeeting(null);
+              void api.dismissMeeting().catch(() => undefined);
+            }}
+          >
+            {t("mini.notNow")}
+          </button>
+        </div>
+      </div>
+    ) : card === "alert" ? (
+      <div className="cap-body-in" role="group" aria-labelledby="bubble-alert-title" aria-describedby="bubble-alert-line">
+        <div>
+          <strong id="bubble-alert-title">{alert === "event_end" ? t("mini.alertEventEndTitle") : t("mini.alertTitle")}</strong>
+          <p id="bubble-alert-line">
+            {alert === "event_end"
+              ? t("mini.alertEventEnd", { minutes: formatMinutes(locale, Math.max(1, Math.round((deadline?.total ?? EVENT_END_WAIT_S) / 60))) })
+              : alert === "music" ? t("mini.alertMusic") : t("mini.alertSilence")}
+          </p>
+        </div>
+        {deadline ? (
+          <div
+            className="cap-count"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={deadline.total}
+            aria-valuenow={left}
+            aria-label={t("mini.alertCountdown", { seconds: left })}
+            title={t("mini.alertCountdown", { seconds: left })}
+          >
+            <i style={{ transform: `scaleX(${left / deadline.total})` }} />
+          </div>
+        ) : null}
+        <div className="cap-acts">
+          <button
+            type="button"
+            className="cap-btn is-primary"
+            disabled={busy}
+            onClick={() => {
+              setAlert(null);
+              setDeadline(null);
+              void run(() => api.dismissIdleAlert());
+            }}
+          >
+            {alert === "event_end" ? t("mini.alertKeepRecording") : t("mini.alertContinue")}
+          </button>
+          <button type="button" className="cap-btn" disabled={busy} onClick={end}>
+            {t("mini.alertEnd")}
+          </button>
+        </div>
+      </div>
+    ) : null;
 
   return (
     <div className="bubble-box" ref={box}>
-      {card === "record" ? (
-        <div className="bubble-card" role="group" aria-labelledby="bubble-record-title">
-          <div className="bubble-card-top">
-            <strong id="bubble-record-title">{t("mini.idleTitle")}</strong>
-            <button type="button" className="mini-icon" aria-label={t("mini.close")} title={t("mini.close")} onClick={collapse}>
-              <Icon name="close" size={14} />
-            </button>
-          </div>
-          <button type="button" className="button button-primary button-sm" disabled={busy} onClick={() => record()}>
-            {t("mini.record")}
-          </button>
-        </div>
-      ) : null}
-      {card === "meeting" ? (
-        <div className="bubble-card" role="group" aria-labelledby="bubble-meeting-title">
-          <div>
-            <strong id="bubble-meeting-title">{t("mini.meetingTitle")}</strong>
-            {meeting ? <p>{t("mini.meetingLine", { app: meeting })}</p> : null}
-          </div>
-          <div className="bubble-card-acts is-two">
-            <button
-              type="button"
-              className="button button-primary button-sm"
-              disabled={busy}
-              onClick={() =>
-                record(
-                  meeting
-                    ? `${meeting} · ${new Date().toLocaleString(document.documentElement.lang || undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
-                    : undefined,
-                )
-              }
-            >
-              {t("mini.record")}
-            </button>
-            <button
-              type="button"
-              className="button button-ghost button-sm"
-              onClick={() => {
-                setMeeting(null);
-                void api.dismissMeeting().catch(() => undefined);
-              }}
-            >
-              {t("mini.notNow")}
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {card === "alert" ? (
-        <div className="bubble-card is-ask" role="group" aria-labelledby="bubble-alert-title" aria-describedby="bubble-alert-line">
-          <div>
-            <strong id="bubble-alert-title">{t("mini.alertTitle")}</strong>
-            <p id="bubble-alert-line">{alert === "music" ? t("mini.alertMusic") : t("mini.alertSilence")}</p>
-          </div>
-          <div className="bubble-card-acts">
-            <button
-              type="button"
-              className="button button-ghost button-sm"
-              disabled={busy}
-              onClick={() => {
-                setAlert(null);
-                void run(() => api.dismissIdleAlert());
-              }}
-            >
-              {t("mini.alertContinue")}
-            </button>
-            <button type="button" className="button button-primary button-sm" disabled={busy} onClick={end}>
-              {t("mini.alertEnd")}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {panel ? (
         <div className={paused ? "mini is-expanded bubble-panel" : "mini is-expanded is-live bubble-panel"} role="group" aria-label={t("mini.panelAria")}>
           <header className="mini-head" onPointerDown={(event) => !(event.target as HTMLElement).closest("button") && void dragMiniWindow()}>
             <span className="state-led" aria-hidden />
             <span className="mini-state">{paused ? t("mini.paused") : t("mini.recording")}</span>
             <span className="mini-clock">{formatTimecode(elapsed)}</span>
+            {calendarStart ? (
+              <button
+                type="button"
+                className="mini-icon"
+                title={t("consent.copyHint")}
+                aria-label={t("consent.copyHint")}
+                onClick={() => void copyConsent(t).then((ok) => ok && blink("consent"))}
+              >
+                <Icon name={flash === "consent" ? "check" : "shield"} size={14} />
+              </button>
+            ) : null}
             <button type="button" className="mini-icon" title={t("mini.openMain")} aria-label={t("mini.openMain")} onClick={() => void focusMainWindow()}>
               <Icon name="export" size={14} />
             </button>
@@ -612,13 +711,12 @@ export function MiniConsole() {
           </footer>
         </div>
       ) : (
-        <div className="bubble-slot">
-          {paused && !alert ? <span className="bubble-chip">{t("mini.paused")}</span> : null}
+        <div ref={shell} className={`cap-shell ${look}${cardBody ? " is-open" : ""}`}>
+          <div className="cap-body">{cardBody}</div>
           <button
             ref={bubble}
             type="button"
-            className={`bubble ${bubbleLook}`}
-            style={{ "--level": level } as CSSProperties}
+            className="cap"
             aria-label={bubbleLabel}
             aria-expanded={card !== null}
             onPointerDown={(event) => {
@@ -633,14 +731,18 @@ export function MiniConsole() {
             }}
             onClick={onBubble}
           >
-            {alert ? (
-              <span className="bubble-q" aria-hidden>
-                ?
-              </span>
-            ) : paused ? (
-              <Icon name="pause" size={16} />
-            ) : (
-              <span className="bubble-dot" aria-hidden />
+            {look === "is-paused" ? <Icon name="pause" size={14} /> : <span className="cap-led" aria-hidden />}
+            {look === "is-idle" ? null : (
+              <>
+                <span className="cap-wave" aria-hidden>
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span className={look === "is-paused" ? "cap-time is-state" : "cap-time"}>{look === "is-paused" ? t("mini.paused") : formatShort(elapsed)}</span>
+              </>
             )}
           </button>
         </div>
@@ -649,20 +751,65 @@ export function MiniConsole() {
   );
 }
 
-function useElapsed(startedAt: string | null): number {
+/** Prazo da pergunta: deadline_s do WS; o fim do evento sem prazo usa os 120 s do backend. */
+function toDeadline(kind: AlertKind, seconds: unknown): { at: number; total: number } | null {
+  const total = typeof seconds === "number" && seconds > 0 ? seconds : kind === "event_end" ? EVENT_END_WAIT_S : 0;
+  return total ? { at: Date.now() + total * 1000, total } : null;
+}
+
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return undefined;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [on]);
+  return now;
+}
+
+function useElapsed(capture: CaptureState | null): number {
   const [ms, setMs] = useState(0);
+  const startedAt = capture?.started_at ?? null;
+  const pausedMs = capture?.paused_ms ?? 0;
+  const pausedAt = capture?.paused_at ?? null;
   useEffect(() => {
     if (!startedAt) {
       setMs(0);
       return undefined;
     }
-    const origin = Date.parse(startedAt);
-    const tick = () => setMs(Math.max(0, Date.now() - origin));
+    const tick = () => setMs(activeElapsedMs(startedAt, pausedMs, pausedAt));
     tick();
     const timer = window.setInterval(tick, 500);
     return () => window.clearInterval(timer);
-  }, [startedAt]);
+  }, [startedAt, pausedMs, pausedAt]);
   return ms;
+}
+
+/** Tamanho final da caixa (não o do meio da animação): largura do --w da cápsula e altura do conteúdo do cartão. */
+function capsuleTarget(el: HTMLElement): { w: number; h: number } {
+  const shellEl = el.querySelector<HTMLElement>(".cap-shell");
+  if (!shellEl) return { w: el.offsetWidth, h: el.offsetHeight };
+  const box = getComputedStyle(el);
+  const padX = parseFloat(box.paddingLeft) + parseFloat(box.paddingRight);
+  const padY = parseFloat(box.paddingTop) + parseFloat(box.paddingBottom);
+  const width = parseFloat(getComputedStyle(shellEl).getPropertyValue("--w")) || shellEl.offsetWidth;
+  const body = shellEl.querySelector<HTMLElement>(".cap-body-in");
+  return { w: Math.ceil(width + padX), h: Math.ceil(CAP_ROW + (body?.offsetHeight ?? 0) + padY) };
+}
+
+/** "12 minutos" no idioma da UI; o Intl cuida do plural. */
+function formatMinutes(locale: string, minutes: number): string {
+  return new Intl.NumberFormat(locale, { style: "unit", unit: "minute", unitDisplay: "long" }).format(minutes);
+}
+
+/** Tempo curto da cápsula: mm:ss até uma hora, depois h:mm:ss. */
+function formatShort(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${m}:${s}` : `${m}:${s}`;
 }
 
 function formatTimecode(ms: number): string {

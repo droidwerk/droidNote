@@ -1,6 +1,20 @@
 import { bcp47 } from "../i18n/locales";
 import { currentUiLanguage } from "../i18n/runtime";
 
+/** Tempo gravado de fato: o relógio de parede menos as pausas (do usuário ou automática). Pausado, congela. */
+export function activeElapsedMs(
+  startedAt: string | null | undefined,
+  pausedMs = 0,
+  pausedAt: string | null = null,
+  now = Date.now(),
+): number {
+  const origin = startedAt ? Date.parse(startedAt) : NaN;
+  if (!Number.isFinite(origin)) return 0;
+  const since = pausedAt ? Date.parse(pausedAt) : NaN;
+  const running = Number.isFinite(since) ? Math.max(0, now - since) : 0;
+  return Math.max(0, now - origin - pausedMs - running);
+}
+
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(total / 3600);

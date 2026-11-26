@@ -557,7 +557,10 @@ class SetupService:
         if payload.self_person_id is not None:
             await self._store.set_setting("self_person_id", payload.self_person_id.strip())
         if payload.recordings_dir is not None:
+            from app.application.sessions import remember_recordings_dir
+
             folder = parse_recordings_dir(payload.recordings_dir, self._settings.data_dir)
+            await remember_recordings_dir(self._store, self._settings.resolve_recordings_dir(), folder)
             self._settings.recordings_dir = folder
             await self._store.set_setting("recordings_dir", str(folder))
         if payload.save_recordings is not None:
@@ -579,7 +582,15 @@ class SetupService:
                     raw = normalize_url(raw)
                 except CalendarError as exc:
                     raise ValueError(str(exc)) from exc
+            # Gravar blocos "Ocupado" vale só para a agenda em que o usuário ligou (LGPD art. 6, I e VI).
+            if (await self._store.get_setting("calendar_record_busy")) == "1" and raw != (
+                (await self._store.get_setting("calendar_ics_url")) or ""
+            ):
+                await self._store.set_setting("calendar_record_busy", "0")
             await self._store.set_setting("calendar_ics_url", raw)
+            # Primeira conexão: grava "1" explícito; só quem atualizou com agenda fica sem a chave.
+            if raw and (await self._store.get_setting("calendar_auto_record")) is None:
+                await self._store.set_setting("calendar_auto_record", "1")
         if payload.consent_message is not None:
             await self._store.set_setting("consent_message", payload.consent_message.strip())
         if payload.retention_audio_days is not None:
@@ -594,6 +605,11 @@ class SetupService:
             await self._store.set_setting("auto_summary", "1" if payload.auto_summary else "0")
         if payload.silence_alert is not None:
             await self._store.set_setting("silence_alert", "1" if payload.silence_alert else "0")
+        if payload.calendar_auto_record is not None:
+            await self._store.set_setting("calendar_auto_record", "1" if payload.calendar_auto_record else "0")
+            await self._store.set_setting("calendar_auto_record_offer", "0")
+        if payload.calendar_record_busy is not None:
+            await self._store.set_setting("calendar_record_busy", "1" if payload.calendar_record_busy else "0")
         if asr_changed:
             self._preload_asr()
 
@@ -640,6 +656,9 @@ class SetupService:
             headphones=(await self._store.get_setting("headphones")) == "1",
             auto_summary=(await self._store.get_setting("auto_summary")) != "0",
             silence_alert=(await self._store.get_setting("silence_alert")) != "0",
+            calendar_auto_record=(await self._store.get_setting("calendar_auto_record")) != "0",
+            calendar_auto_record_offer=(await self._store.get_setting("calendar_auto_record_offer")) == "1",
+            calendar_record_busy=(await self._store.get_setting("calendar_record_busy")) == "1",
         )
 
     async def _meeting_mode(self) -> str:

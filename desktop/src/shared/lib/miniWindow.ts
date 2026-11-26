@@ -1,3 +1,5 @@
+import type { IdleAlertKind } from "../api/types";
+
 // A janela "mini" é a bolha: criada escondida pelo Rust, mostrada quando a principal minimiza ou some.
 const MINI_LABEL = "mini";
 
@@ -111,6 +113,22 @@ export async function setTrayHint(text: string): Promise<void> {
     await (await TrayIcon.getById("main"))?.setTooltip(text);
   } catch {
     /* bandeja sem id ou sem permissão */
+  }
+}
+
+/** Tipo do idle_alert do WS; desconhecido vira silêncio, como antes. */
+export function idleKind(kind: unknown): IdleAlertKind {
+  return kind === "music" || kind === "event_end" ? kind : "silence";
+}
+
+/** Mostra a bolha por cima de tudo (pergunta pendente), mesmo minimizada ou atrás de outra janela flutuante. */
+export async function surfaceMini(): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("surface_mini");
+  } catch {
+    /* Rust antigo: segue sem trazer à frente */
   }
 }
 

@@ -24,6 +24,22 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
 
   useEffect(() => setEditing(!settings.has_calendar), [settings.has_calendar]);
 
+  // 14 dias, como o teste da agenda; o backend guarda o ICS em cache.
+  const [busyOnly, setBusyOnly] = useState(false);
+  // Sobe a cada agenda salva: trocar de agenda no mesmo host não muda calendar_hint.
+  const [calendarRev, setCalendarRev] = useState(0);
+  useEffect(() => {
+    if (!settings.has_calendar) return setBusyOnly(false);
+    let alive = true;
+    api
+      .upcoming(336)
+      .then((next) => alive && setBusyOnly(Boolean(next.busy_only)))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [settings.has_calendar, settings.calendar_hint, calendarRev]);
+
   const test = async () => {
     setTesting(true);
     setResult(null);
@@ -48,10 +64,16 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
   const save = async () => {
     if (!(await test())) return;
     try {
-      await persist({ calendar_ics_url: url.trim() });
+      const first = !settings.has_calendar;
+      const next = await persist({ calendar_ics_url: url.trim() });
       setUrl("");
       setEditing(false);
-      toast.push({ tone: "success", title: t("calendar.saved") });
+      setCalendarRev((rev) => rev + 1);
+      toast.push({
+        tone: "success",
+        title: t("calendar.saved"),
+        description: first && next.calendar_auto_record ? t("calendar.savedAutoOn") : undefined,
+      });
     } catch (err) {
       setResult(err instanceof Error ? err.message : t("settings.saveFail"));
     }
@@ -71,6 +93,46 @@ export function CalendarCard({ settings, persist }: { settings: Settings; persis
             {t("calendar.disconnect")}
           </Button>
         </div>
+      ) : null}
+      {settings.has_calendar && !editing ? (
+        <>
+        <label className="check-control">
+          <input
+            type="checkbox"
+            checked={settings.calendar_auto_record !== false}
+            aria-labelledby="calendar-auto-title"
+            aria-describedby="calendar-auto-hint"
+            onChange={(event) => void persist({ calendar_auto_record: event.target.checked }).catch(() => toast.push({ tone: "error", title: t("settings.saveFail") }))}
+          />
+          <span className="check-box" aria-hidden />
+          <span>
+            <strong id="calendar-auto-title">{t("meeting.calendarAutoRecord")}</strong>
+            <small id="calendar-auto-hint">
+              {t("meeting.calendarAutoRecordHint")}
+              {settings.provider === "openai" ? ` ${t("meeting.calendarAutoRecordCloud")}` : ""}
+            </small>
+          </span>
+        </label>
+        {/* Só para agenda livre/ocupado; quem já ligou continua vendo para poder desligar. */}
+        {busyOnly || settings.calendar_record_busy === true ? (
+        <label className="check-control is-sub">
+          <input
+            type="checkbox"
+            checked={settings.calendar_record_busy === true}
+            // Desligar fica sempre à mão (LGPD: revogar tão fácil quanto dar).
+            disabled={settings.calendar_auto_record === false && settings.calendar_record_busy !== true}
+            aria-labelledby="calendar-busy-title"
+            aria-describedby="calendar-busy-hint"
+            onChange={(event) => void persist({ calendar_record_busy: event.target.checked }).catch(() => toast.push({ tone: "error", title: t("settings.saveFail") }))}
+          />
+          <span className="check-box" aria-hidden />
+          <span>
+            <strong id="calendar-busy-title">{t("meeting.calendarRecordBusy")}</strong>
+            <small id="calendar-busy-hint">{t("meeting.calendarRecordBusyHint")}</small>
+          </span>
+        </label>
+        ) : null}
+        </>
       ) : (
         <>
           <input

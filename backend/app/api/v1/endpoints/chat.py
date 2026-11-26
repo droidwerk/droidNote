@@ -165,6 +165,7 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
                 scope=scope,
                 images=images,
                 retry=payload.retry,
+                command=payload.command,
                 on_chat=lambda chat: queue.put_nowait(("chat", chat.id)),
             )
             queue.put_nowait(
@@ -188,7 +189,11 @@ async def ask_chat(request: Request, payload: ChatAskIn) -> StreamingResponse:
             locale = payload.ui_language or container.settings.ui_language
             # Motor de IA fora do ar (Ollama parado, sem rede): a frase técnica do
             # httpx não ajuda ninguém; diz o que está acontecendo no idioma da interface.
-            if isinstance(exc, (httpx.HTTPError, ConnectionError, OSError)):
+            # Só travamento no meio da resposta; ConnectTimeout (motor fora do ar) cai em llm_not_ready.
+            if isinstance(exc, (TimeoutError, httpx.ReadTimeout)):
+                # Modelo travou no meio: o parcial já está gravado como interrompido.
+                queue.put_nowait(("error", ui_message(locale, "chat_stalled")))
+            elif isinstance(exc, (httpx.HTTPError, ConnectionError, OSError)):
                 queue.put_nowait(("error", ui_message(locale, "llm_not_ready")))
             else:
                 queue.put_nowait(("error", str(exc) or ui_message(locale, "chat_no_reply")))

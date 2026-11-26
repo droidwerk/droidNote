@@ -71,9 +71,11 @@ async def test_session_lifecycle_and_fts(client: AsyncClient, app) -> None:
     assert exported.status_code == 200
     assert "Standup semanal" in exported.text
 
-    deleted = await client.delete(f"/sessions/{session.id}", headers=auth())
+    # Apagar de vez só depois da lixeira.
+    assert (await client.delete(f"/sessions/{session.id}", headers=auth())).status_code == 204
+    deleted = await client.delete(f"/sessions/{session.id}", headers=auth(), params={"purge": "true"})
     assert deleted.status_code == 204
-    assert await store.get_session(session.id) is None
+    assert await store.get_session(session.id, include_trash=True) is None
     assert await store.list_segments(session.id) == []
     assert await store.get_summary(session.id) is None
 

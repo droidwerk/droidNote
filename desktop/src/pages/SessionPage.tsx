@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { api } from "../shared/api/client";
-import type { Brief, ChatFocus, NoteTemplate, Person, SessionDetail, Tag } from "../shared/api/types";
+import type { Brief, ChatFocus, NoteTemplate, Person, SessionBulkAction, SessionDetail, Tag } from "../shared/api/types";
 import { UserNotes } from "../features/notes/UserNotes";
 import { BriefCard } from "../features/brief/BriefCard";
 import { MindMapPanel } from "../features/mindmap/MindMapPanel";
@@ -11,6 +11,8 @@ import { templateName } from "../shared/lib/templates";
 import { bcp47, pluralForm, useI18n } from "../shared/i18n";
 import { AudioPlayer } from "../features/audio/AudioPlayer";
 import { FolderSelect } from "../features/session/FolderSelect";
+import { SessionRowMenu } from "../features/session/SessionRowMenu";
+import { daysLeftInTrash, useSessionActions } from "../features/session/useSessionActions";
 import { NoteDocument } from "../features/document/NoteDocument";
 import { modeIcon } from "../features/command/CommandPalette";
 import { TourButton } from "../features/onboarding/Tour";
@@ -22,7 +24,6 @@ import { VoiceTimeline } from "../features/voices/VoiceTimeline";
 import { formatClock, formatDate } from "../shared/lib/format";
 import { openLocalPath, parentDirectory, saveBlob } from "../shared/lib/saveFile";
 import { buildRoster, countWords, mergeVoicesByPerson } from "../shared/lib/voices";
-import { useConfirm } from "../shared/ui/ConfirmDialog";
 import { Icon, type IconName } from "../shared/ui/Icon";
 import { Button } from "../shared/ui/primitives";
 import { SessionTitle } from "../shared/ui/SessionTitle";
@@ -48,6 +49,8 @@ interface SessionPageProps {
   memoryRevision?: number;
   tasksRevision?: number;
   onOpenSession?: (sessionId: string) => void;
+  /** Sessão gravando agora (null sem gravação): o WAV ainda cresce e não pode ser baixado. */
+  liveSessionId?: string | null;
 }
 
 type ExportFormat = "markdown" | "pdf" | "docx" | "json";
@@ -128,12 +131,13 @@ export function SessionPage({
   onRenamed,
   onTagsChanged,
   languageLocked = false,
-  onAsk,
+  onAsk: onAskProp,
   summaryBusySessionId = null,
   summaryRevision = 0,
   memoryRevision = 0,
   tasksRevision = 0,
   onOpenSession,
+  liveSessionId = null,
 }: SessionPageProps) {
   const { t, locale } = useI18n();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -147,7 +151,7 @@ export function SessionPage({
   const [activeMs, setActiveMs] = useState<number | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [side, setSide] = useState<SideTab>("doc");
+  const [sideTab, setSide] = useState<SideTab>("doc");
   const [citeMs, setCiteMs] = useState<number | null>(null);
   const [dockMin, toggleDock] = useTranscriptDock();
   const [refining, setRefining] = useState(false);
@@ -156,12 +160,22 @@ export function SessionPage({
   const [stillOpen, setStillOpen] = useState<number | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const recipesRef = useRef<HTMLDivElement>(null);
-  const confirm = useConfirm();
   const toast = useToast();
 
   const reload = useCallback(async () => {
-    setDetail(await api.session(sessionId));
+    setDetail(await api.session(sessionId, true));
   }, [sessionId]);
+
+  // Desfazer pode chegar depois de trocar de conversa: recarrega sempre a que está aberta.
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  const actions = useSessionActions(
+    useCallback(() => {
+      onTagsChanged?.();
+      return reloadRef.current().catch(() => undefined);
+    }, [onTagsChanged]),
+    liveSessionId,
+  );
 
   const loadPeople = useCallback(async () => {
     setPeople(await api.people());
@@ -173,6 +187,14 @@ export function SessionPage({
     lastSummaryRevision.current = summaryRevision;
     void reload();
   }, [summaryRevision, reload]);
+
+  // Ao parar a gravação desta sessão, recarrega: o player aparece mesmo sem resumo automático.
+  const lastLive = useRef(liveSessionId);
+  useEffect(() => {
+    const was = lastLive.current;
+    lastLive.current = liveSessionId;
+    if (was === sessionId && liveSessionId !== sessionId) void reload();
+  }, [liveSessionId, sessionId, reload]);
 
   const cite = (ms: number) => {
     if (dockMin) toggleDock();
@@ -193,8 +215,16 @@ export function SessionPage({
     if (seekTo !== null && seekTo !== undefined) setSeekMs(seekTo);
   }, [seekTo, sessionId]);
 
+  // Na lixeira brief e memória dão 404: só busca depois de saber que a conversa não está lá.
+  const loadedId = detail?.session.id;
+  const inTrash = Boolean(detail?.session.deleted_at);
+
   // Reuniões parecidas (mesmo título ou mesmas pessoas) e o que ficou pendente nelas.
   useEffect(() => {
+    if (loadedId !== sessionId || inTrash) {
+      setBrief(null);
+      return;
+    }
     let alive = true;
     void api
       .brief({ sessionId })
@@ -203,10 +233,14 @@ export function SessionPage({
     return () => {
       alive = false;
     };
-  }, [sessionId, tasksRevision, memoryRevision, detail?.session.title]);
+  }, [sessionId, loadedId, inTrash, tasksRevision, memoryRevision, detail?.session.title]);
 
   // Selo da aba Memória = "Segue em aberto" do painel, não as tarefas pendentes.
   useEffect(() => {
+    if (loadedId !== sessionId || inTrash) {
+      setStillOpen(null);
+      return;
+    }
     let alive = true;
     void api
       .memory(sessionId)
@@ -215,7 +249,7 @@ export function SessionPage({
     return () => {
       alive = false;
     };
-  }, [sessionId, summaryRevision, memoryRevision, tasksRevision]);
+  }, [sessionId, loadedId, inTrash, summaryRevision, memoryRevision, tasksRevision]);
 
   const lastRevision = useRef(voicesRevision);
   useEffect(() => {
@@ -238,9 +272,17 @@ export function SessionPage({
     return <div className="page-loading">{t("session.loading")}</div>;
   }
 
+  // Na lixeira a conversa é só leitura: sem chat e sem gerar a ata de novo.
+  const trashedAt = detail.session.deleted_at ?? null;
+  const onAsk = trashedAt ? undefined : onAskProp;
+  const side: SideTab = trashedAt && sideTab === "memory" ? "doc" : sideTab;
+
   const filtered = query.trim()
     ? segments.filter((item) => item.text.toLowerCase().includes(query.trim().toLowerCase()))
     : segments;
+  const recordingNow = detail.session.status === "recording" || liveSessionId === sessionId;
+  // Na lixeira o áudio dá 404: sem player.
+  const audioReady = detail.session.has_audio && !recordingNow && !trashedAt;
 
   const rename = async (title: string) => {
     const updated = await api.renameSession(sessionId, title);
@@ -250,6 +292,7 @@ export function SessionPage({
   };
 
   const generate = async (chosen?: string | null) => {
+    if (trashedAt) return;
     setLoadingSummary(true);
     setSummaryError(null);
     try {
@@ -305,16 +348,10 @@ export function SessionPage({
     }
   };
 
-  const remove = async () => {
-    const ok = await confirm({
-      title: t("session.deleteTitle", { title: detail.session.title }),
-      description: t("session.deleteBody"),
-      confirmLabel: t("common.delete"),
-      tone: "danger",
-    });
-    if (!ok) return;
-    await api.deleteSession(sessionId);
-    onDeleted();
+  const act = async (action: SessionBulkAction) => {
+    const result =
+      action === "purge" ? await actions.purge([detail.session]) : await actions.apply([detail.session], action);
+    if (result?.done.includes(sessionId) && (action === "trash" || action === "purge")) onDeleted();
   };
 
   const assignVoice = async (cluster: string, payload: { person_id?: string | null; name?: string }) => {
@@ -342,7 +379,19 @@ export function SessionPage({
     <div className="page session">
       <header data-tour="session-head" className="page-head">
         <div className="page-head-copy">
-          <SessionTitle value={detail.session.title} onCommit={rename} />
+          <SessionTitle value={detail.session.title} disabled={Boolean(trashedAt)} onCommit={rename} />
+          {trashedAt || detail.session.archived_at ? (
+            <p className="session-archive-notice" role="status">
+              {trashedAt
+                ? daysLeftInTrash(trashedAt) === 0
+                  ? t("archive.trashNoticeToday")
+                  : t(`archive.trashNotice.${pluralForm(locale, daysLeftInTrash(trashedAt))}`, { count: daysLeftInTrash(trashedAt) })
+                : t("archive.archivedNotice")}
+              <button type="button" onClick={() => void act(trashedAt ? "restore" : "unarchive")}>
+                {trashedAt ? t("archive.restore") : t("archive.unarchive")}
+              </button>
+            </p>
+          ) : null}
           <p className="session-meta">
             <span>
               <Icon name={modeIcon(mode)} size={13} />
@@ -356,6 +405,7 @@ export function SessionPage({
           </p>
         </div>
         <div className="page-actions">
+          {trashedAt ? null : (
           <FolderSelect
             sessionId={sessionId}
             tags={detail.session.tags ?? []}
@@ -367,6 +417,7 @@ export function SessionPage({
               toast.push({ tone: "success", title: t("session.folderSaved") });
             }}
           />
+          )}
           {onAsk ? (
             <Button data-tour="session-ask" variant="quiet" onClick={() => onAsk({ sessionId, sessionTitle: detail.session.title })}>
               <Icon name="chat" size={15} />
@@ -429,9 +480,12 @@ export function SessionPage({
             ) : null}
           </div>
           <TourButton chapter="conversa" />
-          <Button variant="danger" className="page-actions-delete" onClick={() => void remove()} aria-label={t("common.delete")} title={t("common.delete")}>
-            <Icon name="trash" size={15} />
-          </Button>
+          <SessionRowMenu
+            session={detail.session}
+            live={recordingNow}
+            triggerClassName="button button-ghost page-actions-more"
+            onAction={(action) => void act(action)}
+          />
         </div>
       </header>
 
@@ -440,15 +494,17 @@ export function SessionPage({
 
       {detail.session.has_audio || detail.segments.length ? (
       <section data-tour="playback" className="panel playback">
-        {detail.session.has_audio ? (
-          <AudioPlayer sessionId={sessionId} seekMs={seekMs} onSeeked={() => setSeekMs(null)} onTimeMs={setActiveMs} />
+        {recordingNow && detail.session.has_audio ? (
+          <p className="muted">{t("audio.recording")}</p>
+        ) : audioReady ? (
+          <AudioPlayer key={detail.session.status} sessionId={sessionId} seekMs={seekMs} onSeeked={() => setSeekMs(null)} onTimeMs={setActiveMs} />
         ) : null}
         <VoiceTimeline
           segments={segments}
           roster={roster}
           durationMs={detail.session.duration_ms}
-          playheadMs={detail.session.has_audio ? activeMs : null}
-          onSeek={detail.session.has_audio ? (ms) => setSeekMs(ms) : undefined}
+          playheadMs={audioReady ? activeMs : null}
+          onSeek={audioReady ? (ms) => setSeekMs(ms) : undefined}
         />
       </section>
       ) : null}
@@ -495,7 +551,7 @@ export function SessionPage({
             sessionId={sessionId}
             assigningAll={assigning}
             activeMs={activeMs}
-            onSeek={detail.session.has_audio ? (ms) => setSeekMs(ms) : undefined}
+            onSeek={audioReady ? (ms) => setSeekMs(ms) : undefined}
             onAskSelected={
               onAsk
                 ? (segment) =>
@@ -538,7 +594,9 @@ export function SessionPage({
             <SideTabButton id="notes" icon="edit" label={t("notes.tab")} side={side} onPick={setSide} />
             <SideTabButton id="context" icon="attach" label={t("context.tab")} side={side} onPick={setSide} />
             <SideTabButton id="mindmap" icon="mindmap" label={t("mindmap.tab")} side={side} onPick={setSide} />
-            <SideTabButton id="memory" icon="memory" label={t("memory.tab")} side={side} onPick={setSide} count={stillOpen ?? undefined} />
+            {trashedAt ? null : (
+              <SideTabButton id="memory" icon="memory" label={t("memory.tab")} side={side} onPick={setSide} count={stillOpen ?? undefined} />
+            )}
             <SideTabButton id="voices" icon="voice" label={t("voices.title")} side={side} onPick={setSide} count={roster.length} />
           </div>
           {side === "notes" ? (
@@ -587,17 +645,21 @@ export function SessionPage({
                   <SummaryPanel
                     summary={detail.summary}
                     loading={loadingSummary || summaryBusySessionId === sessionId}
-                    disabled={false}
+                    disabled={Boolean(trashedAt)}
                     title={detail.session.title}
                     captureMode={mode}
                     templates={templates}
                     templateId={detail.session.template_id ?? null}
                     onGenerate={(chosen) => void generate(chosen)}
                     onCite={cite}
-                    onSaveNote={async (markdown) => {
-                      const summary = await api.saveNote(sessionId, markdown);
-                      setDetail({ ...detail, summary });
-                    }}
+                    onSaveNote={
+                      trashedAt
+                        ? undefined
+                        : async (markdown) => {
+                            const summary = await api.saveNote(sessionId, markdown);
+                            setDetail({ ...detail, summary });
+                          }
+                    }
                   />
                 }
               />
@@ -611,7 +673,7 @@ export function SessionPage({
                 refining={refining}
                 onAssign={assignVoice}
                 onRefine={() => void refine()}
-                onFocusVoice={detail.session.has_audio ? (voice) => setSeekMs(voice.firstMs) : undefined}
+                onFocusVoice={audioReady ? (voice) => setSeekMs(voice.firstMs) : undefined}
                 onDownloadEngine={onDownloadVoice}
                 engineBusy={voiceDownloading}
               />

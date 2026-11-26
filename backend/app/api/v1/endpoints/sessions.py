@@ -36,6 +36,10 @@ from app.schemas.api import (
     SearchOut,
     SegmentOut,
     SegmentSpeakerIn,
+    SessionBulkFailOut,
+    SessionBulkIn,
+    SessionBulkOut,
+    SessionCountsOut,
     SessionDetailOut,
     SessionOut,
     SessionTagsIn,
@@ -96,13 +100,18 @@ async def _named_segments(request: Request, segments) -> list[SegmentOut]:
     return [SegmentOut.from_domain(item, names) for item in segments]
 
 
+def _live_id(container: AppContainer) -> str | None:
+    return container.capture.state.session_id if container.capture.is_recording() else None
+
+
 @router.get("", response_model=list[SessionOut])
 async def list_sessions(
     request: Request,
     tag_id: str | None = Query(default=None),
+    scope: str = Query(default="active", pattern="^(active|archived|trash)$"),
 ) -> list[SessionOut]:
     container = get_container(request.app)
-    sessions = await container.sessions.list_sessions()
+    sessions = await container.sessions.list_sessions(scope)
     tag_map = await container.store.tags_by_session_ids([item.id for item in sessions])
     audio = _audio_ids(container)
     if tag_id:
@@ -117,6 +126,32 @@ async def list_sessions(
     ]
 
 
+@router.get("/counts", response_model=SessionCountsOut)
+async def session_counts(request: Request) -> SessionCountsOut:
+    return SessionCountsOut(**await get_container(request.app).store.session_counts())
+
+
+@router.post("/bulk", response_model=SessionBulkOut)
+async def bulk_sessions(payload: SessionBulkIn, request: Request) -> SessionBulkOut:
+    """Uma ação para várias conversas; cada id no seu próprio commit, falha de um não desfaz os outros."""
+    container = get_container(request.app)
+    live = _live_id(container)
+    done: list[str] = []
+    failed: list[SessionBulkFailOut] = []
+    for session_id in dict.fromkeys(payload.ids):
+        reason = await container.sessions.apply(
+            session_id,
+            payload.action,
+            recording=session_recording_path(container.settings, session_id),
+            live_id=live,
+        )
+        if reason:
+            failed.append(SessionBulkFailOut(id=session_id, reason=reason))
+        else:
+            done.append(session_id)
+    return SessionBulkOut(done=done, failed=failed)
+
+
 @router.get("/search", response_model=SearchOut)
 async def search_all(
     request: Request,
@@ -125,23 +160,33 @@ async def search_all(
     container = get_container(request.app)
     segments = await container.sessions.search(q)
     extras = await search_extras(container.store, q)
+    # Notas, atas e tarefas de conversa na lixeira não aparecem; arquivadas continuam.
+    kept = {item.id for item in await container.store.list_sessions()}
+
+    def visible(session_id: str | None) -> bool:
+        return session_id is None or session_id in kept
+
     return SearchOut(
         query=q,
         segments=await _named_segments(request, segments),
-        notes=[NoteHitOut(**asdict(item)) for item in extras.notes],
-        summaries=[SummaryHitOut(**asdict(item)) for item in extras.summaries],
-        tasks=[TaskHitOut(**asdict(item)) for item in extras.tasks],
+        notes=[NoteHitOut(**asdict(item)) for item in extras.notes if visible(item.session_id)],
+        summaries=[SummaryHitOut(**asdict(item)) for item in extras.summaries if visible(item.session_id)],
+        tasks=[TaskHitOut(**asdict(item)) for item in extras.tasks if visible(item.session_id)],
     )
 
 
 @router.get("/{session_id}", response_model=SessionDetailOut)
-async def get_session(session_id: str, request: Request) -> SessionDetailOut:
+async def get_session(
+    session_id: str,
+    request: Request,
+    include: str | None = Query(default=None, pattern="^trash$"),
+) -> SessionDetailOut:
     container = get_container(request.app)
     try:
-        session = await container.sessions.get(session_id)
+        session = await container.sessions.get(session_id, include_trash=include == "trash")
     except KeyError:
         raise _missing(request) from None
-    segments = await container.sessions.segments(session_id)
+    segments = await container.store.list_segments(session_id)
     summary = await container.store.get_summary(session_id)
     participants = await container.speakers.participants(session_id)
     names = await container.speakers.name_map()
@@ -190,11 +235,24 @@ async def save_note(session_id: str, payload: NoteUpdateIn, request: Request) ->
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_session(session_id: str, request: Request) -> None:
-    try:
-        await get_container(request.app).sessions.delete(session_id)
-    except KeyError:
-        raise _missing(request) from None
+async def delete_session(
+    session_id: str,
+    request: Request,
+    purge: bool = Query(default=False),
+) -> None:
+    """Sem `purge`: vai para a lixeira. `?purge=true`: apaga de vez, com o áudio, só o que já
+    está na lixeira (409 not_trashed como no bulk): nenhum cliente pula a lixeira."""
+    container = get_container(request.app)
+    reason = await container.sessions.apply(
+        session_id,
+        "purge" if purge else "trash",
+        recording=session_recording_path(container.settings, session_id),
+        live_id=_live_id(container),
+    )
+    if reason == "missing":
+        raise _missing(request)
+    if reason:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
 
 
 @router.get("/{session_id}/search", response_model=SearchOut)
@@ -716,7 +774,7 @@ async def export_session(
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'},
         )
-    detail = await get_session(session_id, request)
+    detail = await get_session(session_id, request, include=None)
     return JSONResponse(
         content=json.loads(detail.model_dump_json()),
         headers={"Content-Disposition": f'attachment; filename="{filename_base}.json"'},

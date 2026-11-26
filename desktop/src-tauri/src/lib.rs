@@ -19,8 +19,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "DroidNote";
 const AUTOSTART_ARG: &str = "--autostart";
-/// Janela da bolha: 44 px de bolha + folga para o anel de nível e o chip "Pausado".
-const BUBBLE_WINDOW: f64 = 64.0;
+/// Cápsula parada (32 px) mais o padding de 8 px da caixa medida pela mini.
+const BUBBLE_WINDOW: f64 = 48.0;
 const BUBBLE_MARGIN: f64 = 24.0;
 
 #[derive(Clone, Serialize)]
@@ -371,19 +371,39 @@ fn focus_main_window(app: &tauri::AppHandle) {
 /// Publica "main-window-state" e mostra/esconde a bolha aqui no Rust: o webview
 /// principal minimizado ou oculto tem JS estrangulado e reagiria tarde.
 fn set_main_state(app: &tauri::AppHandle, state: &'static str) {
+    let away = matches!(state, "minimized" | "hidden");
+    let bubble = app.get_webview_window("mini");
+    // Antes do dedup: um segundo "minimized" ainda resgata uma bolha perdida.
+    if let (true, Some(bubble)) = (away, &bubble) {
+        raise_bubble(bubble);
+    }
     if let Ok(mut last) = app.state::<AppState>().main_state.lock() {
         if *last == state {
             return;
         }
         *last = state;
     }
-    if let Some(bubble) = app.get_webview_window("mini") {
-        let _ = match state {
-            "minimized" | "hidden" => bubble.show(),
-            _ => bubble.hide(),
-        };
+    if let (false, Some(bubble)) = (away, &bubble) {
+        let _ = bubble.hide();
     }
     let _ = app.emit("main-window-state", serde_json::json!({ "state": state }));
+}
+
+/// Traz a bolha de volta: desminimiza, mostra e reafirma o topmost. O tao só aplica
+/// always_on_top quando o valor muda, então false -> true força o SetWindowPos.
+fn raise_bubble(bubble: &tauri::WebviewWindow) {
+    let _ = bubble.unminimize();
+    let _ = bubble.show();
+    let _ = bubble.set_always_on_top(false);
+    let _ = bubble.set_always_on_top(true);
+}
+
+/// Pergunta pendente (silêncio, música, fim do evento): a bolha aparece mesmo com a principal aberta.
+#[tauri::command]
+fn surface_mini(app: tauri::AppHandle) {
+    if let Some(bubble) = app.get_webview_window("mini") {
+        raise_bubble(&bubble);
+    }
 }
 
 fn on_main_window_event(window: &tauri::Window, event: &WindowEvent) {
@@ -402,7 +422,12 @@ fn on_main_window_event(window: &tauri::Window, event: &WindowEvent) {
                 set_main_state(app, "restored");
             }
         }
-        WindowEvent::Focused(true) => set_main_state(app, "restored"),
+        // Foco chega também com a janela minimizada (clique na barra): não esconde a bolha nesse caso.
+        WindowEvent::Focused(true)
+            if !window.is_minimized().unwrap_or(false) && window.is_visible().unwrap_or(false) =>
+        {
+            set_main_state(app, "restored")
+        }
         _ => {}
     }
 }
@@ -420,10 +445,12 @@ fn create_bubble(app: &tauri::App) -> tauri::Result<()> {
             .transparent(true)
             .shadow(false)
             .focusable(false)
+            // Sem botão de minimizar: Win+Down/Win+M com a bolha focada sumiam com ela (sem barra de tarefas).
+            .minimizable(false)
             .resizable(false);
     let bubble = builder.build()?;
     // Em px físicos e pela borda externa: posição lógica converte pela escala do monitor
-    // onde a janela nasceu, e a moldura invisível do Windows deixa a borda externa maior que 64.
+    // onde a janela nasceu, e a moldura invisível do Windows deixa a borda externa maior que 48.
     if let Some(monitor) = app.primary_monitor()? {
         let area = monitor.work_area();
         let outer = bubble.outer_size()?;
@@ -454,7 +481,8 @@ pub fn run() {
             get_backend,
             save_export_file,
             autostart_get,
-            autostart_set
+            autostart_set,
+            surface_mini
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" {
@@ -517,6 +545,18 @@ pub fn run() {
                 })
                 .build(app)?;
             create_bubble(app)?;
+            // Outra janela topmost (Teams, Meet, Zoom) cobre a bolha não ativável; reafirma a cada 4 s.
+            // ponytail: polling; trocar por SetWinEventHook(EVENT_SYSTEM_FOREGROUND) se a CPU pesar.
+            let handle = app.handle().clone();
+            thread::spawn(move || loop {
+                thread::sleep(Duration::from_secs(4));
+                if let Some(bubble) = handle.get_webview_window("mini") {
+                    if bubble.is_visible().unwrap_or(false) {
+                        let _ = bubble.set_always_on_top(false);
+                        let _ = bubble.set_always_on_top(true);
+                    }
+                }
+            });
             // A janela nasce oculta (tauri.conf.json) e aparece aqui, já pronta, sem flash.
             // Também no --autostart: iniciar com o Windows abre o app, não só a bandeja.
             focus_main_window(app.handle());

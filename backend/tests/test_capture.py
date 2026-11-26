@@ -697,3 +697,160 @@ async def test_idle_alert_short_blips_do_not_reset_silence(client: AsyncClient, 
     asked, elapsed = await _tick_until_asked(capture, clock, events, feed, 320)
     assert [item["kind"] for item in asked] == ["silence"]
     assert elapsed == 300
+
+
+# --- Fim do evento da agenda (planned_end) ---
+
+
+async def _start_event(client: AsyncClient, app, **settings) -> tuple[_Clock, asyncio.Queue, dict]:
+    from datetime import UTC, datetime, timedelta
+
+    if settings:
+        await client.put("/setup/settings", headers=auth(), json=settings)
+    end = datetime.now(tz=UTC) + timedelta(hours=1)
+    wall = {"now": end - timedelta(seconds=1)}
+    capture = app.state.container.capture
+    capture._wall = lambda: wall["now"]
+    clock = _Clock()
+    capture._clock = clock
+    events = await app.state.container.bus.subscribe()
+    started = await client.post(
+        "/capture/start", headers=auth(), json={"mic_only": True, "planned_end": end.isoformat()}
+    )
+    assert started.status_code == 200, started.text
+    assert capture._planned_end == end
+    wall["end"] = end
+    return clock, events, wall
+
+
+@pytest.mark.asyncio
+async def test_event_end_asks_even_with_silence_alert_off_and_stops_without_speech(
+    client: AsyncClient, app
+) -> None:
+    clock, events, wall = await _start_event(client, app, silence_alert=False)
+    capture = app.state.container.capture
+    stopped: list[str] = []
+
+    async def on_auto_stop() -> None:
+        stopped.append(capture.state.session_id)
+        await capture.stop()
+
+    capture.on_auto_stop = on_auto_stop
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    wall["now"] = wall["end"]
+    await capture.idle_tick()
+    [asked] = _idle_events(events)
+    assert asked["status"] == "asked" and asked["kind"] == "event_end" and asked["deadline_s"] == 120
+    assert capture.idle_alert == {"kind": "event_end"}
+    clock.now += 119
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    clock.now += 1
+    await capture.idle_tick()
+    [done] = _idle_events(events)
+    assert done["status"] == "auto_stopped" and done["kind"] == "event_end"
+    await capture._auto_stop_task
+    assert stopped and capture.state.recording is False
+    session = await app.state.container.store.get_session(stopped[0])
+    assert session.status == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_event_end_keeps_recording_when_people_still_talk(client: AsyncClient, app) -> None:
+    clock, events, wall = await _start_event(client, app)
+    capture = app.state.container.capture
+    wall["now"] = wall["end"]
+    await capture.idle_tick()
+    assert [item["status"] for item in _idle_events(events)] == ["asked"]
+    clock.now += 30
+    capture._audio.callback(_chunk(app, 3.0, 0.2))
+    clock.now += 90
+    await capture.idle_tick()
+    assert [item["status"] for item in _idle_events(events)] == ["cleared"]
+    assert capture.state.recording is True and capture.idle_alert is None
+    # Nunca pergunta de novo; o silêncio de sempre segue valendo.
+    clock.now += 299
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    clock.now += 1
+    await capture.idle_tick()
+    assert [(item["status"], item["kind"]) for item in _idle_events(events)] == [("asked", "silence")]
+
+
+@pytest.mark.asyncio
+async def test_event_end_continue_never_asks_again(client: AsyncClient, app) -> None:
+    from datetime import timedelta
+
+    clock, events, wall = await _start_event(client, app)
+    capture = app.state.container.capture
+    wall["now"] = wall["end"]
+    await capture.idle_tick()
+    dismissed = await client.post("/capture/idle-alert/dismiss", headers=auth())
+    assert dismissed.status_code == 200
+    assert [(item["status"], item["kind"]) for item in _idle_events(events)] == [
+        ("asked", "event_end"),
+        ("dismissed", "event_end"),
+    ]
+    clock.now += 200
+    wall["now"] = wall["end"] + timedelta(minutes=5)
+    await capture.idle_tick()
+    assert _idle_events(events) == []
+    assert capture.state.recording is True
+
+
+@pytest.mark.asyncio
+async def test_start_ignores_bad_planned_end_and_rejects_bad_type(client: AsyncClient, app) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    capture = app.state.container.capture
+    now = datetime.now(tz=UTC)
+    for value in (
+        (now - timedelta(minutes=1)).isoformat(),
+        (now + timedelta(hours=25)).isoformat(),
+        (now + timedelta(hours=1)).replace(tzinfo=None).isoformat(),
+    ):
+        started = await client.post("/capture/start", headers=auth(), json={"mic_only": True, "planned_end": value})
+        assert started.status_code == 200, started.text
+        assert capture._planned_end is None
+        await client.post("/capture/stop", headers=auth())
+    bad = await client.post("/capture/start", headers=auth(), json={"mic_only": True, "planned_end": "amanhã"})
+    assert bad.status_code == 422
+    no_auth = await client.post("/capture/start", json={"mic_only": True})
+    assert no_auth.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_calendar_auto_record_setting_defaults_on(client: AsyncClient) -> None:
+    got = await client.get("/setup/settings", headers=auth())
+    assert got.json()["calendar_auto_record"] is True
+    saved = await client.put("/setup/settings", headers=auth(), json={"calendar_auto_record": False})
+    assert saved.json()["calendar_auto_record"] is False
+
+
+@pytest.mark.asyncio
+async def test_idle_speech_needs_voice_in_half_the_mic_block(client: AsyncClient, app) -> None:
+    import numpy as np
+
+    clock, events = await _start_idle(client, app)
+    capture = app.state.container.capture
+
+    class _OneFrame:
+        # Ruído de sala: o Silero acende um quadro solto em cada bloco.
+        def mask(self, samples):
+            out = np.zeros(len(samples), dtype=bool)
+            out[: len(samples) // 4] = True
+            return out
+
+    capture._neural_vad = True
+    capture._mic_vad = _OneFrame()
+    rate = app.state.container.settings.sample_rate
+    tenth = rate // 10
+
+    def feed(_t: float) -> None:
+        for _ in range(10):
+            capture._audio.callback(AudioChunk(samples=[0.05] * tenth, sample_rate=rate, timestamp_ms=0))
+
+    asked, elapsed = await _tick_until_asked(capture, clock, events, feed, 320)
+    assert asked and asked[0]["status"] == "asked"
+    assert elapsed == 300

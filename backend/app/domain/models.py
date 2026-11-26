@@ -46,6 +46,11 @@ class Session:
     template_id: str | None = None
     # A retenção apagou a fala desta sessão; ata, notas e tarefas continuam.
     transcript_purged_at: datetime | None = None
+    # Arquivada: some de Recentes, continua no chat e na busca. Lixeira: some de tudo; 30 dias e sai de vez.
+    archived_at: datetime | None = None
+    deleted_at: datetime | None = None
+    # Tempo pausado gravado no stop; a duração exibida desconta. Sessão antiga: 0.
+    paused_ms: int = 0
 
 
 @dataclass(frozen=True)

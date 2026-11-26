@@ -731,6 +731,19 @@ textarea::placeholder {
   opacity: 0.5;
 }
 
+/* Opção que depende da de cima: alinha o texto ao da caixa-mãe (18px + 10px). */
+.check-control.is-sub {
+  margin-inline-start: 28px;
+}
+
+.check-control:has(input:disabled) {
+  cursor: default;
+}
+
+.check-control:has(input:disabled) strong {
+  color: var(--muted);
+}
+
 .check-control strong {
   display: block;
   font-size: 13px;

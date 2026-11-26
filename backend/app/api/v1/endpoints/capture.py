@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -39,6 +40,8 @@ def _state_out(state) -> CaptureStateOut:
         loopback_name=getattr(state, "loopback_name", None),
         started_at=getattr(state, "started_at", None),
         paused=getattr(state, "paused", False),
+        paused_ms=getattr(state, "paused_ms", 0),
+        paused_at=getattr(state, "paused_at", None),
     )
 
 
@@ -63,10 +66,19 @@ async def start_capture(payload: CaptureStartIn, request: Request) -> CaptureSta
             participant_ids=payload.participant_ids,
             capture_mode=payload.capture_mode,
             template_id=payload.template_id,
+            planned_end=_planned_end(payload.planned_end),
         )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
     return _state_out(state)
+
+
+def _planned_end(value: datetime | None) -> datetime | None:
+    """Só um fim com fuso, no futuro e em até 24 h; o resto vira gravação sem fim previsto."""
+    if value is None or value.tzinfo is None:
+        return None
+    now = datetime.now(tz=UTC)
+    return value if now < value <= now + timedelta(hours=24) else None
 
 
 @router.post("/stop", response_model=CaptureStateOut)

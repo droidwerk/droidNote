@@ -467,155 +467,291 @@ html.is-mini #root {
 }
 
 /* Preso no canto inferior direito; a janela mede esta caixa e cresce a partir dali.
-   O padding de 12px cabe o anel de nível e o pulso âmbar. */
+   O padding de 8px cabe o contorno duplo e o anel de foco da cápsula. */
 .bubble-box {
-  --amber: #fbbf24;
-  --amber-ink: #1b1300;
-  --amber-line: rgba(185, 115, 0, 0.5);
-  --amber-soft: rgba(245, 180, 0, 0.14);
   position: fixed;
   right: 0;
   bottom: 0;
   width: max-content;
-  padding: 12px;
+  padding: 8px;
   display: grid;
   justify-items: end;
-  gap: 8px;
 }
 
-.bubble-slot {
-  display: grid;
-  justify-items: end;
-  gap: 6px;
-}
-
-.bubble {
+/* Cápsula: ponto de 32px parado, 128px gravando, 296px com cartão. A linha de 32px fica sempre embaixo
+   e o cartão se desdobra para cima. Corpo sempre escuro: o contorno branco e preto separa de qualquer fundo. */
+.cap-shell {
+  --level: 0;
+  --brand: #ff4400;
+  --cap-primary: #c93500;
+  --amber: #fbbf24;
+  --halo-in: rgba(255, 255, 255, 0.85);
+  --halo-out: rgba(0, 0, 0, 0.62);
+  --morph: 260ms;
+  --w: 128px;
+  /* Tokens do tema reescritos para o corpo escuro (mini-icon e textos herdam). */
+  --text: #f4f4f5;
+  --text-soft: #b4b4bc;
+  --muted: #a1a1aa;
+  --hover: rgba(255, 255, 255, 0.08);
+  --ring: var(--halo-in);
   position: relative;
+  width: var(--w);
   display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  cursor: pointer;
+  grid-template-rows: var(--open, 0fr) 32px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #0b0b0d;
+  color: var(--text);
+  box-shadow: 0 0 0 2px var(--ring), 0 0 0 3px var(--halo-out), 0 12px 26px -10px rgba(0, 0, 0, 0.75);
+  transition: width var(--morph) var(--ease), grid-template-rows var(--morph) var(--ease);
+  animation: cap-in 300ms var(--ease) both;
 }
 
-.bubble:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+.cap-shell.is-idle {
+  --w: 32px;
 }
 
-.bubble-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: currentColor;
+.cap-shell.is-open {
+  --w: 296px;
+  --open: 1fr;
 }
 
-.bubble.is-idle {
-  background: var(--surface-3);
-  border: 1px solid var(--line-strong);
-  color: var(--muted);
-  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.45);
+.cap-shell.is-ask {
+  --tone: var(--amber);
+  --ring: var(--amber);
 }
 
-.bubble.is-idle .bubble-dot {
-  width: 9px;
-  height: 9px;
+.cap-shell.is-end {
+  --tone: var(--brand);
+  --ring: var(--brand);
 }
 
-.bubble.is-rec {
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 10px 24px -12px rgba(255, 68, 0, 0.7);
-}
-
-/* Anel fino que segue o nível do áudio (evento monitor). */
-.bubble.is-rec::before {
+/* Faixa de 3px no topo diz o tipo da pergunta. */
+.cap-shell.is-open::before {
   content: "";
   position: absolute;
-  inset: -5px;
-  border-radius: 50%;
-  border: 2px solid var(--accent);
-  opacity: calc(0.35 + var(--level, 0) * 0.5);
-  transform: scale(calc(1 + var(--level, 0) * 0.14));
-  transition: transform 120ms linear, opacity 120ms linear;
-  pointer-events: none;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--tone, transparent);
+  z-index: 1;
 }
 
-.bubble.is-ask {
-  background: var(--amber);
-  color: var(--amber-ink);
-  animation: bubble-ask 2s ease-out infinite;
+/* O foco da linha fica na casca: o overflow dela cortaria o contorno do botão. */
+.cap-shell:has(.cap:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
 }
 
-.bubble-q {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1;
+.cap-body {
+  min-height: 0;
+  overflow: hidden;
 }
 
-.bubble-chip {
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.bubble-card {
+/* Largura fixa: o texto não quebra de novo enquanto a cápsula alarga. */
+.cap-body-in {
+  width: 296px;
   display: grid;
   gap: 12px;
-  width: 288px;
-  padding: 16px;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.4);
-  transform-origin: bottom right;
-  animation: bubble-grow 200ms var(--ease);
+  padding: 16px 16px 12px;
+  animation: cap-fade 160ms 120ms var(--ease) both;
 }
 
-.bubble-card.is-ask {
-  border-color: var(--amber-line);
-  background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface);
-}
-
-.bubble-card strong {
+.cap-body-in strong {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.35;
 }
 
-.bubble-card p {
+.cap-body-in p {
   margin: 4px 0 0;
   font-size: 12.5px;
+  line-height: 1.5;
   color: var(--text-soft);
 }
 
-.bubble-card-top {
+.cap-card-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
 }
 
-.bubble-card-top .mini-icon {
+.cap-card-top .mini-icon {
   margin: -6px -6px 0 0;
 }
 
-.bubble-card-acts {
+.cap-acts {
   display: grid;
   gap: 8px;
 }
 
-.bubble-card-acts.is-two {
+.cap-acts.is-two {
   grid-template-columns: 1fr 1fr;
+}
+
+.cap-btn {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font: 500 13px var(--font-body);
+  cursor: pointer;
+}
+
+.cap-btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.cap-btn.is-primary {
+  border-color: var(--cap-primary);
+  background: var(--cap-primary);
+  color: #fff;
+}
+
+.cap-btn.is-primary:hover:not(:disabled) {
+  background: #b02f00;
+}
+
+.cap-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.cap-btn:focus-visible,
+.cap-body-in .mini-icon:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Barra regressiva do prazo: só transform, um passo por segundo. */
+.cap-count {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.cap-count i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  transform-origin: left;
+  transition: transform 1s linear;
+}
+
+/* A linha da cápsula: mesmo lugar, aberta ou fechada. */
+.cap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  padding: 0 12px 0 11px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 600 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cap-shell.is-idle:not(.is-open) .cap {
+  justify-content: center;
+  padding: 0;
+}
+
+.cap-shell.is-open .cap {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.cap-time {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cap-time.is-state {
+  font: 500 12px/1 var(--font-body);
+}
+
+/* Ponto "no ar": pisca só em opacidade. */
+.cap-led {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 8px rgba(255, 68, 0, 0.8);
+  animation: cap-air 1200ms ease-in-out infinite;
+}
+
+.cap-shell.is-idle .cap-led {
+  width: 10px;
+  height: 10px;
+  box-shadow: none;
+  animation: none;
+}
+
+.cap-shell.is-ask .cap-led {
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.8);
+}
+
+/* Cinco barras seguem --level (evento monitor); cada uma com um peso para parecer onda. */
+.cap-wave {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.cap-wave i {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--brand);
+  transform: scaleY(clamp(0.15, calc(var(--level) * var(--k, 1)), 1));
+  transition: transform 90ms linear;
+}
+
+.cap-wave i:nth-child(1) {
+  --k: 0.45;
+}
+
+.cap-wave i:nth-child(2) {
+  --k: 0.8;
+}
+
+.cap-wave i:nth-child(4) {
+  --k: 0.7;
+}
+
+.cap-wave i:nth-child(5) {
+  --k: 0.5;
+}
+
+.cap-shell.is-paused .cap-wave i,
+.cap-shell.is-ask .cap-wave i {
+  transform: scaleY(0.18);
+}
+
+.cap-shell.is-paused .cap-wave i {
+  background: #8a8a93;
+}
+
+.cap-shell.is-ask .cap-wave i {
+  background: var(--amber);
+}
+
+.cap-shell.is-paused .cap svg {
+  flex: none;
 }
 
 .bubble-panel {
@@ -659,26 +795,36 @@ html.is-mini #root {
   }
 }
 
-@keyframes bubble-ask {
-  0% {
-    box-shadow: 0 0 0 0 var(--amber-line);
-  }
-  70%,
-  100% {
-    box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
+@keyframes cap-in {
+  from {
+    transform: translateY(8px) scale(0.9);
+    opacity: 0;
   }
 }
 
+@keyframes cap-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes cap-air {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Movimento reduzido: ponto aceso parado, barras em altura fixa, abre sem transição. */
 @media (prefers-reduced-motion: reduce) {
-  .bubble.is-ask,
-  .bubble-card,
+  .cap-shell,
+  .cap-shell *,
   .bubble-panel {
-    animation: none;
+    animation: none !important;
+    transition: none !important;
   }
 
-  .bubble.is-rec::before {
-    transform: none;
-    transition: none;
+  .cap-shell:not(.is-paused, .is-ask) .cap-wave i {
+    transform: scaleY(0.5);
   }
 }
 

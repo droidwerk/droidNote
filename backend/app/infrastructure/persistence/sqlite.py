@@ -293,6 +293,8 @@ class SqliteStore:
             await _ensure_column(db, "sessions", "capture_mode", "TEXT")
             await _ensure_column(db, "sessions", "template_id", "TEXT")
             await _ensure_column(db, "sessions", "transcript_purged_at", "TEXT")
+            await _ensure_column(db, "sessions", "archived_at", "TEXT")
+            await _ensure_column(db, "sessions", "paused_ms", "INTEGER")
             await _ensure_column(db, "session_notes", "kind", "TEXT")
             await _ensure_column(db, "session_notes", "ai_context", "TEXT")
             await _ensure_column(db, "segments", "speaker_cluster", "TEXT")
@@ -333,31 +335,63 @@ class SqliteStore:
             )
             await db.commit()
 
-    async def get_session(self, session_id: str) -> Session | None:
+    async def get_session(self, session_id: str, *, include_trash: bool = False) -> Session | None:
+        sql = "SELECT * FROM sessions WHERE id = ?" + ("" if include_trash else " AND deleted_at IS NULL")
         async with aiosqlite.connect(self._path) as db:
             db.row_factory = aiosqlite.Row
-            cur = await db.execute(
-                "SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL",
-                (session_id,),
-            )
+            cur = await db.execute(sql, (session_id,))
             row = await cur.fetchone()
             return _row_to_session(row) if row else None
 
-    async def list_sessions(self) -> list[Session]:
+    async def list_sessions(self, scope: str = "all") -> list[Session]:
+        """`all`: fora da lixeira (arquivadas entram; chat, busca e retenção usam este).
+        `active`: nem arquivada nem na lixeira. `archived` e `trash`: só essas."""
+        where = {
+            "all": "deleted_at IS NULL",
+            "active": "deleted_at IS NULL AND archived_at IS NULL",
+            "archived": "deleted_at IS NULL AND archived_at IS NOT NULL",
+            "trash": "deleted_at IS NOT NULL",
+        }[scope]
+        order = "deleted_at DESC" if scope == "trash" else "started_at DESC"
         async with aiosqlite.connect(self._path) as db:
             db.row_factory = aiosqlite.Row
-            cur = await db.execute(
-                "SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY started_at DESC"
-            )
+            cur = await db.execute(f"SELECT * FROM sessions WHERE {where} ORDER BY {order}")
             rows = await cur.fetchall()
             return [_row_to_session(row) for row in rows]
+
+    async def session_counts(self) -> dict[str, int]:
+        async with aiosqlite.connect(self._path) as db:
+            cur = await db.execute(
+                """
+                SELECT COALESCE(SUM(deleted_at IS NULL AND archived_at IS NOT NULL), 0),
+                       COALESCE(SUM(deleted_at IS NOT NULL), 0)
+                FROM sessions
+                """
+            )
+            archived, trash = await cur.fetchone()
+            return {"archived": int(archived), "trash": int(trash)}
+
+    async def set_session_archived(self, session_id: str, when: datetime | None) -> None:
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute(
+                "UPDATE sessions SET archived_at = ? WHERE id = ? AND deleted_at IS NULL",
+                (_dump_dt(when), session_id),
+            )
+            await db.commit()
+
+    async def set_session_deleted(self, session_id: str, when: datetime | None) -> None:
+        """Lixeira (data) ou restaurar (None). Apagar de vez é `delete_session`."""
+        async with aiosqlite.connect(self._path) as db:
+            await db.execute("UPDATE sessions SET deleted_at = ? WHERE id = ?", (_dump_dt(when), session_id))
+            await db.commit()
 
     async def update_session(self, session: Session) -> None:
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
                 UPDATE sessions
-                SET title = ?, ended_at = ?, status = ?, language = ?, capture_mode = ?, template_id = ?
+                SET title = ?, ended_at = ?, status = ?, language = ?, capture_mode = ?, template_id = ?,
+                    paused_ms = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 (
@@ -367,12 +401,14 @@ class SqliteStore:
                     session.language,
                     session.capture_mode,
                     session.template_id,
+                    session.paused_ms,
                     session.id,
                 ),
             )
             await db.commit()
 
     async def delete_session(self, session_id: str) -> None:
+        """Apaga de vez as linhas da sessão. O .wav sai em `application.sessions.purge_session`."""
         async with aiosqlite.connect(self._path) as db:
             await db.execute("DELETE FROM session_tags WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM session_participants WHERE session_id = ?", (session_id,))
@@ -390,6 +426,20 @@ class SqliteStore:
             await db.execute("DELETE FROM documents WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM mindmaps WHERE session_id = ?", (session_id,))
             await db.execute("DELETE FROM session_memory WHERE session_id = ?", (session_id,))
+            # Respostas do Chat que citaram esta conversa perdem a citação (título e trecho).
+            await db.execute(
+                """
+                UPDATE chat_messages SET citations_json = (
+                    SELECT json_group_array(json(value)) FROM json_each(chat_messages.citations_json)
+                    WHERE json_extract(value, '$.session_id') IS NOT ?
+                )
+                WHERE json_valid(citations_json) AND EXISTS (
+                    SELECT 1 FROM json_each(chat_messages.citations_json)
+                    WHERE json_extract(value, '$.session_id') = ?
+                )
+                """,
+                (session_id, session_id),
+            )
             await db.commit()
 
     async def add_segment(self, segment: TranscriptSegment) -> None:
@@ -426,7 +476,13 @@ class SqliteStore:
             rows = await cur.fetchall()
             return [_row_to_segment(row) for row in rows]
 
-    async def search(self, query: str, session_id: str | None = None) -> list[TranscriptSegment]:
+    async def search(
+        self, query: str, session_id: str | None = None, session_ids: Sequence[str] | None = None
+    ) -> list[TranscriptSegment]:
+        """Mais relevantes primeiro (bm25). `session_ids` filtra antes do LIMIT: um escopo
+        pequeno não perde seus acertos para os de outras gravações."""
+        if not query.strip() or (session_ids is not None and not session_ids):
+            return []
         sql = """
             SELECT segments.*
             FROM segments_fts
@@ -438,7 +494,10 @@ class SqliteStore:
         if session_id:
             sql += " AND segments.session_id = ?"
             params.append(session_id)
-        sql += " ORDER BY segments.start_ms ASC LIMIT 200"
+        if session_ids is not None:
+            sql += f" AND segments.session_id IN ({','.join('?' for _ in session_ids)})"
+            params.extend(session_ids)
+        sql += " ORDER BY bm25(segments_fts) LIMIT 200"
         try:
             async with aiosqlite.connect(self._path) as db:
                 db.row_factory = aiosqlite.Row
@@ -446,7 +505,11 @@ class SqliteStore:
                 rows = await cur.fetchall()
                 return [_row_to_segment(row) for row in rows]
         except Exception:
-            return await self._like_search(query, session_id)
+            # FTS indisponível: LIKE com o primeiro termo, sem os operadores da consulta FTS.
+            term = query.split(" OR ")[0].replace("*", "").replace('"', "")
+            hits = await self._like_search(term, session_id)
+            allowed = set(session_ids) if session_ids is not None else None
+            return [item for item in hits if allowed is None or item.session_id in allowed]
 
     async def _like_search(self, query: str, session_id: str | None = None) -> list[TranscriptSegment]:
         sql = """
@@ -1508,6 +1571,9 @@ def _row_to_session(row: aiosqlite.Row) -> Session:
         capture_mode=mode,
         template_id=row["template_id"] if "template_id" in keys else None,
         transcript_purged_at=_parse_dt(row["transcript_purged_at"]) if "transcript_purged_at" in keys else None,
+        archived_at=_parse_dt(row["archived_at"]) if "archived_at" in keys else None,
+        deleted_at=_parse_dt(row["deleted_at"]) if "deleted_at" in keys else None,
+        paused_ms=int(row["paused_ms"] or 0) if "paused_ms" in keys else 0,
     )
 
 

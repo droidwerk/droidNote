@@ -46,6 +46,8 @@ class CaptureStartIn(BaseModel):
     participant_ids: list[str] = Field(default_factory=list)
     capture_mode: Literal["dictation", "lecture", "meeting"] = "meeting"
     template_id: str | None = None
+    # Fim do evento da agenda (ISO com fuso). Fora de (agora, agora+24h] é ignorado.
+    planned_end: datetime | None = None
 
 
 class CaptureStateOut(BaseModel):
@@ -57,6 +59,9 @@ class CaptureStateOut(BaseModel):
     loopback_name: str | None = None
     started_at: datetime | None = None
     paused: bool = False
+    # Tempo pausado acumulado; paused_at marca a pausa em curso (None rodando).
+    paused_ms: int = 0
+    paused_at: datetime | None = None
 
 
 class ActionItemOut(BaseModel):
@@ -100,6 +105,8 @@ class SessionOut(BaseModel):
     has_audio: bool = False
     template_id: str | None = None
     transcript_purged_at: datetime | None = None
+    archived_at: datetime | None = None
+    deleted_at: datetime | None = None
 
     @classmethod
     def from_domain(
@@ -110,7 +117,7 @@ class SessionOut(BaseModel):
         has_audio: bool = False,
     ) -> SessionOut:
         end = session.ended_at or datetime.now(tz=session.started_at.tzinfo)
-        duration = int((end - session.started_at).total_seconds() * 1000)
+        duration = int((end - session.started_at).total_seconds() * 1000) - session.paused_ms
         return cls(
             id=session.id,
             title=session.title,
@@ -124,7 +131,29 @@ class SessionOut(BaseModel):
             has_audio=has_audio,
             template_id=session.template_id,
             transcript_purged_at=session.transcript_purged_at,
+            archived_at=session.archived_at,
+            deleted_at=session.deleted_at,
         )
+
+
+class SessionBulkIn(BaseModel):
+    ids: list[Annotated[str, StringConstraints(min_length=1, max_length=64)]] = Field(min_length=1, max_length=500)
+    action: Literal["archive", "unarchive", "trash", "restore", "purge"]
+
+
+class SessionBulkFailOut(BaseModel):
+    id: str
+    reason: Literal["missing", "live", "not_trashed", "busy"]
+
+
+class SessionBulkOut(BaseModel):
+    done: list[str]
+    failed: list[SessionBulkFailOut]
+
+
+class SessionCountsOut(BaseModel):
+    archived: int
+    trash: int
 
 
 class SegmentOut(BaseModel):
@@ -408,6 +437,7 @@ class CalendarEventOut(BaseModel):
 class UpcomingOut(BaseModel):
     configured: bool
     error: str | None = None
+    busy_only: bool = False
     events: list[CalendarEventOut] = Field(default_factory=list)
 
 
@@ -621,6 +651,11 @@ class SettingsOut(BaseModel):
     headphones: bool = False
     auto_summary: bool = True
     silence_alert: bool = True
+    calendar_auto_record: bool = True
+    # Atualizou com agenda já conectada: gravação automática ficou desligada; a tela oferece uma vez.
+    calendar_auto_record_offer: bool = False
+    # Agenda só livre/ocupado: gravar esses blocos também. Só o usuário liga.
+    calendar_record_busy: bool = False
 
 
 class SettingsIn(BaseModel):
@@ -648,6 +683,8 @@ class SettingsIn(BaseModel):
     headphones: bool | None = None
     auto_summary: bool | None = None
     silence_alert: bool | None = None
+    calendar_auto_record: bool | None = None
+    calendar_record_busy: bool | None = None
 
 
 class TestKeyIn(BaseModel):
@@ -729,6 +766,8 @@ class ChatAskIn(BaseModel):
     images: list[ChatImageIn] = Field(default_factory=list, max_length=3)
     # "Tentar de novo" depois de um erro: reaproveita a pergunta sem resposta, sem gravar outra.
     retry: bool = False
+    # Comando "/" da tela (flashcards, exam...): o serviço confere na lista; id desconhecido é ignorado.
+    command: str | None = Field(default=None, max_length=32)
 
 
 class ChatRenameIn(BaseModel):

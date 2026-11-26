@@ -22,6 +22,7 @@ from app.application.bus import EventBus
 from app.application.capture import CaptureService
 from app.application.chat import ChatService
 from app.application.brief import BriefService
+from app.application.calendar_watch import CalendarRecorder, migrate_auto_record
 from app.application.mindmap import MindMapService
 from app.application.memory import MemoryService
 from app.application.documents import DocumentService
@@ -43,6 +44,7 @@ from app.infrastructure.asr.openai_engine import OpenAIWhisperEngine
 from app.infrastructure.asr.router import AsrRouter
 from app.infrastructure.asr.whisper_engine import WhisperEngine
 from app.infrastructure.audio.factory import build_audio_capture
+from app.infrastructure.calendar.ics import IcsCalendar
 from app.infrastructure.llm.ollama_manager import OllamaManager
 from app.infrastructure.llm.openai_chat import OpenAIChatEngine
 from app.infrastructure.llm.router import LlmRouter
@@ -161,7 +163,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         capture.bind_loop(asyncio.get_running_loop())
         tasks = TaskService(store)
-        brief = BriefService(store)
+        # Uma instância só: painel e gravação automática dividem o cache do ICS.
+        calendar = IcsCalendar()
+        brief = BriefService(store, calendar)
         memory = MemoryService(llm, store, brief)
         container = AppContainer(
             settings=resolved,
@@ -243,6 +247,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         container.meetings = meetings
         meetings.start()
+        # Fim do evento sem resposta: encerra como o "Encerrar" (stop + ata).
+        capture.on_auto_stop = _auto_stop
+
+        async def _calendar_start(title: str, planned_end: datetime) -> str | None:
+            mic_only = (await store.get_setting("mic_only_default")) == "1"
+            state = await capture.start(
+                mic_only=mic_only, title=title, capture_mode="meeting", planned_end=planned_end
+            )
+            return state.session_id
+
+        calendar_recorder = CalendarRecorder(
+            store,
+            calendar,
+            bus,
+            is_recording=capture.is_recording,
+            asr_ready=asr.is_ready,
+            start_capture=_calendar_start,
+            live_span=lambda: (capture.state.started_at, capture.planned_end),
+        )
+        await migrate_auto_record(store)
+        calendar_recorder.start()
         log.info("backend ready")
 
         # Pré-carrega o Whisper local em segundo plano: quando o usuário
@@ -279,6 +304,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             voice_task.cancel()
         retention_task.cancel()
         await meetings.close()
+        await calendar_recorder.close()
         if capture.is_recording():
             await capture.stop()
 

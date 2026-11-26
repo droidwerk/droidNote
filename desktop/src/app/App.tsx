@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CommandPalette } from "../features/command/CommandPalette";
 import { CaptureAlertBanner, MEETING_DETECTION_ENABLED, MeetingBanner, type MeetingNotice } from "../features/meeting/MeetingBanner";
 import { SessionSidebarItem } from "../features/session/SessionSidebarItem";
+import { useSessionActions } from "../features/session/useSessionActions";
 import { WelcomeModal, WhatsNewModal } from "../features/onboarding/Onboarding";
 import { Tour, type TourStart } from "../features/onboarding/Tour";
 import { TOUR_EVENT } from "../features/onboarding/tourScript";
@@ -16,9 +17,9 @@ import { LibraryPage } from "../pages/LibraryPage";
 import { TasksPage } from "../pages/TasksPage";
 import { copyConsent } from "../features/consent/consent";
 import { api, openTranscriptSocket, setBackend } from "../shared/api/client";
-import type { CaptureMode, CaptureState, ChatFocus, Device, MonitorFrame, NoteTemplate, Provider, Segment, Session, Settings, Tag } from "../shared/api/types";
+import type { CaptureMode, CaptureState, ChatFocus, Device, IdleAlertKind, MonitorFrame, NoteTemplate, Provider, Segment, Session, SessionBulkAction, Settings, Tag } from "../shared/api/types";
 import { isCaptureLanguage, isUiLanguage, useI18n, type CaptureLanguage } from "../shared/i18n";
-import { openMiniPanel, requestAttention, setTrayHint } from "../shared/lib/miniWindow";
+import { idleKind, openMiniPanel, requestAttention, setTrayHint } from "../shared/lib/miniWindow";
 import { mergeSegmentLists } from "../shared/lib/segments";
 import { useFlag } from "../shared/lib/useFlag";
 import { useUpdateNotice } from "../shared/lib/useUpdateNotice";
@@ -91,11 +92,13 @@ export function App() {
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [meetingNotice, setMeetingNotice] = useState<MeetingNotice | null>(null);
-  const [idleAlert, setIdleAlert] = useState<"silence" | "music" | null>(null);
+  const [idleAlert, setIdleAlert] = useState<IdleAlertKind | null>(null);
   const [notesRevision, setNotesRevision] = useState(0);
   const [tasksRevision, setTasksRevision] = useState(0);
   const [openTasks, setOpenTasks] = useState(0);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("transcription");
+  // Quem atualizou com agenda conectada recebe uma vez a oferta de gravar as reuniões sozinho.
+  const [calendarOffer, setCalendarOffer] = useState(false);
   const [navCollapsed, toggleNav] = useFlag("droidnote.navCollapsed");
   const [summaryBusy, setSummaryBusy] = useState<string | null>(null);
   const [summaryRevision, setSummaryRevision] = useState(0);
@@ -168,6 +171,10 @@ export function App() {
       setTags([]);
     }
   }, []);
+
+  const liveSessionId = capture.recording ? capture.session_id : null;
+  const sessionActions = useSessionActions(loadSessions, liveSessionId);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
   const applyEngineSettings = useCallback((settings: Settings) => {
     const cloud = settings.provider === "openai";
@@ -352,6 +359,7 @@ export function App() {
           setMicOnly(settings.mic_only_default);
           setLanguage(isCaptureLanguage(settings.language) ? settings.language : "pt");
           applyEngineSettings(settings);
+          setCalendarOffer(Boolean(settings.calendar_auto_record_offer));
           const wizard = !status.disclaimer_accepted || !status.setup_complete;
           if (wizard) freshInstall.current = true;
           setNeedsWizard(wizard);
@@ -413,9 +421,13 @@ export function App() {
             started_at:
               typeof event.started_at === "string" ? event.started_at : current.started_at,
             paused: typeof event.paused === "boolean" ? event.paused : current.paused,
+            paused_ms: typeof event.paused_ms === "number" ? event.paused_ms : 0,
+            paused_at: typeof event.paused_at === "string" ? event.paused_at : null,
           }));
           if (event.idle_alert && typeof event.idle_alert === "object") {
-            setIdleAlert((event.idle_alert as { kind?: string }).kind === "music" ? "music" : "silence");
+            setIdleAlert(idleKind((event.idle_alert as { kind?: unknown }).kind));
+          } else {
+            setIdleAlert(null);
           }
           if (event.recording === false) {
             setMonitor(null);
@@ -444,6 +456,8 @@ export function App() {
             ...current,
             recording: Boolean(event.recording),
             paused: Boolean(event.paused),
+            paused_ms: typeof event.paused_ms === "number" ? event.paused_ms : 0,
+            paused_at: typeof event.paused_at === "string" ? event.paused_at : null,
             session_id: typeof event.session_id === "string" ? event.session_id : current.session_id,
             phase: isPhase(event.phase) ? event.phase : current.phase,
             warning: typeof event.warning === "string" ? event.warning : current.warning,
@@ -495,7 +509,26 @@ export function App() {
           }
         }
         if (event.type === "idle_alert") {
-          setIdleAlert(event.status === "asked" ? (event.kind === "music" ? "music" : "silence") : null);
+          const asked = event.status === "asked";
+          setIdleAlert(asked ? idleKind(event.kind) : null);
+          if (asked) void requestAttention();
+        }
+        if (event.type === "calendar" && event.status === "auto-started") {
+          // Gravação que começou sozinha: o aviso aos participantes fica a um clique (LGPD art. 6, VI; art. 9).
+          toast.push({
+            tone: "success",
+            title: t("meeting.calendarAutoStarted", { title: typeof event.title === "string" ? event.title : "" }),
+            description: t("meeting.calendarAutoStartedHint"),
+            durationMs: 15_000,
+            action: {
+              label: t("consent.copy"),
+              onClick: () =>
+                void copyConsent(t).then((ok) =>
+                  toast.push({ tone: ok ? "success" : "error", title: ok ? t("consent.copied") : t("consent.copyFail") }),
+                ),
+            },
+          });
+          void requestAttention();
         }
         if (event.type === "note") {
           setNotesRevision((value) => value + 1);
@@ -569,7 +602,7 @@ export function App() {
     };
   }, [capture.recording, captureId]);
 
-  const toggle = useCallback(async (override?: { mode?: CaptureMode; title?: string }) => {
+  const toggle = useCallback(async (override?: { mode?: CaptureMode; title?: string; planned_end?: string }) => {
     if (busy) return;
     setBusy(true);
     setCaptureError(null);
@@ -596,6 +629,7 @@ export function App() {
         participant_ids: participantIds,
         capture_mode: mode,
         title: override?.title,
+        planned_end: override?.planned_end,
         template_id: templateId,
       });
       setCapture(state);
@@ -629,7 +663,7 @@ export function App() {
 
   // A dica da bandeja menciona a pergunta enquanto ela espera resposta.
   useEffect(() => {
-    void setTrayHint(idleAlert ? t("mini.trayAsk") : "DroidNote");
+    void setTrayHint(idleAlert ? t(idleAlert === "event_end" ? "mini.trayAskEventEnd" : "mini.trayAsk") : "DroidNote");
   }, [idleAlert, t]);
 
   useEffect(() => {
@@ -761,6 +795,35 @@ export function App() {
 
   const groups = groupByDay(recentSessions, t);
 
+  const renameSidebarSession = async (sessionId: string, title: string) => {
+    const updated = await api.renameSession(sessionId, title);
+    setSessions((current) => current.map((item) => (item.id === sessionId ? { ...item, title: updated.title } : item)));
+  };
+
+  /** Arquivar ou apagar pela barra lateral: a conversa aberta dá lugar à próxima do mesmo dia, senão à anterior, senão a Conversas. */
+  const actOnSidebarRow = async (session: Session, action: SessionBulkAction) => {
+    const group = groups.find((item) => item.items.some((entry) => entry.id === session.id))?.items ?? [];
+    const index = group.findIndex((entry) => entry.id === session.id);
+    const next = group[index + 1] ?? group[index - 1] ?? null;
+    const wasOpen = view === "session" && activeId === session.id;
+    setRowBusy(session.id);
+    const result = await sessionActions.apply([session], action);
+    setRowBusy(null);
+    if (!result?.done.includes(session.id)) return;
+    if (wasOpen) {
+      if (next) openSession(next.id);
+      else {
+        setActiveId(null);
+        setView("library");
+      }
+    }
+    // O foco segue para a linha vizinha, nunca para o body.
+    requestAnimationFrame(() => {
+      const target = next ? document.querySelector<HTMLElement>(`[data-session-row="${next.id}"]`) : null;
+      (target ?? document.querySelector<HTMLElement>('[data-tour="library"]'))?.focus();
+    });
+  };
+
   // Conversas que o tour pode abrir: a que está sendo gravada fica de fora.
   const tourSessions = sessions.filter((session) => !(capture.recording && session.id === capture.session_id));
   const openTourSession = () => {
@@ -812,9 +875,12 @@ export function App() {
                       session={session}
                       folders={tags}
                       live={capture.recording && capture.session_id === session.id}
+                      busy={rowBusy === session.id}
                       active={session.id === activeId && view === "session"}
                       onOpen={() => openSession(session.id)}
                       onMove={moveSessionToFolder}
+                      onRename={renameSidebarSession}
+                      onAction={(item, action) => void actOnSidebarRow(item, action)}
                     />
                   ))}
                 </div>
@@ -875,9 +941,38 @@ export function App() {
               onCopyConsent={consent}
             />
           ) : null}
-          {capture.recording && (idleAlert || capture.paused) ? (
+          {calendarOffer && !needsWizard ? (
+            <div className="meeting-banner" role="region" aria-labelledby="calendar-offer-title">
+              <span className="meeting-banner-icon" aria-hidden>
+                <Icon name="calendar" size={18} />
+              </span>
+              <div className="meeting-banner-copy">
+                <strong id="calendar-offer-title">{t("meeting.calendarOfferTitle")}</strong>
+                <small>{t("meeting.calendarOfferBody")}</small>
+              </div>
+              <div className="meeting-banner-actions">
+                {[false, true].map((on) => (
+                  <button
+                    key={String(on)}
+                    type="button"
+                    className={on ? "button button-primary button-sm" : "button button-ghost button-sm"}
+                    onClick={() => {
+                      // As duas respostas limpam a oferta no servidor (setup.py zera calendar_auto_record_offer).
+                      setCalendarOffer(false);
+                      void api
+                        .saveSettings({ calendar_auto_record: on })
+                        .catch(() => toast.push({ tone: "error", title: t("settings.saveFail") }));
+                    }}
+                  >
+                    {on ? t("meeting.calendarOfferOn") : t("meeting.calendarOfferLater")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {capture.recording && ((idleAlert && idleAlert !== "event_end") || capture.paused) ? (
             <CaptureAlertBanner
-              alert={idleAlert}
+              alert={idleAlert === "event_end" ? null : idleAlert}
               busy={busy}
               onContinue={() => {
                 setIdleAlert(null);
@@ -950,7 +1045,7 @@ export function App() {
               onRecordEvent={(event) => {
                 setCaptureMode("meeting");
                 setMicOnly(false);
-                void toggle({ mode: "meeting", title: event.title || undefined });
+                void toggle({ mode: "meeting", title: event.title || undefined, planned_end: event.end || undefined });
               }}
               engineProvider={asrProvider}
               onCaptureModeChange={(mode) => {
@@ -970,6 +1065,7 @@ export function App() {
           {view === "session" && activeId ? (
             <SessionPage
               sessionId={activeId}
+              liveSessionId={capture.recording ? capture.session_id : null}
               summaryBusySessionId={summaryBusy}
               summaryRevision={summaryRevision}
               memoryRevision={memoryRevision}
@@ -984,9 +1080,14 @@ export function App() {
               onDownloadVoice={() => void downloadVoice()}
               onDeleted={() => {
                 if (captureId === activeId) setCaptureId(null);
-                setActiveId(null);
-                setView("live");
-                void loadSessions();
+                // `sessions` ainda é a lista de antes da lixeira: a vizinha dela abre no lugar.
+                const index = sessions.findIndex((item) => item.id === activeId);
+                const next = index >= 0 ? (sessions[index + 1] ?? sessions[index - 1]) : undefined;
+                if (next) openSession(next.id);
+                else {
+                  setActiveId(null);
+                  setView("library");
+                }
               }}
               onRenamed={(title) => {
                 if (!activeId) return;

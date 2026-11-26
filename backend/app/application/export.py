@@ -80,7 +80,8 @@ def _clock(ms: int) -> str:
 
 def _duration(session: Session, segments: list[TranscriptSegment]) -> str:
     if session.ended_at:
-        total = int((session.ended_at - session.started_at).total_seconds())
+        # Tempo em pausa (do usuário ou automática) não conta.
+        total = max(0, int((session.ended_at - session.started_at).total_seconds()) - session.paused_ms // 1000)
     elif segments:
         total = segments[-1].end_ms // 1000
     else:

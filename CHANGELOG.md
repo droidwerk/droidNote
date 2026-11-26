@@ -11,6 +11,26 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+### Added
+- Calendar meetings can now record by themselves: DroidNote starts recording when a calendar meeting begins. Users who update with a calendar already connected are asked first; it is never turned on silently. Calendars that only show "Busy" blocks are skipped unless you turn on "Also record blocks marked only as Busy".
+- When the scheduled time of a meeting ends, the mini window asks "The time for this call is over, keep recording?". With no answer and nobody speaking for 2 minutes, it stops and writes the note; if people are still talking, it keeps recording.
+- The mini window is now a slim capsule with a live sound level and the elapsed time, easy to see on dark and light desktops.
+- Archive and trash for conversations: archive, move to trash with Undo, select several at once, restore from the trash, and delete for good. The trash empties itself after 30 days.
+- Chat modes: the mode now belongs to each chat (a new chat starts in normal mode) and shows as a chip you can remove. Study answers keep the practice answers hidden until you open them. Commands such as /flashcards and /exam now cover the whole conversation.
+
+### Changed
+- Time in pause (yours or the automatic one after silence) no longer counts in the timer, the conversation length, the export or the note.
+- Answers in the chat show at most three source numbers per line, picking the ones closest to the sentence.
+
+### Fixed
+- The chat now reads the whole meeting, not only its first minutes, finds what you said by searching for relevance, and knows which speaker is you.
+- "Failed to fetch" no longer shows where the audio player sits while a meeting is recording; the player appears by itself when the recording ends.
+- The mini window no longer disappears after minimizing more than once, stays above other always-on-top windows such as meeting toolbars, and shows the silence question even when the main window is behind other apps.
+- Background noise no longer resets the silence timer, so "Is the meeting still going on?" appears reliably.
+- If the local model stops in the middle of an answer, the chat now keeps what was already written and shows a message, instead of waiting forever.
+- Solve mode no longer writes a plan when no conversation or document covers the question; it asks you to pick one.
+- Deleting a conversation for good now also removes its audio file from the computer.
+
 ## [2.4.2] — 2026-11-23
 
 ### Added

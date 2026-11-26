@@ -6,7 +6,7 @@ from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 import numpy as np
 
@@ -53,6 +53,13 @@ IDLE_SPEECH_MIN_MS = 1000.0
 # pausaria uma reunião presencial.
 MUSIC_WINDOW_MS = 20_000.0
 MUSIC_CONTINUITY = 0.9
+# Fim do evento da agenda: pergunta na hora marcada e, sem resposta e sem fala
+# em 2 min, encerra a gravação (stop + ata). Vale mesmo com o alerta de silêncio desligado.
+EVENT_END_WAIT_S = 120.0
+# Para o relógio do silêncio, o bloco do microfone (~100 ms, 3 quadros do Silero)
+# só conta como fala com voz em metade dele: ruído de sala com AGC acende um
+# quadro solto e zerava o relógio.
+IDLE_SPEECH_SHARE = 0.5
 
 
 @dataclass
@@ -65,6 +72,14 @@ class CaptureState:
     loopback_name: str | None = None
     started_at: datetime | None = None
     paused: bool = False
+    # Relógio de parede pausado (pausa do usuário ou automática): o timer da UI e a
+    # duração da sessão descontam. Os timestamps usam _paused_ms (amostras).
+    paused_ms: int = 0
+    paused_at: datetime | None = None
+
+    def paused_total_ms(self, now: datetime) -> int:
+        running = int((now - self.paused_at).total_seconds() * 1000) if self.paused_at else 0
+        return self.paused_ms + max(running, 0)
 
 
 class CaptureService:
@@ -79,9 +94,16 @@ class CaptureService:
         voices: VoiceService | None = None,
         neural_vad: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        wall: Callable[[], datetime] = lambda: datetime.now(tz=UTC),
     ) -> None:
         self._settings = settings
         self._clock = clock
+        self._wall = wall
+        # Fim previsto da reunião (agenda). O main liga on_auto_stop ao stop + ata.
+        self._planned_end: datetime | None = None
+        self._end_asked = False
+        self.on_auto_stop: Callable[[], Awaitable[object]] | None = None
+        self._auto_stop_task: asyncio.Task[object] | None = None
         self._paused_ms = 0.0
         self._flush_on_pause = False
         self._silence_alert = True
@@ -145,6 +167,10 @@ class CaptureService:
     def is_recording(self) -> bool:
         return self.state.recording
 
+    @property
+    def planned_end(self) -> datetime | None:
+        return self._planned_end if self.state.recording else None
+
     def whisper_loaded(self) -> bool:
         return bool(getattr(self._asr, "is_loaded", lambda: False)())
 
@@ -171,6 +197,7 @@ class CaptureService:
         participant_ids: list[str] | None = None,
         capture_mode: str = "meeting",
         template_id: str | None = None,
+        planned_end: datetime | None = None,
     ) -> CaptureState:
         if self.state.recording:
             return self.state
@@ -212,6 +239,8 @@ class CaptureService:
         self._paused_ms = 0.0
         self._flush_on_pause = False
         self._silence_alert = (await self._store.get_setting("silence_alert")) != "0"
+        self._planned_end = planned_end
+        self._end_asked = False
         if self._voices is not None:
             try:
                 await self._voices.begin(
@@ -279,6 +308,7 @@ class CaptureService:
             return self.state
         session_id = self.state.session_id
         mic_only = self.state.mic_only
+        paused_ms = self.state.paused_total_ms(self._wall())
         pending = self._pending
         worker = self._worker_task
         self._worker_task = None
@@ -306,6 +336,7 @@ class CaptureService:
                     ended_at=datetime.now(tz=UTC),
                     status="stopped",
                     language=primary,
+                    paused_ms=paused_ms,
                 )
             )
         done = asyncio.Event()
@@ -319,7 +350,7 @@ class CaptureService:
         if not self.state.recording or self.state.paused:
             return self.state
         self._flush_on_pause = True
-        self.state = replace(self.state, paused=True)
+        self.state = replace(self.state, paused=True, paused_at=self._wall())
         self.idle_alert = None
         self._channel_level = {"mic": 0.0, "system": 0.0}
         self._channel_speech = {"mic": False, "system": False}
@@ -331,7 +362,12 @@ class CaptureService:
         if not self.state.recording or not self.state.paused:
             return self.state
         self._reset_idle()
-        self.state = replace(self.state, paused=False)
+        self.state = replace(
+            self.state,
+            paused=False,
+            paused_at=None,
+            paused_ms=self.state.paused_total_ms(self._wall()),
+        )
         await self._bus.publish(_capture_event(self.state))
         log.info("capture resumed session=%s", self.state.session_id)
         return self.state
@@ -368,9 +404,13 @@ class CaptureService:
                 log.exception("idle alert tick failed")
 
     async def idle_tick(self) -> None:
-        if not self.state.recording or self.state.paused or not self._silence_alert:
+        if not self.state.recording:
             return
         now = self._clock()
+        if await self._event_end_tick(now):
+            return
+        if self.state.paused or not self._silence_alert:
+            return
         if self.idle_alert is None:
             if now - self._last_speech_at < IDLE_ASK_S:
                 return
@@ -388,15 +428,45 @@ class CaptureService:
             await self.pause()
             await self._publish_idle("auto_paused", kind)
 
+    async def _event_end_tick(self, now: float) -> bool:
+        """Pergunta do fim do evento. True quando ela é dona deste tick.
+
+        Pergunta uma vez por sessão, inclusive pausada, e passa por cima de um
+        alerta de silêncio pendente (o cartão é um só).
+        """
+        if self._planned_end is not None and not self._end_asked and self._wall() >= self._planned_end:
+            self._end_asked = True
+            self.idle_alert = {"kind": "event_end"}
+            self._asked_at = now
+            await self._publish_idle("asked", "event_end")
+            return True
+        if (self.idle_alert or {}).get("kind") != "event_end":
+            return False
+        if now - self._asked_at < EVENT_END_WAIT_S:
+            return True
+        if self._long_speech_at >= self._asked_at:
+            # Ainda tem gente falando: não corta a reunião; o silêncio encerra depois.
+            self._reset_idle()
+            await self._publish_idle("cleared", "event_end")
+            return True
+        self.idle_alert = None
+        await self._publish_idle("auto_stopped", "event_end")
+        # Fora desta task: o stop cancela o laço do alerta, que é quem roda aqui.
+        stop = self.on_auto_stop or self.stop
+        self._auto_stop_task = asyncio.create_task(stop())
+        return True
+
     async def _publish_idle(self, status: str, kind: str) -> None:
-        await self._bus.publish(
-            {
-                "type": "idle_alert",
-                "status": status,
-                "kind": kind,
-                "session_id": self.state.session_id,
-            }
-        )
+        event: dict[str, object] = {
+            "type": "idle_alert",
+            "status": status,
+            "kind": kind,
+            "session_id": self.state.session_id,
+        }
+        if kind == "event_end":
+            event["deadline_s"] = int(EVENT_END_WAIT_S)
+        log.info("idle_alert status=%s kind=%s session=%s", status, kind, self.state.session_id)
+        await self._bus.publish(event)
 
     def _track_idle(self, chunk_ms: float, speech: bool, energy: bool) -> None:
         """Roda na thread de áudio: só anota; quem decide é o idle_tick.
@@ -590,6 +660,13 @@ class CaptureService:
         mic_mask = self._mic_vad.mask(mic) if self._neural_vad else None
         self._channel_level["mic"] = rms_level(mic)
         self._channel_speech["mic"] = bool(mic_mask.any()) if mic_mask is not None else has_speech(mic)
+        # ponytail: limiar fixo de fatia com voz; ajustar com sessões reais se o
+        # alerta passar a disparar em fala baixa.
+        mic_idle_speech = (
+            bool(mic_mask.size) and float(mic_mask.mean()) >= IDLE_SPEECH_SHARE
+            if mic_mask is not None
+            else self._channel_speech["mic"]
+        )
         self._enqueue(self._mic_buf.push(mic, ts, mic_mask), "mic")
         if loopback:
             loop_mask = self._loop_vad.mask(loopback) if self._neural_vad else None
@@ -602,7 +679,7 @@ class CaptureService:
             self._channel_level["system"] = 0.0
             self._channel_speech["system"] = False
         # Fala no sistema com música não conta para o alerta (nem para limpá-lo).
-        idle_speech = self._channel_speech["mic"] or (self._channel_speech["system"] and not loop_music)
+        idle_speech = mic_idle_speech or (self._channel_speech["system"] and not loop_music)
         self._track_idle(chunk_ms, idle_speech, energy)
         self._feed_probe("mic", mic)
         if loopback:
@@ -976,6 +1053,8 @@ def _capture_event(state: CaptureState) -> dict[str, object]:
         "loopback_name": state.loopback_name,
         "started_at": state.started_at.isoformat() if state.started_at else None,
         "paused": state.paused,
+        "paused_ms": state.paused_ms,
+        "paused_at": state.paused_at.isoformat() if state.paused_at else None,
     }
 
 

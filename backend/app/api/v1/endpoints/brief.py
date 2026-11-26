@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.v1.deps import get_container
-from app.application.brief import Brief, BriefService
+from app.application.brief import Brief, BriefService, busy_only
 from app.core.security import verify_token
 from app.infrastructure.calendar.ics import CalendarError
 from app.schemas.api import (
@@ -71,6 +71,7 @@ async def upcoming(request: Request, hours: float = Query(default=36, ge=1, le=2
     return UpcomingOut(
         configured=configured,
         error=error,
+        busy_only=busy_only([event for event, _ in items]),
         events=[
             CalendarEventOut(
                 uid=event.uid,
