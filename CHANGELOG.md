@@ -11,6 +11,8 @@ notes on GitHub are built from them.
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-11-26
+
 ### Added
 - Calendar meetings can now record by themselves: DroidNote starts recording when a calendar meeting begins. Users who update with a calendar already connected are asked first; it is never turned on silently. Calendars that only show "Busy" blocks are skipped unless you turn on "Also record blocks marked only as Busy".
 - When the scheduled time of a meeting ends, the mini window asks "The time for this call is over, keep recording?". With no answer and nobody speaking for 2 minutes, it stops and writes the note; if people are still talking, it keeps recording.
@@ -254,7 +256,8 @@ _No notes were written for this release._
 ### Added
 - First version of the DroidNote Windows app: capture, local transcription, minutes.
 
-[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.4.2...HEAD
+[Unreleased]: https://github.com/droidwerk/droidNote/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/droidwerk/droidNote/compare/v2.4.2...v2.5.0
 [2.4.2]: https://github.com/droidwerk/droidNote/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/droidwerk/droidNote/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/droidwerk/droidNote/compare/v2.3.2...v2.4.0
